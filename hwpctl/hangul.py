@@ -256,9 +256,9 @@ class HangulCanvas:
     def inspect_table_layout(self, n: int) -> dict[str, Any]:
         """n번 표의 조판 치수를 읽는다 (한글 2022 Automation만 사용).
 
-        셀의 실제 조판 줄 수는 셀 리스트의 처음/끝으로 이동한 뒤 KeyIndicator의
-        ``line`` 차이로 측정한다. 이동/상태바 조회가 실패한 셀만 명시 줄바꿈 수로
-        보수적으로 대체한다.
+        셀의 실제 조판 줄 수는 셀 리스트 안에서 조판 줄 끝을 순회하며 위치 진행과
+        KeyIndicator를 함께 확인한다. 이동/상태바 조회가 실패한 셀만 명시 줄바꿈
+        수로 보수적으로 대체한다.
         """
         self.get_into_nth_table(n)
         addresses = self._table_addresses()
@@ -286,7 +286,7 @@ class HangulCanvas:
                 if cell_row != row:
                     continue
                 self.goto_addr(addr)
-                text = self.get_selected_text().rstrip("\x00")
+                text = self._get_current_cell_text().rstrip("\x00")
                 line_count, measured = self._cell_line_count(text)
                 margins = self._get_cell_margin_mm()
                 height = self._get_row_height_mm()
@@ -1020,31 +1020,59 @@ class HangulCanvas:
             self.set_pos(saved)
         return addresses
 
-    def _key_indicator(self) -> tuple[Any, ...]:
-        try:
-            value = self.px.key_indicator() if self.px else self.com.KeyIndicator()
-            return tuple(value)
-        except Exception:
-            return ()
-
     def _cell_line_count(self, text: str) -> tuple[int, bool]:
+        """현재 셀의 실제 조판 줄 수.
+
+        KeyIndicator의 줄 번호를 단순히 빼면 쪽/구역/중첩 리스트 경계에서 번호가
+        재시작될 수 있다. 따라서 MoveLineEnd와 문서 위치의 실제 진행으로 줄을 세고,
+        매 단계에서 같은 셀 주소인지 KeyIndicator로 검증한다.
+        """
         saved = self.get_pos()
         try:
-            if not self.run("MoveListBegin"):
+            cell_addr = self.current_cell_addr()
+            if not cell_addr:
                 return hard_line_count(text), False
-            start = self._key_indicator()
             if not self.run("MoveListEnd"):
                 return hard_line_count(text), False
-            end = self._key_indicator()
-            if len(start) > 5 and len(end) > 5:
-                count = int(end[5]) - int(start[5]) + 1
-                if count >= 1:
+            end_pos = self.get_pos()
+            if not end_pos:
+                return hard_line_count(text), False
+            if not self.run("MoveListBegin"):
+                return hard_line_count(text), False
+            count = 1
+            for _ in range(10000):
+                current = self.get_pos()
+                if current == end_pos:
                     return count, True
+                if not current or not self.run("MoveLineEnd"):
+                    return hard_line_count(text), False
+                line_end = self.get_pos()
+                if line_end == end_pos:
+                    return count, True
+                if not line_end or not self.run("MoveNextChar"):
+                    return hard_line_count(text), False
+                next_pos = self.get_pos()
+                if not next_pos or next_pos == line_end:
+                    return hard_line_count(text), False
+                if self.current_cell_addr() != cell_addr:
+                    return hard_line_count(text), False
+                count += 1
         except Exception:
             pass
         finally:
             self.set_pos(saved)
         return hard_line_count(text), False
+
+    def _get_current_cell_text(self) -> str:
+        """현재 셀만 명시적으로 선택해 텍스트를 읽고 캐럿을 복원."""
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 셀 내용을 읽을 수 없습니다.")
+        saved = self.get_pos()
+        try:
+            self.select_cell_text()
+            return self.get_selected_text()
+        finally:
+            self.set_pos(saved)
 
     def _get_col_width_mm(self) -> float:
         if self.px:
