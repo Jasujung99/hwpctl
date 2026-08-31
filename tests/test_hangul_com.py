@@ -9,7 +9,15 @@ from __future__ import annotations
 import pytest
 
 from hwpctl.errors import HangulCommandError
-from hwpctl.hangul import HangulCanvas
+from hwpctl.hangul import (
+    HangulCanvas,
+    _com_has_hwnd,
+    _iter_window_handles,
+    _make_window_current,
+    _pick_com_by_hwnd,
+    _show_window,
+    _window_handle_of,
+)
 
 
 class StubHAction:
@@ -150,6 +158,49 @@ class StubCom:
 
 def make_canvas(com: StubCom) -> HangulCanvas:
     return HangulCanvas(px=None, com=com, backend="win32com")
+
+
+class StubWindow:
+    def __init__(self, handle: int, visible: bool = False) -> None:
+        self.WindowHandle = handle
+        self.Visible = visible
+
+
+class StubWindows:
+    def __init__(self, handles: list[int], active_index: int = -1) -> None:
+        self._items = [StubWindow(h) for h in handles]
+        self.Count = len(self._items)
+        self._active_index = active_index if active_index >= 0 else len(self._items) - 1
+
+    def Item(self, i: int) -> StubWindow:
+        return self._items[i]
+
+    @property
+    def Active_XHwpWindow(self) -> StubWindow:
+        return self._items[self._active_index]
+
+
+class StubDocument:
+    def __init__(self) -> None:
+        self.activated = False
+
+    def SetActive_XHwpDocument(self) -> None:
+        self.activated = True
+
+
+class StubDocuments:
+    def __init__(self, n: int) -> None:
+        self._items = [StubDocument() for _ in range(n)]
+        self.Count = n
+
+    def Item(self, i: int) -> StubDocument:
+        return self._items[i]
+
+
+class StubComWindows:
+    def __init__(self, handles: list[int], active_index: int = -1) -> None:
+        self.XHwpWindows = StubWindows(handles, active_index)
+        self.XHwpDocuments = StubDocuments(len(handles))
 
 
 def test_goto_addr_raises_when_nav_action_fails() -> None:
@@ -445,3 +496,85 @@ def test_named_style_calls_pyhwpx_set_style_only() -> None:
     canvas = HangulCanvas(px=px, com=StubCom(), backend="pyhwpx")
     canvas.set_style("개요 1")
     assert px.styles == ["개요 1"]
+
+
+def test_window_handle_uses_active_not_item0() -> None:
+    """회귀: Item(0) 은 처음 연 창(이미 열린 파일). open --new 후 고정은 활성 창."""
+    com = StubComWindows([855126, 3738628], active_index=1)
+    canvas = HangulCanvas(px=None, com=com, backend="win32com")
+    assert canvas.window_handle() == 3738628
+    assert _window_handle_of(com) == 3738628
+    # Item(0) 만 보면 이전 창이 나온다 — 그걸 쓰면 안 된다
+    assert com.XHwpWindows.Item(0).WindowHandle == 855126
+
+
+def test_window_handle_falls_back_to_item0_without_active() -> None:
+    class FirstOnly:
+        class Wins:
+            def Item(self, i):
+                assert i == 0
+                return StubWindow(1111)
+
+        XHwpWindows = Wins()
+
+    assert _window_handle_of(FirstOnly()) == 1111
+    assert _window_handle_of(object()) == 0
+
+
+def test_window_handle_never_item0_when_count_gt1_and_no_active() -> None:
+    """라이브: Active 속성이 없으면 Item 을 훑고, Count>1 일 때 Item(0) 금지."""
+
+    class NoActiveWindows:
+        def __init__(self) -> None:
+            self._items = [StubWindow(855126, visible=True), StubWindow(3738628, visible=True)]
+            self.Count = 2
+
+        def Item(self, i: int) -> StubWindow:
+            return self._items[i]
+
+        @property
+        def Active_XHwpWindow(self):
+            raise AttributeError("Active_XHwpWindow")
+
+    com = type("C", (), {"XHwpWindows": NoActiveWindows()})()
+    assert _window_handle_of(com) == 3738628
+    assert com.XHwpWindows.Item(0).WindowHandle == 855126
+
+
+def test_iter_and_has_hwnd_covers_all_windows() -> None:
+    com = StubComWindows([855126, 3738628], active_index=1)
+    assert list(_iter_window_handles(com)) == [3738628, 855126]
+    assert _com_has_hwnd(com, 3738628) is True
+    assert _com_has_hwnd(com, 855126) is True
+    assert _com_has_hwnd(com, 1) is False
+    assert _com_has_hwnd(com, 0) is False
+
+
+def test_show_window_sets_matching_handle_visible() -> None:
+    com = StubComWindows([855126, 2100322], active_index=0)
+    _show_window(com, 2100322)
+    assert com.XHwpWindows.Item(1).Visible is True
+    assert com.XHwpWindows.Item(0).Visible is False
+    _show_window(com, 855126)
+    assert com.XHwpWindows.Item(0).Visible is True
+
+
+def test_pick_com_by_hwnd_matches_live_rot() -> None:
+    """라이브 ROT: 120.1=[3738628] doc4, 120.2=[855126, 2100322]. pin=855126."""
+    rot_first = StubComWindows([3738628])  # !HwpObject.120.1 — pyhwpx 가 붙는 쪽
+    pinned = StubComWindows([855126, 2100322], active_index=0)  # 120.2
+    instances = [rot_first, pinned]
+    assert _pick_com_by_hwnd(instances, 855126) is pinned
+    assert _pick_com_by_hwnd(instances, 2100322) is pinned
+    assert _pick_com_by_hwnd(instances, 3738628) is rot_first
+    assert _pick_com_by_hwnd(instances, 1) is None  # ROT-first 로 조용히 떨어지지 않음
+    assert _pick_com_by_hwnd(instances, None) is rot_first
+
+
+def test_make_window_current_uses_visible_and_set_active_doc() -> None:
+    """IXHwpWindow.Activate 없음. Visible + SetActive_XHwpDocument."""
+    com = StubComWindows([855126, 2100322], active_index=0)
+    _make_window_current(com, 2100322)
+    assert com.XHwpWindows.Item(1).Visible is True
+    assert com.XHwpDocuments.Item(1).activated is True
+    assert com.XHwpDocuments.Item(0).activated is False

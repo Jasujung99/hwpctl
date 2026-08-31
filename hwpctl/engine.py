@@ -47,12 +47,22 @@ class Engine:
         (pyhwpx 는 '마지막 접근 창'에 붙으므로, 여러 창이 열려 있으면 검증 없이는
         엉뚱한 문서를 편집할 수 있다.)
         """
-        canvas = self.canvas_factory(new=new, allow_launch=allow_launch)
+        state = load_state()
+        # 일반 명령은 고정된 WindowHandle 로 ROT 객체를 고른다 (라이브: 120.2).
+        # open --new 는 이전 핸들을 넘기지 않는다. 만든 뒤 활성 창을 다시 고정한다.
+        want_hwnd = 0 if new else int(state.target_hwnd or 0)
+        canvas = self.canvas_factory(
+            new=new, allow_launch=allow_launch, hwnd=want_hwnd
+        )
         hwnd = canvas.window_handle()
         if not hwnd:
             return canvas  # 핸들을 못 읽는 백엔드에서는 고정 기능을 끈다
         state = load_state()
-        if pin or new:
+        if new:
+            # FileNew/Add 는 open() 이 이어서 호출한다. 여기서 고정하면
+            # 아직 이전 창(Item(0)) 핸들이 남는다. Add 뒤에 다시 고정한다.
+            return canvas
+        if pin:
             if state.target_hwnd != hwnd:
                 state.target_hwnd = hwnd
                 save_state(state)
@@ -177,6 +187,8 @@ class Engine:
             else:
                 canvas.new_document()
             after = canvas.doc_info()
+            # 새 창/다른 문서를 연 뒤에는 고정을 그 창의 WindowHandle 로 옮긴다.
+            # (과거: Item(0) 이 이전 창을 가리켜 pin 이 낡고 다음 명령이 거부됨)
             state = load_state()
             state.original_path = after.path
             state.undo_stack = []

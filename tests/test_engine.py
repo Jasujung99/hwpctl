@@ -24,6 +24,7 @@ class FakeCanvas:
         self.hwnd = 1111
         self.charshape = "CHAR0"
         self.parashape = "PARA0"
+        self.title = "빈 문서 1 - 한글"
         self.page_count = 2
         self.page_counts: list[int] = []
         self.created_shape: tuple[int, int] | None = None
@@ -212,7 +213,7 @@ class FakeCanvas:
 
         page_count = self.page_counts.pop(0) if self.page_counts else self.page_count
         return DocInfo(
-            window_title="빈 문서 1 - 한글",
+            window_title=self.title,
             path=self.path,
             modified=self.modified,
             page=1,
@@ -303,7 +304,10 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Engine, Fak
     fake = FakeCanvas()
     monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
     monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
-    eng = Engine(lock_timeout=1, canvas_factory=lambda new=False, allow_launch=False: fake)
+    eng = Engine(
+        lock_timeout=1,
+        canvas_factory=lambda new=False, allow_launch=False, hwnd=0: fake,
+    )
     return eng, fake
 
 
@@ -555,6 +559,156 @@ def test_window_pinning_rejects_other_window(engine) -> None:
     assert load_state().target_hwnd == 2222
     eng.insert_paragraph("본문")  # 이제 통과
     assert any(c[0] == "insert_text" for c in fake.calls)
+
+
+def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """회귀: pyhwpx 는 ROT 첫 인스턴스(120.1)에 붙고 pin 은 120.2 에 있다.
+
+    라이브(한글 12.0.0.850):
+    - !HwpObject.120.1 hwnds [3738628] doc4.hwp  — Hwp(new=False) 가 붙는 쪽
+    - !HwpObject.120.2 hwnds [855126, 2100322] — open --new 가 만든 인스턴스
+    pin=855126. 다음 명령은 hwnd=855126 으로 120.2 를 골라야 한다.
+    """
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    rot_first = FakeCanvas()
+    rot_first.hwnd = 3738628
+    rot_first.title = "doc4.hwp - 한글"
+    rot_first.path = r"C:\docs\doc4.hwp"
+
+    created = FakeCanvas()
+    created.hwnd = 855126
+    created.title = "빈 문서 2 - 한글"
+    created.path = ""
+
+    calls: list[dict] = []
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
+        if new:
+            return created
+        if hwnd == created.hwnd:
+            return created
+        # hwnd 미지정 — pyhwpx/ROT 첫 창 (120.1)
+        return rot_first
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+
+    st = eng.status()
+    assert st["window_title"] == "doc4.hwp - 한글"
+    assert load_state().target_hwnd == 3738628
+
+    out = eng.open(new=True)
+    assert out["ok"] is True
+    assert out["new"] is True
+    assert out["window_title"] == "빈 문서 2 - 한글"
+    assert load_state().target_hwnd == 855126
+    assert any(c["new"] is True and c["hwnd"] == 0 for c in calls)
+
+    before = len(calls)
+    st2 = eng.status()
+    assert st2["window_title"] == "빈 문서 2 - 한글"
+    assert calls[before]["hwnd"] == 855126
+    assert calls[before]["new"] is False
+
+    created.calls.clear()
+    title = eng.insert_title("제목")
+    assert title["ok"] is True
+    assert any(c[0] == "insert_text" for c in created.calls)
+    assert not any(c[0] == "insert_text" for c in rot_first.calls)
+
+
+def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_connect(new=True) 는 Add 전에 고정하지 않는다.
+
+    라이브: 그 시점의 window_handle() 은 아직 Item(0)=이전 창.
+    new_document()/Add 뒤에 활성 창 핸들로 고정해야 한다.
+    """
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    canvas = FakeCanvas()
+    canvas.hwnd = 855126
+    canvas.title = "보고서.hwp - 한글"
+    pin_at_add: list[int] = []
+
+    def after_add() -> None:
+        pin_at_add.append(load_state().target_hwnd)
+        canvas.hwnd = 3738628
+        canvas.title = "빈 문서 2 - 한글"
+        canvas.path = ""
+        canvas.calls.append(("new_document", None))
+
+    canvas.new_document = after_add  # type: ignore[method-assign]
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        if new:
+            # Add 전: COM 이 아직 Item(0) 이전 창을 돌려주는 상황
+            canvas.hwnd = 855126
+            return canvas
+        if hwnd == 3738628:
+            canvas.hwnd = 3738628
+            return canvas
+        return canvas
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+    eng.status()
+    assert load_state().target_hwnd == 855126
+
+    out = eng.open(new=True)
+    assert pin_at_add == [855126]  # Add 직전 pin 은 아직 이전 창 (새 Item(0) 으로 덮지 않음)
+    assert load_state().target_hwnd == 3738628
+    assert out["window_title"] == "빈 문서 2 - 한글"
+
+
+def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:
+    """open <path> 가 다른 창/문서로 바뀌면 pin 도 그 핸들을 따른다."""
+    eng, fake = engine
+    eng.status()
+    assert load_state().target_hwnd == 1111
+    orig_open = fake.open_path
+
+    def open_and_switch(path: str) -> None:
+        orig_open(path)
+        fake.hwnd = 2222
+        fake.title = "새파일.hwp - 한글"
+
+    fake.open_path = open_and_switch  # type: ignore[method-assign]
+    out = eng.open(path=r"C:\docs\새파일.hwp", discard=True)
+    assert out["path"] == r"C:\docs\새파일.hwp"
+    assert load_state().target_hwnd == 2222
+    eng.insert_paragraph("본문")
+    assert any(c[0] == "insert_text" for c in fake.calls)
+
+
+def test_followup_still_rejects_unpinned_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """안전장치: 우리가 연 창이 아닌 다른 창에는 여전히 쓰지 않는다."""
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    pinned = FakeCanvas()
+    pinned.hwnd = 3738628
+    other = FakeCanvas()
+    other.hwnd = 855126
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        if new or hwnd == pinned.hwnd:
+            return pinned
+        return other
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+    eng.open(new=True)
+    assert load_state().target_hwnd == 3738628
+
+    def rogue_factory(new=False, allow_launch=False, hwnd=0):
+        return other  # ROT 첫 창에 붙어 버린 상황
+
+    eng.canvas_factory = rogue_factory
+    with pytest.raises(HangulCommandError) as exc:
+        eng.insert_paragraph("비밀")
+    assert "다른 창" in exc.value.message
+    assert not any(c[0] == "insert_text" for c in other.calls)
 
 
 def test_close_unpins_window(engine) -> None:
