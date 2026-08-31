@@ -259,7 +259,10 @@ class Engine:
                 )
             try:
                 if margins:
-                    steps += canvas.set_all_cell_margins(*margins)
+                    for addr in canvas.table_cell_addresses():
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(*margins)
+                        steps += 1
                 if header_fill:
                     canvas.goto_addr("A1")
                     canvas.select_row()
@@ -301,13 +304,28 @@ class Engine:
                         "--range 는 캐럿이 표 안에 있거나 --table 과 함께 써야 합니다."
                     )
                 addrs = expand_range(cell_range)
-                for addr in addrs:
-                    canvas.goto_addr(addr)
-                    canvas.set_cell_margin_current(left, right, top, bottom)
-                steps = len(addrs)
+                steps = 0
+                try:
+                    for addr in addrs:
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        steps += 1
+                except Exception:
+                    if steps:
+                        self._record_undo("set_cell_margin", steps)
+                    raise
                 scope = f"cells:{cell_range.upper()}"
             elif table is not None:
-                steps = canvas.set_all_cell_margins(left, right, top, bottom)
+                steps = 0
+                try:
+                    for addr in canvas.table_cell_addresses():
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        steps += 1
+                except Exception:
+                    if steps:
+                        self._record_undo("set_cell_margin", steps)
+                    raise
                 scope = f"table:{table}"
             else:
                 canvas.set_cell_margin_current(left, right, top, bottom)

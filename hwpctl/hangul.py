@@ -744,6 +744,7 @@ class HangulCanvas:
         self, left: float, right: float, top: float, bottom: float
     ) -> None:
         """캐럿이 있는 셀(또는 다중선택 셀들)의 안쪽 여백을 mm 로 지정."""
+        self.assert_no_dialog()
         if self.px:
             if not self.px.set_cell_margin(
                 left=left, right=right, top=top, bottom=bottom, as_="mm"
@@ -751,6 +752,7 @@ class HangulCanvas:
                 raise HangulCommandError(
                     "셀 안 여백을 적용하지 못했습니다. 캐럿이 표 셀 안에 있어야 합니다."
                 )
+            self.assert_no_dialog()
             return
         if not self.is_cell():
             raise HangulCommandError(
@@ -774,6 +776,7 @@ class HangulCanvas:
             raise HangulCommandError(f"셀 안 여백 적용에 실패했습니다: {exc}") from exc
         if not ok:
             raise HangulCommandError("셀 안 여백(TablePropertyDialog) 액션이 실패했습니다.")
+        self.assert_no_dialog()
 
     def set_table_inside_margin(
         self, left: float, right: float, top: float, bottom: float

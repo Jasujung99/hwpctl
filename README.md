@@ -10,7 +10,7 @@ Grok Bot, Cursor, Codex, Gemini CLI, Claude Code 는 설정을 갈아끼우기�
 - **자동저장 없음.** 원본은 덮어쓰지 않고 `save_as` 로 새 파일에 저장합니다.
 - 작성기는 한 번에 하나만. 잠금 파일이 두 클라이언트의 동시 쓰기를 막습니다.
 
-대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + pyhwpx `1.7.2`.  
+대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + pyhwpx `1.7.2`.
 한글 2024 전용 GSG / `GetCtrlInstID` / `SelectCtrl` 은 쓰지 않습니다.
 
 ---
