@@ -1,8 +1,53 @@
 # CODE-ISSUES — hwpctl 코드 리뷰 (2차 패스)
 
+> ## 패치 현황 (4차 패스)
+>
+> **중간 — 전부 수정:**
+> - **#5 [패치됨]** MCP 도구를 `async def` 로 바꾸고 실제 한/글 호출은
+>   `anyio.to_thread.run_sync` 워커에서 실행. Windows 에서는 워커 스레드마다
+>   `pythoncom.CoInitialize()`/`CoUninitialize()` — 캔버스는 한 호출(한 스레드)
+>   안에서 생성·사용·폐기되므로 STA 규칙을 지킨다.
+> - **#6 [패치됨]** COM `set_align` 이 `HAlign("Center")` 변환 정수를 대입
+>   (pyhwpx `set_para` 소스와 동일). 실패 시 한국어 오류.
+> - **#7 [패치됨]** COM `cell_fill` 을 pyhwpx 소스 그대로 교체:
+>   `FillAttr.type=BrushType("NullBrush|WinBrush")`, `WinBrushFaceColor`,
+>   `WinBrushHatchColor`, `WinBrushFaceStyle`, `WindowsBrush=1`, 후 `Cancel`.
+>   Execute 실패 시 한국어 오류(조용한 무시 제거).
+> - **#9 [패치됨]** `create_table` 이 캐럿이 새 표 안일 때만 안여백·머리행 색을
+>   적용하고, 셀 밖이면 0번 표를 건드리지 않고 한국어 오류로 중단.
+> - **#10 [패치됨]** `snapshot` 이 `get_pos`/`GetSelectedPos` 를 저장하고
+>   표 순회 후 `set_pos`/`SelectText` 로 캐럿·블록 선택 복원(try/finally).
+>   미리보기 상한: 표 10개 × 8행 × 8열.
+> - **#11 [부분 패치]** undo 스택이 비면 무조건 1회 undo 하던 것을 거부 + 한국어
+>   안내로 교체. "수동 편집 감지"는 자동화 API 에 문서 리비전 카운터가 없어
+>   신뢰성 있게 구현 불가 — 한계를 README 에 명시(명령 사이 수동 편집은 undo 가
+>   먼저 되돌릴 수 있음).
+> - **#12 [패치됨]** `set_format --range` 가 요청한 칸에만 셀 단위로 적용
+>   (한 행 범위의 행 전체 확대, 다중 행의 조용한 무시 모두 제거). `--range`+`--row`
+>   동시 지정은 UsageError.
+> - **#13 [주석 처리]** `fill_cells` Undo 단위는 실기 미측정 — 과대 기록이 사용자
+>   편집을 삼키므로 셀당 1로 보수적으로(적게) 기록한다고 코드에 명시.
+> - **#14 [패치됨]** MCP `_call` 이 모든 예외를 잡아 한국어 한 줄로 변환.
+>
+> **낮음 — 수정:** #15(종료 코드 3~7 로 재배치, argparse 2 와 분리),
+> #16(`--debug`/`--lock-timeout` 서브커맨드 뒤 허용), #17(더미 `--json` 제거),
+> #18(Windows 잠금 "a+" 스페이스 누적 — 파일 크기 판정으로 교체),
+> #19(`hmac.compare_digest`), #20(가드 문구에 MCP 파라미터 병기),
+> #21(원색/파스텔 색 이름 분리), #25(`mcp.list_tools()` 공개 API 로 테스트).
+> **미수정:** #19 의 BaseHTTPMiddleware→순수 ASGI 전환은 현 starlette 에서 동작이
+> 확인되어 보류(스트리밍 회귀 리스크 대비 이득 없음).
+>
+> **신규 기능 (4차):** `set_cell_margin`(표 칸 안쪽 여백, pyhwpx
+> set_cell_margin/set_table_inside_margin + COM TablePropertyDialog 폴백),
+> `insert_chart`(한/글 네이티브 차트 — InsertChart 액션,
+> ChartGroup/ChartIndex/ChartDataDialogDisable, 한컴 포럼 1529·1649 로 확인),
+> `create_table` 기본 칸 안여백 3.5/2.0mm (`--cell-padding`).
+> 실기(한글 2022) 검증 필요 항목: line=ChartGroup 2 추론값,
+> ChartDataDialogDisable 동작, CharShape/ParaShape 대입의 Undo 단위.
+>
 > ## 패치 현황 (3차 패스)
 >
-> 아래 항목은 수정 완료. 나머지(중간 #5, #7, #9~#14 / 낮음 전부)는 미착수.
+> 아래 항목은 수정 완료.
 >
 > - **#3 [패치됨]** COM 폴백 `goto_addr` — 미확인 액션 `TableRowBegin` 제거, 표준 조합
 >   `TableColBegin`+`TableColPageUp` 사용, 모든 `Run()` 반환값 검사, `KeyIndicator` 로

@@ -43,7 +43,7 @@ def test_cli_status_no_stack_dump() -> None:
     )
     if sys.platform == "win32":
         return
-    assert proc.returncode == 2
+    assert proc.returncode == 3  # argparse 사용 오류(2)와 구분되는 코드 (#15)
     assert "한/글" in proc.stderr
     assert "Traceback" not in proc.stderr
     assert "Traceback" not in proc.stdout
@@ -58,7 +58,7 @@ def test_cli_save_without_overwrite_korean() -> None:
         text=True,
         check=False,
     )
-    assert proc.returncode == 4
+    assert proc.returncode == 5
     assert "--overwrite" in proc.stderr
     assert "Traceback" not in proc.stderr
 

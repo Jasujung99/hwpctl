@@ -186,8 +186,9 @@ class SingleWriterLock:
     @staticmethod
     def _lock_fd(fh: TextIO, blocking: bool) -> None:
         if sys.platform == "win32":
-            fh.seek(0)
-            if fh.read(1) == "":
+            # "a+" 는 열자마자 위치가 EOF 라 read() 검사가 항상 빈 문자열이었고,
+            # 재시도할 때마다 스페이스가 덧붙는 문제가 있었다 — 파일 크기로 판정한다.
+            if os.fstat(fh.fileno()).st_size == 0:
                 fh.write(" ")
                 fh.flush()
             fh.seek(0)

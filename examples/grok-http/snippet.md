@@ -26,6 +26,7 @@ Accept: application/json, text/event-stream
 Content-Type: application/json
 ```
 
-도구 이름은 CLI 와 같습니다: `status`, `snapshot`, `insert_title`, `create_table`, `save_as` …
+도구 이름은 CLI 와 같습니다: `status`, `snapshot`, `insert_title`, `create_table`,
+`set_cell_margin`, `insert_chart`, `save_as` …
 
 원본을 덮어쓰지 말고 `save_as` 로 새 경로에 저장하세요.

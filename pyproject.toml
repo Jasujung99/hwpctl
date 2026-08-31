@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.9,<2",
+    "anyio>=4.5",
     "starlette>=0.38",
     "uvicorn>=0.30",
 ]

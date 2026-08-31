@@ -106,14 +106,16 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 |---|---|
 | `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
 | `open` | 새 문서 또는 경로로 열기. 수정본이 있으면 `--discard` |
-| `snapshot` | 제목·본문·표·선택 영역 읽기 |
-| `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). Undo 1단위 |
+| `snapshot` | 제목·본문·표·선택 영역 읽기. 캐럿·선택은 원래대로 복원 |
+| `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). 서식은 제목에만. Undo 1단위 |
 | `insert_paragraph` | 본문 문단. Undo 1단위 |
-| `create_table` | 표. `--header-fill gray` 가능. Undo 1단위 |
+| `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
 | `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
-| `set_format` | 글꼴·크기·굵게·정렬·셀 색 |
-| `replace_selection` | 선택 영역 교체 |
-| `undo` | 직전 명령을 한/글 Undo 한 덩어리로 |
+| `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
+| `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
+| `set_format` | 글꼴·크기·굵게·정렬·셀 색. `--range` 는 요청 칸에만 |
+| `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
+| `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
 | `page` | 현재 쪽 읽기 / `--goto N` 이동 |
 | `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
@@ -135,6 +137,44 @@ hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
 ```
 
 서브커맨드 이름은 밑줄입니다 (`insert_title`, `fill_cells`).
+
+---
+
+## 표 칸 안쪽 여백 (셀 안 여백)
+
+글자가 칸 테두리에 붙는 문제는 표 바깥 여백이 아니라 **셀 안쪽 여백** 문제입니다.
+
+- `create_table` 은 새 표의 모든 칸에 기본 안여백 **좌우 3.5mm / 상하 2.0mm** 를 적용합니다.
+  한/글 기본값(1.8/0.5mm)보다 넉넉합니다. `--cell-padding "3.0,1.5"` 로 바꾸거나
+  `--cell-padding none` 으로 끌 수 있습니다.
+- 이미 있는 표는 `set_cell_margin` 으로:
+
+```bat
+hwpctl set_cell_margin --table 0                        :: 0번 표 전체 칸, 기본 3.5/2.0mm
+hwpctl set_cell_margin --table 0 --left 4 --right 4 --top 2 --bottom 2
+hwpctl set_cell_margin --table 0 --range A1:D4          :: 해당 칸들만
+```
+
+## 한/글 네이티브 차트 (insert_chart)
+
+`insert_chart` 는 **한/글 입력 > 차트** 개체를 넣습니다. PNG 그림 삽입이 아닙니다.
+
+흐름: 데이터 표를 만들고(`create_table` + `fill_cells`) → `insert_chart --table N`.
+표(또는 `--range` 범위)의 셀을 선택한 뒤 `InsertChart` 액션을
+`ChartGroup` / `ChartIndex` / `ChartDataDialogDisable=1` 파라미터로 실행합니다
+(한컴 포럼에서 확인된, 노출된 파라미터 전부입니다 — 생성 후 차트 수정 API 는 없습니다).
+
+```bat
+hwpctl insert_chart --table 1 --type line      :: 인생 그래프 = 꺾은선
+hwpctl insert_chart --table 0 --type column --range A1:B10
+```
+
+- 종류: `line`(꺾은선) / `column`(세로막대) / `bar`(가로막대) / `pie`(원형).
+  0=가로막대·1=세로막대·3=원형은 한컴 포럼에서 확인된 값이고, line=2 는 추론값이라
+  실기에서 종류가 다르게 나오면 `--type` 대신 `--index` 와 함께 조정하세요.
+- **한글 2022 이상 전용.** 2020 이하에는 `ChartDataDialogDisable` 이 없어 데이터
+  편집 대화상자가 뜹니다. 대화상자가 뜨면 자동화 실패입니다 — hwpctl 은 한국어
+  오류를 내며, 화면의 창을 대신 눌러 주지 않습니다.
 
 ---
 
@@ -160,6 +200,9 @@ hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
 클라이언트 이름: `HWPCTL_CLIENT` (오류 메시지에 표시).
 
 MCP 서버가 떠 있어도 잠금은 **명령 단위**입니다. 서버 프로세스가 잠금을 붙잡고 있지 않습니다.
+
+`undo` 는 hwpctl 이 기록한 명령만 되돌립니다. hwpctl 명령 사이에 한/글에서 직접
+편집했다면 그 편집이 먼저 되돌아갈 수 있으니, 수동 편집은 한/글의 Ctrl+Z 를 쓰세요.
 
 ---
 

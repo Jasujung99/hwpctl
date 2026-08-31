@@ -72,6 +72,24 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "cols": args.cols,
             "header_fill": args.header_fill,
             "header": not args.no_header,
+            "cell_margin": args.cell_padding,
+        }
+    if cmd == "set_cell_margin":
+        return {
+            "table": args.table,
+            "cell_range": args.cell_range,
+            "left": args.left,
+            "right": args.right,
+            "top": args.top,
+            "bottom": args.bottom,
+        }
+    if cmd == "insert_chart":
+        return {
+            "table": args.table,
+            "cell_range": args.cell_range,
+            "chart_type": args.chart_type,
+            "chart_index": args.chart_index,
+            "no_dialog": args.no_dialog,
         }
     if cmd == "fill_cells":
         return {

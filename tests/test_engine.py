@@ -30,6 +30,53 @@ class FakeCanvas:
     def has_selection(self) -> bool:
         return self.selection_active
 
+    def table_count(self) -> int:
+        return 1
+
+    def get_pos(self):
+        return (0, 3, 7)
+
+    def set_pos(self, pos) -> bool:
+        self.calls.append(("set_pos", pos))
+        return True
+
+    def selection_range(self):
+        if self.selection_active:
+            return (True, 0, 0, 1, 0, 0, 5)
+        return None
+
+    def restore_selection(self, sel) -> bool:
+        self.calls.append(("restore_selection", sel))
+        return True
+
+    def set_table_inside_margin(self, left, right, top, bottom) -> None:
+        self.calls.append(("set_table_inside_margin", (left, right, top, bottom)))
+
+    def set_cell_margin_current(self, left, right, top, bottom) -> None:
+        self.calls.append(("set_cell_margin_current", (left, right, top, bottom)))
+
+    def select_all_cells(self) -> None:
+        from hwpctl.errors import HangulCommandError as _E
+
+        if not self.in_cell:
+            raise _E("캐럿이 표 안에 있지 않습니다.")
+        self.calls.append(("select_all_cells", None))
+
+    def select_cell_range(self, start, end) -> None:
+        self.calls.append(("select_cell_range", (start, end)))
+
+    def insert_chart(self, chart_group, chart_index=0, dialog_disable=True) -> None:
+        self.calls.append(
+            (
+                "insert_chart",
+                {
+                    "chart_group": chart_group,
+                    "chart_index": chart_index,
+                    "dialog_disable": dialog_disable,
+                },
+            )
+        )
+
     def get_charshape(self):
         return self.charshape
 
@@ -176,12 +223,35 @@ def test_insert_title_skips_restore_count_when_shape_unavailable(engine) -> None
     assert load_state().undo_stack == [3]
 
 
-def test_create_table_header_fill(engine) -> None:
+def test_create_table_header_fill_and_default_margin(engine) -> None:
     eng, fake = engine
     eng.create_table(rows=8, cols=4, header_fill="gray")
     assert ("create_table", (8, 4, True)) in fake.calls
+    # 새 표 기본 칸 안여백: 좌우 3.5mm, 상하 2.0mm — 방금 만든 표에 적용
+    assert ("set_table_inside_margin", (3.5, 3.5, 2.0, 2.0)) in fake.calls
     assert ("cell_fill", "gray") in fake.calls
-    assert load_state().undo_stack[-1] == 2
+    # 다른 표(0번 표)로 이동하지 않아야 한다 (#9 회귀 방지)
+    assert not any(c[0] == "get_into_nth_table" for c in fake.calls)
+    assert load_state().undo_stack[-1] == 3
+
+
+def test_create_table_custom_and_disabled_padding(engine) -> None:
+    eng, fake = engine
+    eng.create_table(rows=2, cols=2, cell_margin="4,3")
+    assert ("set_table_inside_margin", (4.0, 4.0, 3.0, 3.0)) in fake.calls
+    fake.calls.clear()
+    eng.create_table(rows=2, cols=2, cell_margin="none")
+    assert not any(c[0] == "set_table_inside_margin" for c in fake.calls)
+
+
+def test_create_table_refuses_wrong_table_when_caret_outside(engine) -> None:
+    """회귀 방지(#9): 표 생성 후 캐럿이 셀 밖이면 문서의 0번 표를 건드리지 말고 실패."""
+    eng, fake = engine
+    fake.in_cell = False
+    with pytest.raises(HangulCommandError):
+        eng.create_table(rows=2, cols=2, header_fill="gray")
+    assert not any(c[0] == "get_into_nth_table" for c in fake.calls)
+    assert not any(c[0] == "cell_fill" for c in fake.calls)
 
 
 def test_fill_cells_grid(engine) -> None:
@@ -195,10 +265,19 @@ def test_fill_cells_grid(engine) -> None:
 def test_undo_replays_hangul_steps(engine) -> None:
     eng, fake = engine
     eng.insert_paragraph("하나")
-    eng.create_table(8, 4, header_fill="gray")
+    eng.create_table(8, 4, header_fill="gray")  # 생성 + 안여백 + 머리행색 = 3
     out = eng.undo()
-    assert out["hangul_undo_steps"] == 2
-    assert fake.undone == 2
+    assert out["hangul_undo_steps"] == 3
+    assert fake.undone == 3
+
+
+def test_undo_refuses_without_recorded_edits(engine) -> None:
+    """회귀 방지(#11): 기록이 없으면 사용자의 수동 편집을 되돌리지 않는다."""
+    eng, fake = engine
+    with pytest.raises(HangulCommandError) as exc:
+        eng.undo()
+    assert "기록한 편집이 없어" in exc.value.message
+    assert fake.undone == 0
 
 
 def test_save_without_overwrite_rejected(engine) -> None:
@@ -294,6 +373,115 @@ def test_status_and_snapshot(engine) -> None:
     snap = eng.snapshot()
     assert "제목" in snap["body"]
     assert snap["tables"][0]["cols"] == 2
+
+
+def test_set_cell_margin_whole_table(engine) -> None:
+    eng, fake = engine
+    out = eng.set_cell_margin(table=0)
+    assert ("get_into_nth_table", 0) in fake.calls
+    assert ("set_table_inside_margin", (3.5, 3.5, 2.0, 2.0)) in fake.calls
+    assert out["scope"] == "table:0"
+    assert out["margin_mm"] == [3.5, 3.5, 2.0, 2.0]
+
+
+def test_set_cell_margin_range_per_cell(engine) -> None:
+    eng, fake = engine
+    eng.set_cell_margin(table=0, cell_range="A1:B2", left=4, right=4, top=1, bottom=1)
+    addrs = [c[1] for c in fake.calls if c[0] == "goto_addr"]
+    assert addrs == ["A1", "B1", "A2", "B2"]
+    margins = [c for c in fake.calls if c[0] == "set_cell_margin_current"]
+    assert len(margins) == 4
+    assert margins[0][1] == (4, 4, 1, 1)
+    assert load_state().undo_stack[-1] == 4
+
+
+def test_set_cell_margin_current_cell_without_table(engine) -> None:
+    eng, fake = engine
+    out = eng.set_cell_margin(left=2, right=2, top=1, bottom=1)
+    assert ("set_cell_margin_current", (2, 2, 1, 1)) in fake.calls
+    assert out["scope"] == "current-cell"
+
+
+def test_set_cell_margin_rejects_out_of_range(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(UsageError):
+        eng.set_cell_margin(table=0, left=100)
+
+
+def test_insert_chart_line_defaults(engine) -> None:
+    """인생 그래프 기본: line → ChartGroup 2, 대화상자 비활성."""
+    eng, fake = engine
+    out = eng.insert_chart(table=0)
+    assert ("get_into_nth_table", 0) in fake.calls
+    assert ("select_all_cells", None) in fake.calls
+    charts = [c[1] for c in fake.calls if c[0] == "insert_chart"]
+    assert charts == [{"chart_group": 2, "chart_index": 0, "dialog_disable": True}]
+    assert out["chart_type"] == "line"
+    assert out["native"] is True
+    assert load_state().undo_stack[-1] == 1
+
+
+def test_insert_chart_pie_with_range(engine) -> None:
+    eng, fake = engine
+    eng.insert_chart(table=0, cell_range="A1:B10", chart_type="pie")
+    assert ("select_cell_range", ("A1", "B10")) in fake.calls
+    charts = [c[1] for c in fake.calls if c[0] == "insert_chart"]
+    assert charts[0]["chart_group"] == 3
+    assert charts[0]["dialog_disable"] is True
+
+
+def test_insert_chart_rejects_unknown_type_and_missing_table(engine) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError):
+        eng.insert_chart(table=0, chart_type="donut")
+    fake.in_cell = False
+    with pytest.raises(UsageError):
+        eng.insert_chart()  # table 없음 + 캐럿도 표 밖
+    assert not any(c[0] == "insert_chart" for c in fake.calls)
+
+
+def test_snapshot_restores_caret_and_selection(engine) -> None:
+    """회귀 방지(#10): snapshot(읽기)이 캐럿·선택을 파괴하면 안 된다."""
+    eng, fake = engine
+    fake.selection_active = True
+    snap = eng.snapshot()
+    assert snap["selection"] == "기존"
+    assert ("set_pos", (0, 3, 7)) in fake.calls
+    restored = [c for c in fake.calls if c[0] == "restore_selection"]
+    assert restored and restored[0][1][0] is True
+
+
+def test_set_format_range_applies_only_requested_cells(engine) -> None:
+    """회귀 방지(#12): A1:B2 는 4칸 전부, 행 전체 확대 없이 요청 칸만."""
+    eng, fake = engine
+    eng.set_format(fill="gray", table=0, cell_range="A1:B2")
+    addrs = [c[1] for c in fake.calls if c[0] == "goto_addr"]
+    assert addrs == ["A1", "B1", "A2", "B2"]
+    assert len([c for c in fake.calls if c[0] == "cell_fill"]) == 4
+    assert not any(c[0] == "select_row" for c in fake.calls)
+
+
+def test_set_format_range_with_row_rejected(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(UsageError):
+        eng.set_format(fill="gray", table=0, cell_range="A1:B1", row=1)
+
+
+def test_normalize_margin_helper() -> None:
+    from hwpctl.engine import _normalize_margin
+
+    assert _normalize_margin("3.5,2.0") == (3.5, 3.5, 2.0, 2.0)
+    assert _normalize_margin("1,2,3,4") == (1.0, 2.0, 3.0, 4.0)
+    assert _normalize_margin("2.5") == (2.5, 2.5, 2.5, 2.5)
+    assert _normalize_margin("none") is None
+    assert _normalize_margin(None) is None
+    assert _normalize_margin((1, 2, 3, 4)) == (1.0, 2.0, 3.0, 4.0)
+    with pytest.raises(UsageError):
+        _normalize_margin("abc")
+    with pytest.raises(UsageError):
+        _normalize_margin("1,2,3")
+    with pytest.raises(UsageError):
+        _normalize_margin("99,99")
 
 
 def test_normalize_cells() -> None:

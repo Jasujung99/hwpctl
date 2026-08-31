@@ -16,31 +16,32 @@ class HwpctlError(Exception):
         return self.message
 
 
+# 종료 코드 2는 argparse 사용 오류가 쓰므로 3부터 시작한다 (#15).
 class HangulMissingError(HwpctlError):
     """한/글 COM 에 연결할 수 없음."""
 
-    exit_code = 2
+    exit_code = 3
 
 
 class LockBusyError(HwpctlError):
     """다른 클라이언트가 작성 중."""
 
-    exit_code = 3
+    exit_code = 4
 
 
 class DestructiveGuardError(HwpctlError):
     """파괴적 작업에 명시 플래그가 없음."""
 
-    exit_code = 4
+    exit_code = 5
 
 
 class UsageError(HwpctlError):
     """인자·스키마 오류."""
 
-    exit_code = 5
+    exit_code = 6
 
 
 class HangulCommandError(HwpctlError):
     """한/글 액션이 실패함."""
 
-    exit_code = 6
+    exit_code = 7

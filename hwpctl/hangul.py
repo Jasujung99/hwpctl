@@ -224,17 +224,25 @@ class HangulCanvas:
         except Exception as exc:
             raise HangulCommandError(f"쪽 텍스트를 읽지 못했습니다: {exc}") from exc
 
-    def list_tables(self, preview_rows: int = 8) -> list[dict[str, Any]]:
+    def table_count(self) -> int:
+        return self._table_count()
+
+    def list_tables(
+        self,
+        preview_rows: int = 8,
+        preview_cols: int = 8,
+        max_tables: int = 10,
+    ) -> list[dict[str, Any]]:
         count = self._table_count()
         tables: list[dict[str, Any]] = []
-        for i in range(count):
+        for i in range(min(count, max_tables)):
             self.get_into_nth_table(i)
             rows = int(self._call_px("get_row_num") or self._guess_rows())
             cols = int(self._call_px("get_col_num") or self._guess_cols())
             preview: list[list[str]] = []
             for r in range(min(rows, preview_rows)):
                 line: list[str] = []
-                for c in range(cols):
+                for c in range(min(cols, preview_cols)):
                     try:
                         self.goto_addr(_a1(r, c))
                         line.append(self.get_selected_text())
@@ -383,13 +391,16 @@ class HangulCanvas:
         if self.px:
             self.px.set_para(AlignType=key)
             return
-        pset = self.com.HParameterSet.HParaShape
-        self.com.HAction.GetDefault("ParagraphShape", pset.HSet)
+        # AlignType 은 숫자 열거값. 문자열 대입은 실패한다 — HAlign 으로 변환 (pyhwpx set_para 와 동일)
         try:
-            pset.AlignType = key
-        except Exception:
-            pset.HSet.SetItem("AlignType", key)
-        self.com.HAction.Execute("ParagraphShape", pset.HSet)
+            pset = self.com.HParameterSet.HParaShape
+            self.com.HAction.GetDefault("ParagraphShape", pset.HSet)
+            pset.AlignType = self.com.HAlign(key)
+            ok = bool(self.com.HAction.Execute("ParagraphShape", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"정렬을 적용하지 못했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("정렬(ParagraphShape) 액션이 실패했습니다.")
 
     def create_table(self, rows: int, cols: int, header: bool = True) -> None:
         if rows < 1 or cols < 1:
@@ -486,17 +497,214 @@ class HangulCanvas:
         if self.px:
             self.px.cell_fill(face_color=rgb)
             return
-        pset = self.com.HParameterSet.HCellBorderFill
-        self.com.HAction.GetDefault("CellFill", pset.HSet)
+        # pyhwpx cell_fill 소스와 동일한 아이템 이름 사용 (WinBrushFaceColor 등).
+        # 이전 구현의 FillAttr.Type / FillAttr.FaceColor 는 존재하지 않는 아이템이었다.
+        ok = False
         try:
-            pset.FillAttr.Type = 1
-            pset.FillAttr.FaceColor = rgb_to_bgr_int(rgb)
-        except Exception:
+            pset = self.com.HParameterSet.HCellBorderFill
+            self.com.HAction.GetDefault("CellFill", pset.HSet)
+            fill = pset.FillAttr
+            fill.type = self.com.BrushType("NullBrush|WinBrush")
+            fill.WinBrushFaceColor = self._rgb_value(rgb)
+            fill.WinBrushHatchColor = self._rgb_value((153, 153, 153))
+            fill.WinBrushFaceStyle = self.com.HatchStyle("None")
+            fill.WindowsBrush = 1
+            ok = bool(self.com.HAction.Execute("CellFill", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"셀 배경을 칠하지 못했습니다: {exc}") from exc
+        finally:
             try:
-                pset.HSet.SetItem("FillAttr.FaceColor", rgb_to_bgr_int(rgb))
-            except Exception as exc:
-                raise HangulCommandError(f"셀 배경을 칠하지 못했습니다: {exc}") from exc
-        self.com.HAction.Execute("CellFill", pset.HSet)
+                self.run("Cancel")
+            except Exception:
+                pass
+        if not ok:
+            raise HangulCommandError("셀 배경 칠하기(CellFill) 액션이 실패했습니다.")
+
+    def _rgb_value(self, rgb: tuple[int, int, int]) -> int:
+        try:
+            return int(self.com.RGBColor(*rgb))
+        except Exception:
+            return rgb_to_bgr_int(rgb)
+
+    def _mm_to_hwpunit(self, mm: float) -> int:
+        try:
+            return int(self.com.MiliToHwpUnit(mm))
+        except Exception:
+            return int(round(mm * 7200 / 25.4))  # 1 inch = 25.4mm = 7200 HwpUnit
+
+    def set_cell_margin_current(
+        self, left: float, right: float, top: float, bottom: float
+    ) -> None:
+        """캐럿이 있는 셀(또는 다중선택 셀들)의 안쪽 여백을 mm 로 지정."""
+        if self.px:
+            if not self.px.set_cell_margin(
+                left=left, right=right, top=top, bottom=bottom, as_="mm"
+            ):
+                raise HangulCommandError(
+                    "셀 안 여백을 적용하지 못했습니다. 캐럿이 표 셀 안에 있어야 합니다."
+                )
+            return
+        if not self.is_cell():
+            raise HangulCommandError(
+                "캐럿이 표 셀 안에 있지 않아 셀 안 여백을 적용할 수 없습니다."
+            )
+        # pyhwpx set_cell_margin 소스와 동일: TablePropertyDialog + ShapeTableCell.Margin*
+        ok = False
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.HSet.SetItem("ShapeType", 3)
+            cell = pset.ShapeTableCell
+            cell.HasMargin = 1
+            cell.MarginLeft = self._mm_to_hwpunit(left)
+            cell.MarginRight = self._mm_to_hwpunit(right)
+            cell.MarginTop = self._mm_to_hwpunit(top)
+            cell.MarginBottom = self._mm_to_hwpunit(bottom)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"셀 안 여백 적용에 실패했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("셀 안 여백(TablePropertyDialog) 액션이 실패했습니다.")
+
+    def set_table_inside_margin(
+        self, left: float, right: float, top: float, bottom: float
+    ) -> None:
+        """캐럿이 들어 있는 표의 모든 셀 안쪽 여백을 mm 로 일괄 지정."""
+        if self.px:
+            if not self.px.set_table_inside_margin(
+                left=left, right=right, top=top, bottom=bottom, as_="mm"
+            ):
+                raise HangulCommandError(
+                    "표 안 여백을 적용하지 못했습니다. 캐럿이 표 안에 있어야 합니다."
+                )
+            return
+        if not self.is_cell():
+            raise HangulCommandError(
+                "캐럿이 표 안에 있지 않아 표 안 여백을 적용할 수 없습니다."
+            )
+        # pyhwpx set_table_inside_margin 소스와 동일: TablePropertyDialog + CellMargin*
+        ok = False
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.CellMarginLeft = self._mm_to_hwpunit(left)
+            pset.CellMarginRight = self._mm_to_hwpunit(right)
+            pset.CellMarginTop = self._mm_to_hwpunit(top)
+            pset.CellMarginBottom = self._mm_to_hwpunit(bottom)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"표 안 여백 적용에 실패했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("표 안 여백(TablePropertyDialog) 액션이 실패했습니다.")
+
+    def select_all_cells(self) -> None:
+        """캐럿이 들어 있는 표의 모든 셀을 셀블록으로 선택 (차트 데이터용)."""
+        if not self.is_cell():
+            raise HangulCommandError(
+                "캐럿이 표 안에 있지 않아 표 전체 셀을 선택할 수 없습니다."
+            )
+        # pyhwpx 소스에서 확인한 시퀀스: ExtendAbs → Extend = 표 전체 셀 선택
+        if not (self.run("TableCellBlockExtendAbs") and self.run("TableCellBlockExtend")):
+            raise HangulCommandError("표 전체 셀 선택에 실패했습니다.")
+
+    def select_cell_range(self, start: str, end: str) -> None:
+        """start~end 셀을 셀블록으로 선택. (F5 셀블록 후 이동 액션이 블록을 확장)"""
+        r0, c0 = _parse_a1(start)
+        r1, c1 = _parse_a1(end)
+        if r1 < r0:
+            r0, r1 = r1, r0
+        if c1 < c0:
+            c0, c1 = c1, c0
+        self.goto_addr(_a1(r0, c0))
+        if not self.run("TableCellBlock"):
+            raise HangulCommandError("셀블록 시작(TableCellBlock)에 실패했습니다.")
+        for _ in range(c1 - c0):
+            if not self.run("TableRightCell"):
+                raise HangulCommandError("셀블록 확장(열)에 실패했습니다.")
+        for _ in range(r1 - r0):
+            if not self.run("TableLowerCell"):
+                raise HangulCommandError("셀블록 확장(행)에 실패했습니다.")
+
+    def insert_chart(
+        self,
+        chart_group: int,
+        chart_index: int = 0,
+        dialog_disable: bool = True,
+    ) -> None:
+        """선택된 표(셀블록) 데이터로 한/글 네이티브 차트를 삽입.
+
+        한컴 포럼(1529, 1649)에서 확인: InsertChart 액션에 노출된 아이템은
+        ChartGroup / ChartIndex / ChartDataDialogDisable 3개뿐이고, 생성 후 수정
+        API 는 없다. ChartDataDialogDisable 은 2020 에서는 지원되지 않아 데이터
+        대화상자가 뜬다 — 대화상자가 뜨면 자동화 실패로 간주한다 (2022 대상).
+        """
+        ok = False
+        try:
+            act = self.com.CreateAction("InsertChart")
+            pset = act.CreateSet()
+            act.GetDefault(pset)
+            pset.SetItem("ChartGroup", int(chart_group))
+            pset.SetItem("ChartIndex", int(chart_index))
+            if dialog_disable:
+                pset.SetItem("ChartDataDialogDisable", 1)
+            ok = bool(act.Execute(pset))
+        except Exception as exc:
+            raise HangulCommandError(
+                f"차트 삽입에 실패했습니다: {exc}. "
+                "한글 2022 이상에서만 데이터 대화상자 없이 삽입할 수 있습니다."
+            ) from exc
+        if not ok:
+            raise HangulCommandError(
+                "차트 삽입(InsertChart) 액션이 실패했습니다. "
+                "차트로 만들 표의 셀들이 선택된 상태여야 합니다. "
+                "데이터 편집 대화상자가 화면에 떠 있다면 닫아 주세요 — "
+                "대화상자가 뜨는 버전(한글 2020 이하)에서는 자동화가 지원되지 않습니다."
+            )
+
+    def get_pos(self) -> tuple | None:
+        try:
+            pos = self.px.get_pos() if self.px else self.com.GetPos()
+            return tuple(pos) if pos else None
+        except Exception:
+            return None
+
+    def set_pos(self, pos: tuple | None) -> bool:
+        if not pos or len(pos) < 3:
+            return False
+        try:
+            if self.px:
+                self.px.set_pos(pos[0], pos[1], pos[2])
+            else:
+                self.com.SetPos(pos[0], pos[1], pos[2])
+            return True
+        except Exception:
+            return False
+
+    def selection_range(self) -> tuple | None:
+        """(is_block, slist, spara, spos, elist, epara, epos) 또는 None."""
+        try:
+            pos = self.px.get_selected_pos() if self.px else self.com.GetSelectedPos()
+            if pos is not None and len(pos) >= 7 and bool(pos[0]):
+                return tuple(pos)
+        except Exception:
+            pass
+        return None
+
+    def restore_selection(self, sel: tuple | None) -> bool:
+        """snapshot 등 읽기 작업 후 사용자의 블록 선택을 되살린다 (best effort)."""
+        if not sel or len(sel) < 7:
+            return False
+        _is_block, slist, spara, spos, _elist, epara, epos = sel[:7]
+        try:
+            if self.px:
+                return bool(
+                    self.px.select_text(
+                        spara=spara, spos=spos, epara=epara, epos=epos, slist=slist
+                    )
+                )
+            return bool(self.com.SelectText(spara, spos, epara, epos))
+        except Exception:
+            return False
 
     def select_row(self) -> None:
         if self.px:

@@ -22,6 +22,8 @@ def test_required_commands_exist() -> None:
         "insert_paragraph",
         "create_table",
         "fill_cells",
+        "set_cell_margin",
+        "insert_chart",
         "set_format",
         "replace_selection",
         "undo",
@@ -60,6 +62,49 @@ def test_create_table_header_fill() -> None:
     assert ns.cols == 4
     assert ns.header_fill == "gray"
     assert ns.no_header is False
+    assert ns.cell_padding == "3.5,2.0"  # 새 표 기본 칸 안여백(mm)
+
+
+def test_create_table_cell_padding_override() -> None:
+    ns = parse_args(["create_table", "--rows", "2", "--cols", "2", "--cell-padding", "none"])
+    assert ns.cell_padding == "none"
+
+
+def test_set_cell_margin_parse() -> None:
+    ns = parse_args(
+        ["set_cell_margin", "--table", "0", "--range", "A1:D4", "--left", "4", "--top", "1.5"]
+    )
+    assert ns.command == "set_cell_margin"
+    assert ns.table == 0
+    assert ns.cell_range == "A1:D4"
+    assert ns.left == 4.0
+    assert ns.right == 3.5  # 기본값
+    assert ns.top == 1.5
+    assert ns.bottom == 2.0
+
+
+def test_insert_chart_parse() -> None:
+    ns = parse_args(["insert_chart", "--table", "0", "--type", "line"])
+    assert ns.command == "insert_chart"
+    assert ns.chart_type == "line"
+    assert ns.chart_index == 0
+    assert ns.no_dialog is True  # 대화상자 금지가 기본
+    ns = parse_args(["insert_chart", "--table", "1", "--type", "pie", "--range", "A1:B5"])
+    assert ns.cell_range == "A1:B5"
+    with pytest.raises(SystemExit):
+        parse_args(["insert_chart", "--type", "donut"])
+
+
+def test_debug_and_lock_timeout_after_subcommand() -> None:
+    # (#16) 서브커맨드 뒤에서도 동작해야 한다
+    ns = parse_args(["status", "--debug"])
+    assert ns.debug is True
+    ns = parse_args(["status"])
+    assert ns.debug is False
+    ns = parse_args(["insert_paragraph", "본문", "--lock-timeout", "2"])
+    assert ns.lock_timeout == 2.0
+    ns = parse_args(["--debug", "status"])  # 앞에 둬도 여전히 동작
+    assert ns.debug is True
 
 
 def test_fill_cells_json_and_assignments() -> None:

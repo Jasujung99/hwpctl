@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from hwpctl.errors import UsageError
 
+# 원색 이름은 원색으로, 파스텔(강조·배경용)은 light*/pink 로 구분한다.
 NAMED = {
     "gray": (217, 217, 217),
     "grey": (217, 217, 217),
@@ -11,11 +12,14 @@ NAMED = {
     "white": (255, 255, 255),
     "black": (0, 0, 0),
     "yellow": (255, 255, 0),
-    "blue": (189, 215, 238),
+    "blue": (0, 0, 255),
     "lightblue": (189, 215, 238),
-    "green": (198, 224, 180),
-    "red": (255, 199, 206),
-    "orange": (252, 213, 180),
+    "green": (0, 128, 0),
+    "lightgreen": (198, 224, 180),
+    "red": (255, 0, 0),
+    "pink": (255, 199, 206),
+    "orange": (255, 127, 0),
+    "lightorange": (252, 213, 180),
 }
 
 
