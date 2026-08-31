@@ -415,10 +415,25 @@ class Engine:
                     measured = canvas.inspect_table_layout(index)
                     plan = plan_table_layout(measured)
                     if not dry_run and plan["column_changes"]:
-                        result = canvas.set_table_column_widths(
-                            index, plan["target_column_widths_mm"]
-                        )
-                        actions += int(result if result is not None else len(plan["target_column_widths_mm"]))
+                        set_one_column = getattr(canvas, "set_table_column_width", None)
+                        if set_one_column:
+                            for change in plan["column_changes"]:
+                                col = int(change["column_index"])
+                                result = set_one_column(
+                                    index,
+                                    col,
+                                    float(plan["target_column_widths_mm"][col]),
+                                )
+                                actions += int(result if result is not None else 1)
+                        else:
+                            result = canvas.set_table_column_widths(
+                                index, plan["target_column_widths_mm"]
+                            )
+                            actions += int(
+                                result
+                                if result is not None
+                                else len(plan["target_column_widths_mm"])
+                            )
                         # 열 변경 뒤 실제 조판 줄 수로 행 높이를 다시 계산한다.
                         after_width = canvas.inspect_table_layout(index)
                         plan["width_after_mm"] = round(
@@ -446,6 +461,12 @@ class Engine:
                             actions += int(result if result is not None else 1)
                     plan["applied"] = not dry_run
                     table_results.append(plan)
+            except Exception:
+                # 앞선 열/행 액션이 성공한 뒤 다음 액션이 실패해도 실제 편집분은
+                # hwpctl undo 스택에서 잃지 않는다.
+                if actions:
+                    self._record_undo("layout_review", actions)
+                raise
             finally:
                 canvas.set_pos(saved_pos)
                 if saved_sel:
@@ -457,11 +478,17 @@ class Engine:
                 for result in table_results
                 for warning in result.get("warnings", [])
             ]
-            if before_pages == 1 and after_pages > 1:
-                warnings.append(
-                    f"레이아웃 검토 뒤 문서가 1쪽에서 {after_pages}쪽으로 늘었습니다. "
-                    "내용은 자동으로 지우지 않았습니다."
-                )
+            if after_pages > before_pages:
+                if before_pages == 1:
+                    warnings.append(
+                        f"레이아웃 검토 뒤 문서가 1쪽에서 {after_pages}쪽으로 늘었습니다. "
+                        "내용은 자동으로 지우지 않았습니다."
+                    )
+                else:
+                    warnings.append(
+                        f"레이아웃 검토 뒤 문서가 {before_pages}쪽에서 "
+                        f"{after_pages}쪽으로 늘었습니다. 내용은 자동으로 지우지 않았습니다."
+                    )
             if actions:
                 self._record_undo("layout_review", actions)
             return {

@@ -35,7 +35,7 @@ def plan_table_layout(layout: dict[str, Any]) -> dict[str, Any]:
         # 한 셀 때문에 열 하나가 표 대부분을 차지하지 않게 제한한다.
         cap = min(widths[col] * 1.6, max_width * 0.45)
         target = min(cap, max(widths[col] * 1.15, estimated))
-        requested[col] = max(requested[col], target - widths[col])
+        requested[col] = max(requested[col], max(0.0, target - widths[col]))
 
     available = max(0.0, max_width - table_width)
     total_requested = sum(requested)

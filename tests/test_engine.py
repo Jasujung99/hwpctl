@@ -8,6 +8,7 @@ from hwpctl.colors import parse_color
 from hwpctl.engine import Engine, _normalize_cells, suggested_save_as_path
 from hwpctl.errors import DestructiveGuardError, HangulCommandError, UsageError
 from hwpctl.hangul import expand_range, parse_a1
+from hwpctl.layout import plan_table_layout
 from hwpctl.lock import load_state
 
 
@@ -87,6 +88,17 @@ class FakeCanvas:
             cell["line_count"] = cell["hard_line_count"]
             cell["soft_wrapped"] = False
         return len(widths_mm)
+
+    def set_table_column_width(self, n: int, col: int, width_mm: float) -> int:
+        self.calls.append(("set_table_column_width", (n, col, width_mm)))
+        old = self.layout["column_widths_mm"][col]
+        self.layout["column_widths_mm"][col] = width_mm
+        self.layout["table_width_mm"] += width_mm - old
+        for cell in self.layout["cells"]:
+            if cell["col"] == col:
+                cell["line_count"] = cell["hard_line_count"]
+                cell["soft_wrapped"] = False
+        return 1
 
     def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
         self.calls.append(("set_table_row_height", (n, row, height_mm)))
@@ -326,12 +338,11 @@ def test_fill_cells_grid(engine) -> None:
 def test_layout_review_wrapped_cell_increases_column_width(engine) -> None:
     eng, fake = engine
     out = eng.layout_review(table=0)
-    calls = [call for call in fake.calls if call[0] == "set_table_column_widths"]
+    calls = [call for call in fake.calls if call[0] == "set_table_column_width"]
     assert len(calls) == 1
-    widths = calls[0][1][1]
-    assert widths[0] > 50.0
+    assert calls[0][1][2] > 50.0
     assert out["tables"][0]["column_changes"][0]["column"] == 1
-    assert out["hangul_actions"] >= 2  # pyhwpx는 열마다 TablePropertyDialog 1회
+    assert out["hangul_actions"] >= 1
     assert load_state().undo_stack[-1] == out["hangul_actions"]
 
 
@@ -339,7 +350,7 @@ def test_layout_review_stops_at_body_width_cap(engine) -> None:
     eng, fake = engine
     fake.layout["max_table_width_mm"] = 100.0
     out = eng.layout_review(table=0)
-    assert not any(call[0] == "set_table_column_widths" for call in fake.calls)
+    assert not any(call[0] == "set_table_column_width" for call in fake.calls)
     assert any("상한" in warning for warning in out["warnings"])
 
 
@@ -347,7 +358,7 @@ def test_layout_review_dry_run_does_not_change_width(engine) -> None:
     eng, fake = engine
     out = eng.layout_review(table=0, dry_run=True)
     assert out["tables"][0]["column_changes"]
-    assert not any(call[0] == "set_table_column_widths" for call in fake.calls)
+    assert not any(call[0] == "set_table_column_width" for call in fake.calls)
     assert not any(call[0] == "set_table_row_height" for call in fake.calls)
     assert out["undo_units"] == 0
     assert load_state().undo_stack == []
@@ -359,6 +370,42 @@ def test_layout_review_warns_when_one_page_becomes_two(engine) -> None:
     out = eng.layout_review(table=0)
     assert out["page_count"] == {"before": 1, "after": 2, "changed": True}
     assert any("1쪽에서 2쪽" in warning for warning in out["warnings"])
+
+
+def test_layout_review_records_successful_actions_before_later_failure(engine) -> None:
+    eng, fake = engine
+    second = fake.layout["cells"][1]
+    second.update(
+        {
+            "text": "두 번째 열의 아주 긴 내용",
+            "line_count": 2,
+            "hard_line_count": 1,
+            "soft_wrapped": True,
+        }
+    )
+    original = fake.set_table_column_width
+
+    def fail_second(n: int, col: int, width_mm: float) -> int:
+        if col == 1:
+            raise HangulCommandError("두 번째 열 조절 실패")
+        return original(n, col, width_mm)
+
+    fake.set_table_column_width = fail_second  # type: ignore[method-assign]
+    with pytest.raises(HangulCommandError):
+        eng.layout_review(table=0)
+    assert load_state().undo_stack == [1]
+
+
+def test_layout_plan_never_uses_negative_growth_for_already_wide_column(engine) -> None:
+    _, fake = engine
+    fake.layout["table_width_mm"] = 60.0
+    fake.layout["max_table_width_mm"] = 100.0
+    fake.layout["column_widths_mm"] = [50.0, 10.0]
+    fake.layout["cells"][1]["soft_wrapped"] = True
+    fake.layout["cells"][1]["line_count"] = 2
+    plan = plan_table_layout(fake.layout)
+    assert plan["target_column_widths_mm"][0] == 50.0
+    assert plan["width_planned_mm"] >= plan["width_before_mm"]
 
 
 def test_undo_replays_hangul_steps(engine) -> None:

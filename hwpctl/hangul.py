@@ -290,6 +290,7 @@ class HangulCanvas:
                 line_count, measured = self._cell_line_count(text)
                 margins = self._get_cell_margin_mm()
                 height = self._get_row_height_mm()
+                font_size, line_spacing = self._get_cell_typography()
                 row_height = max(row_height, height)
                 cells.append(
                     {
@@ -303,8 +304,8 @@ class HangulCanvas:
                         "line_measurement": (
                             "key_indicator" if measured else "explicit_break_estimate"
                         ),
-                        "font_size_pt": self._get_font_size_pt(),
-                        "line_spacing_percent": self._get_line_spacing_percent(),
+                        "font_size_pt": font_size,
+                        "line_spacing_percent": line_spacing,
                         "margins_mm": margins,
                         "row_height_mm": height,
                     }
@@ -340,60 +341,57 @@ class HangulCanvas:
 
     def set_table_column_widths(self, n: int, widths_mm: list[float]) -> int:
         """열 너비를 mm로 일괄 적용하고 실제 TablePropertyDialog 액션 수를 반환."""
-        if not widths_mm:
-            return 0
-        self.get_into_nth_table(n)
-        self.assert_no_dialog()
-        if self.px:
-            try:
-                ok = self.px.adjust_cellwidth(widths_mm, as_="mm")
-            except Exception as exc:
-                raise HangulCommandError(f"{n}번 표 열 너비 조절에 실패했습니다: {exc}") from exc
-            if not ok:
-                raise HangulCommandError(f"{n}번 표 열 너비 조절 액션이 실패했습니다.")
-            self.assert_no_dialog()
-            # pyhwpx adjust_cellwidth(list)는 열마다 TablePropertyDialog를 한 번 실행한다.
-            return len(widths_mm)
-
-        addresses = self._table_addresses()
+        actions = 0
         for col, width in enumerate(widths_mm):
-            addr = next(
-                (addr for addr in addresses if _parse_a1(addr)[1] == col),
-                None,
+            actions += self.set_table_column_width(n, col, width)
+        return actions
+
+    def set_table_column_width(self, n: int, col: int, width_mm: float) -> int:
+        """한 열의 너비를 직접 설정한다. Execute 결과를 확인해 성공 시 1을 반환."""
+        self.get_into_nth_table(n)
+        addresses = self._table_addresses()
+        addr = next((addr for addr in addresses if _parse_a1(addr)[1] == col), None)
+        if addr is None:
+            raise HangulCommandError(
+                f"{n}번 표 {col + 1}열은 병합 구조 때문에 너비를 조절할 셀을 찾지 못했습니다."
             )
-            if addr is None:
-                raise HangulCommandError(
-                    f"{n}번 표 {col + 1}열은 병합 구조 때문에 너비를 조절할 셀을 찾지 못했습니다."
-                )
-            self.get_into_nth_table(n)
-            self.goto_addr(addr)
-            if not (
-                self.run("TableColPageUp")
-                and self.run("TableCellBlock")
-                and self.run("TableCellBlockExtend")
-                and self.run("TableColPageDown")
-            ):
-                raise HangulCommandError(f"{n}번 표 {col + 1}열 선택에 실패했습니다.")
-            try:
-                pset = self.com.HParameterSet.HShapeObject
-                self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
-                pset.HSet.SetItem("ShapeType", 3)
-                pset.HSet.SetItem("ShapeCellSize", 1)
-                pset.ShapeTableCell.Width = self._mm_to_hwpunit(width)
-                ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
-            except Exception as exc:
-                raise HangulCommandError(
-                    f"{n}번 표 {col + 1}열 너비 조절에 실패했습니다: {exc}"
-                ) from exc
-            if not ok:
-                raise HangulCommandError(f"{n}번 표 {col + 1}열 너비 조절 액션이 실패했습니다.")
-            self.assert_no_dialog()
-        return len(widths_mm)
+        self.goto_addr(addr)
+        self.assert_no_dialog()
+        if not (
+            self.run("TableColPageUp")
+            and self.run("TableCellBlock")
+            and self.run("TableCellBlockExtend")
+            and self.run("TableColPageDown")
+        ):
+            raise HangulCommandError(f"{n}번 표 {col + 1}열 선택에 실패했습니다.")
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.HSet.SetItem("ShapeType", 3)
+            pset.HSet.SetItem("ShapeCellSize", 1)
+            pset.ShapeTableCell.Width = self._mm_to_hwpunit(width_mm)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(
+                f"{n}번 표 {col + 1}열 너비 조절에 실패했습니다: {exc}"
+            ) from exc
+        if not ok:
+            raise HangulCommandError(f"{n}번 표 {col + 1}열 너비 조절 액션이 실패했습니다.")
+        self.assert_no_dialog()
+        return 1
 
     def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
         """행 높이를 mm로 설정한다. 성공하면 한/글 액션 수 1."""
         self.get_into_nth_table(n)
-        self.goto_addr(_a1(row, 0))
+        addr = next(
+            (addr for addr in self._table_addresses() if _parse_a1(addr)[0] == row),
+            None,
+        )
+        if addr is None:
+            raise HangulCommandError(
+                f"{n}번 표 {row + 1}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
+            )
+        self.goto_addr(addr)
         self.assert_no_dialog()
         if self.px:
             try:
@@ -1121,6 +1119,30 @@ class HangulCanvas:
             return value if 50 <= value <= 500 else 160.0
         except Exception:
             return 160.0
+
+    def _get_cell_typography(self) -> tuple[float, float]:
+        """셀 전체를 순회해 가장 큰 글자와 줄간격을 읽는다.
+
+        한 지점만 표본으로 삼으면 혼합 서식 셀의 큰 글자를 놓쳐 행을 너무 낮출 수
+        있다. MoveNextChar는 현재 셀 리스트 안에서만 움직이며 편집 액션이 아니다.
+        매우 긴 셀은 5000자까지만 확인하고, 이 경우에도 시작점 표본보다 안전하다.
+        """
+        saved = self.get_pos()
+        max_font = 10.0
+        max_spacing = 160.0
+        try:
+            if not self.run("MoveListBegin"):
+                return self._get_font_size_pt(), self._get_line_spacing_percent()
+            for _ in range(5000):
+                max_font = max(max_font, self._get_font_size_pt())
+                max_spacing = max(max_spacing, self._get_line_spacing_percent())
+                if not self.run("MoveNextChar"):
+                    break
+        except Exception:
+            pass
+        finally:
+            self.set_pos(saved)
+        return max_font, max_spacing
 
     def _get_body_width_mm(self) -> float:
         if self.px:
