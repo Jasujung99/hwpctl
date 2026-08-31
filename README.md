@@ -1,7 +1,7 @@
 # hwpctl — 한/글 라이브 코파일럿 브리지
 
 열린 **한글 2022** 창을 채팅 클라이언트가 고치게 하는 **단일 작성기**입니다.  
-Grok Bot, Cursor, Codex, Gemini CLI, Claude Code 는 설정을 갈아끼우기만 하면 됩니다.  
+Grok Build, Cursor, Codex, Gemini CLI, Claude Code는 설정을 갈아끼우기만 하면 됩니다.
 한/글 전용 로직은 클라이언트에 두지 않습니다.
 
 - 엔진은 `hwpctl` 하나뿐입니다.
@@ -12,6 +12,17 @@ Grok Bot, Cursor, Codex, Gemini CLI, Claude Code 는 설정을 갈아끼우기�
 
 대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + pyhwpx `1.7.2`.
 한글 2024 전용 GSG / `GetCtrlInstID` / `SelectCtrl` 은 쓰지 않습니다.
+
+```mermaid
+flowchart LR
+    U["사용자"] --> A["Codex · Claude Code · Cursor<br/>Gemini CLI · Grok Build"]
+    A -->|"로컬 MCP stdio"| B["hwpctl<br/>단일 작성기 · 명령 잠금"]
+    B -->|"pyhwpx / Windows COM"| H["사용자가 열어 둔<br/>한글 2022 문서"]
+    H -->|"화면에서 즉시 확인"| U
+```
+
+AI 클라이언트와 `hwpctl`이 같은 PC에서 실행되면 기본 연결은 로컬 stdio입니다.
+HTTP는 별도 프로세스나 원격 클라이언트가 명시적으로 필요로 할 때만 선택합니다.
 
 ---
 
@@ -59,9 +70,10 @@ hwpctl status
 | Codex | MCP stdio | [`examples/codex/config.toml`](examples/codex/config.toml) |
 | Claude Code | MCP stdio | [`examples/claude-code/.mcp.json`](examples/claude-code/.mcp.json) |
 | Gemini CLI | MCP stdio | [`examples/gemini/settings.json`](examples/gemini/settings.json) |
-| Grok Bot / 원격 | MCP streamable HTTP + 토큰 | [`examples/grok-http/`](examples/grok-http/) |
+| Grok Build / 로컬 Grok CLI | MCP stdio | [`examples/grok-build/.mcp.json`](examples/grok-build/.mcp.json) |
+| 별도 프로세스·원격 클라이언트 | MCP streamable HTTP + 토큰 | [`examples/grok-http/`](examples/grok-http/) |
 
-stdio 예 (Cursor·Codex·Claude·Gemini 공통):
+stdio 예 (Cursor·Codex·Claude·Gemini·Grok Build 공통):
 
 ```json
 {
@@ -79,13 +91,16 @@ stdio 예 (Cursor·Codex·Claude·Gemini 공통):
 - Codex: `~/.codex/config.toml` 에 `examples/codex/config.toml` 을 복사합니다.
 - Claude Code: 프로젝트 `.mcp.json` 또는 `claude mcp add`.
 - Gemini CLI: `~/.gemini/settings.json` 의 `mcpServers`.
+- Grok Build: 프로젝트 `.mcp.json`에 `examples/grok-build/.mcp.json`을 병합합니다.
 
 바꾼 뒤 클라이언트를 재시작하면 같은 `status` / `insert_title` / `create_table` 도구가 보입니다.
 
-### Grok Bot (HTTP)
+### 선택 사항: HTTP 연결
 
-Grok Bot 은 원격이라 **이 PC의 localhost 에 바로 닿지 않습니다.**  
-로컬에 HTTP 를 띄운 뒤, 사용자가 나중에 터널(SSH, Cloudflare Tunnel 등)로 노출해야 합니다. 이 저장소는 노출을 가정하지 않습니다.
+같은 PC에서 명령줄을 실행하는 Grok Build를 포함한 로컬 클라이언트는 위의 stdio
+설정을 사용하면 됩니다. HTTP 모드는 별도 프로세스가 필요하거나, 원격 서비스에 대해
+사용자가 보안 영향을 검토하고 명시적으로 연결을 구성할 때만 사용하세요. 이 저장소는
+외부 공개나 터널을 기본값으로 가정하지 않습니다.
 
 ```bat
 set HWPCTL_TOKEN=긴무작위문자열
@@ -325,3 +340,18 @@ tests/            파서·잠금·한/글 없음
 ```
 
 라이브 편집은 Windows + 한글 2022 + `pip install -e ".[windows]"` 가 필요합니다.
+
+---
+
+## 공개 문서와 프로젝트 범위
+
+- [알려진 한계](KNOWN_LIMITATIONS.md): 열린 창, Undo, 표·차트와 실기 검증 상태
+- [보안 정책](SECURITY.md): 로컬 MCP의 신뢰 경계와 비공개 취약점 신고
+- [기여 안내](CONTRIBUTING.md): 테스트 자료와 PR 원칙
+- [변경 기록](CHANGELOG.md) · [릴리스 체크리스트](docs/RELEASE_CHECKLIST.md)
+- [제3자 구성요소 고지](THIRD_PARTY_NOTICES.md)
+
+`hwpctl`은 독립적인 오픈 소스 프로젝트이며 한글과컴퓨터가 제공·보증·후원하는 공식
+제품이 아닙니다. 사용자는 유효한 한글 라이선스와 해당 자동화 사용 조건을 직접
+확인해야 합니다. 이 저장소의 코드는 [MIT 라이선스](LICENSE)로 배포되며, 한글 및
+제3자 패키지는 각자의 라이선스를 따릅니다.

@@ -12,9 +12,14 @@ license = { text = "MIT" }
 authors = [{ name = "hwpctl" }]
 keywords = ["hangul", "hwp", "hwpx", "mcp", "pyhwpx"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Office Suites",
 ]
 dependencies = [
@@ -37,7 +42,12 @@ dev = [
 hwpctl = "hwpctl.cli:main"
 
 [project.urls]
-Documentation = "https://martiniifun.github.io/pyhwpx/core.html"
+Homepage = "https://github.com/Jasujung99/hwpctl"
+Repository = "https://github.com/Jasujung99/hwpctl"
+Documentation = "https://github.com/Jasujung99/hwpctl#readme"
+Issues = "https://github.com/Jasujung99/hwpctl/issues"
+Changelog = "https://github.com/Jasujung99/hwpctl/blob/main/CHANGELOG.md"
+"pyhwpx documentation" = "https://martiniifun.github.io/pyhwpx/core.html"
 
 [tool.setuptools.packages.find]
 include = ["hwpctl*"]
