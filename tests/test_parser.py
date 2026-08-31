@@ -24,11 +24,20 @@ def test_required_commands_exist() -> None:
         "fill_cells",
         "layout_review",
         "set_cell_margin",
+        "set_col_width",
+        "get_col_width",
+        "set_row_height",
+        "get_row_height",
+        "merge_cells",
+        "set_valign",
+        "set_cell_border",
         "insert_chart",
         "set_format",
+        "set_style",
         "replace_selection",
         "undo",
         "page",
+        "set_pagedef",
         "save_as",
     ):
         assert required in names
@@ -94,6 +103,39 @@ def test_insert_chart_parse() -> None:
     assert ns.cell_range == "A1:B5"
     with pytest.raises(SystemExit):
         parse_args(["insert_chart", "--type", "donut"])
+
+
+def test_table_size_merge_valign_and_border_parse() -> None:
+    col = parse_args(
+        ["set_col_width", "--table", "0", "--widths", "1,2,1", "--unit", "ratio"]
+    )
+    assert col.widths == "1,2,1"
+    assert col.unit == "ratio"
+    assert parse_args(["get_col_width", "--table", "0", "--column", "2"]).column == 2
+
+    row = parse_args(["set_row_height", "--height", "12.5", "--table", "0", "--row", "2"])
+    assert row.height == 12.5
+    assert parse_args(["get_row_height", "--row", "3"]).row == 3
+
+    merge = parse_args(["merge_cells", "--table", "0", "--range", "A1:B2"])
+    assert merge.cell_range == "A1:B2"
+    valign = parse_args(["set_valign", "bottom", "--table", "0", "--range", "A1:A2"])
+    assert valign.align == "bottom"
+    border = parse_args(
+        [
+            "set_cell_border",
+            "--sides",
+            "left,bottom",
+            "--line-type",
+            "Solid",
+            "--width",
+            "0.12mm",
+            "--color",
+            "#112233",
+        ]
+    )
+    assert border.sides == "left,bottom"
+    assert border.line_type == "Solid"
 
 
 def test_debug_and_lock_timeout_after_subcommand() -> None:
@@ -187,6 +229,30 @@ def test_save_as_and_page() -> None:
     assert ns.path == "out.hwpx"
     ns = parse_args(["page", "--goto", "3"])
     assert ns.goto == 3
+    assert ns.break_page is False
+    assert parse_args(["page", "--break"]).break_page is True
+
+
+def test_style_and_pagedef_parse() -> None:
+    style = parse_args(["set_style", "개요 1"])
+    assert style.style == "개요 1"
+    page = parse_args(
+        [
+            "set_pagedef",
+            "--paper-width",
+            "210",
+            "--paper-height",
+            "297",
+            "--left",
+            "20",
+            "--landscape",
+            "--apply",
+            "all",
+        ]
+    )
+    assert page.paper_width == 210
+    assert page.landscape is True
+    assert page.apply == "all"
 
 
 def test_mcp_http_options() -> None:

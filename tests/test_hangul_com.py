@@ -40,6 +40,12 @@ class RecordingAttrs:
     def __setattr__(self, key, value) -> None:
         self.items[key] = value
 
+    def __getattr__(self, key):
+        try:
+            return self.items[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
+
 
 class RecordingHSet:
     def __init__(self) -> None:
@@ -55,6 +61,9 @@ class RecordingPSet:
         object.__setattr__(self, "HSet", RecordingHSet())
         object.__setattr__(self, "FillAttr", RecordingAttrs())
         object.__setattr__(self, "ShapeTableCell", RecordingAttrs())
+        object.__setattr__(self, "PageDef", RecordingAttrs())
+        self.ShapeTableCell.Width = 1000
+        self.ShapeTableCell.Height = 500
 
     def __setattr__(self, key, value) -> None:
         self.items[key] = value
@@ -82,6 +91,8 @@ class StubPSetNamespace:
         self.HParaShape = RecordingPSet()
         self.HCellBorderFill = RecordingPSet()
         self.HShapeObject = RecordingPSet()
+        self.HSecDef = RecordingPSet()
+        self.HStyle = RecordingPSet()
 
 
 class StubCom:
@@ -120,6 +131,17 @@ class StubCom:
 
     def MiliToHwpUnit(self, mm: float) -> int:
         return int(round(mm * 7200 / 25.4))
+
+    def HwpUnitToMili(self, value: int) -> float:
+        return value * 25.4 / 7200
+
+    def HwpLineType(self, name: str) -> int:
+        assert name == "Solid"
+        return 1
+
+    def HwpLineWidth(self, width: str) -> int:
+        assert width == "0.12mm"
+        return 2
 
     def CreateAction(self, name: str):
         assert name == "InsertChart"
@@ -240,20 +262,12 @@ def test_cell_fill_raises_korean_when_execute_false() -> None:
     assert "셀 배경" in exc.value.message
 
 
-def test_table_inside_margin_com_items() -> None:
+def test_table_inside_margin_is_explicitly_unsupported() -> None:
     com = StubCom()
-    make_canvas(com).set_table_inside_margin(3.5, 3.5, 2.0, 2.0)
-    pset = com.HParameterSet.HShapeObject
-    assert pset.items["CellMarginLeft"] == com.MiliToHwpUnit(3.5)
-    assert pset.items["CellMarginTop"] == com.MiliToHwpUnit(2.0)
-    assert "TablePropertyDialog" in com.HAction.executed
-
-
-def test_table_inside_margin_requires_cell() -> None:
-    com = StubCom(cur_field_state=0)
     with pytest.raises(HangulCommandError) as exc:
         make_canvas(com).set_table_inside_margin(3.5, 3.5, 2.0, 2.0)
-    assert "표 안" in exc.value.message
+    assert "값이 바뀌지 않습니다" in exc.value.message
+    assert "TablePropertyDialog" not in com.HAction.executed
 
 
 def test_cell_margin_current_com_items() -> None:
@@ -262,6 +276,7 @@ def test_cell_margin_current_com_items() -> None:
     pset = com.HParameterSet.HShapeObject
     cell = pset.ShapeTableCell
     assert pset.HSet.items["ShapeType"] == 3
+    assert pset.HSet.items["ShapeCellSize"] == 0
     assert cell.items["HasMargin"] == 1
     assert cell.items["MarginLeft"] == com.MiliToHwpUnit(4.0)
     assert cell.items["MarginBottom"] == com.MiliToHwpUnit(1.5)
@@ -304,3 +319,129 @@ def test_select_cell_range_checked_moves() -> None:
     bad = StubCom(cell_addr="A1", fail={"TableCellBlock"})
     with pytest.raises(HangulCommandError):
         make_canvas(bad).select_cell_range("A1", "B3")
+
+
+def test_col_width_uses_table_property_dialog_and_not_getcellwidth() -> None:
+    com = StubCom()
+    canvas = make_canvas(com)
+    assert canvas.get_col_width() == pytest.approx(1000 * 25.4 / 7200)
+    assert "GetDefault:TablePropertyDialog" in com.HAction.calls
+    assert not hasattr(com, "GetCellWidth")
+
+    com.HAction.calls.clear()
+    canvas.set_col_width_current(30)
+    assert com.HAction.calls[:4] == [
+        "TableColPageUp",
+        "TableCellBlock",
+        "TableCellBlockExtend",
+        "TableColPageDown",
+    ]
+    pset = com.HParameterSet.HShapeObject
+    assert pset.HSet.items["ShapeCellSize"] == 1
+    assert pset.ShapeTableCell.items["Width"] == com.MiliToHwpUnit(30)
+    assert "TablePropertyDialog" in com.HAction.executed
+
+
+def test_row_height_uses_shape_cell_size_and_reads_default() -> None:
+    com = StubCom()
+    canvas = make_canvas(com)
+    assert canvas.get_row_height() == pytest.approx(500 * 25.4 / 7200)
+    canvas.set_row_height_current(12)
+    pset = com.HParameterSet.HShapeObject
+    assert pset.HSet.items["ShapeCellSize"] == 1
+    assert pset.ShapeTableCell.items["Height"] == com.MiliToHwpUnit(12)
+
+
+def test_merge_cells_uses_verified_block_sequence() -> None:
+    com = StubCom(cell_addr="A1")
+    make_canvas(com).merge_cells("A1", "B2")
+    calls = com.HAction.calls
+    block = calls.index("TableCellBlock")
+    extend = calls.index("TableCellBlockExtend")
+    right = calls.index("TableRightCell")
+    lower = calls.index("TableLowerCell")
+    merge = calls.index("TableMergeCell")
+    assert block < extend < right < lower < merge
+
+    bad = StubCom(cell_addr="A1", fail={"TableCellBlockExtend"})
+    with pytest.raises(HangulCommandError):
+        make_canvas(bad).merge_cells("A1", "B2")
+    assert "TableMergeCell" not in bad.HAction.calls
+
+
+@pytest.mark.parametrize(
+    ("align", "action", "value"),
+    [
+        ("top", "TableVAlignTop", 0),
+        ("center", "TableVAlignCenter", 1),
+        ("bottom", "TableVAlignBottom", 2),
+    ],
+)
+def test_set_valign_uses_verified_actions(align: str, action: str, value: int) -> None:
+    com = StubCom()
+    assert make_canvas(com).set_valign_current(align) == value
+    assert action in com.HAction.calls
+
+
+def test_cell_border_uses_cellborderfill_and_left_color_typo() -> None:
+    com = StubCom()
+    make_canvas(com).set_cell_border_current(
+        sides=["left", "right"],
+        line_type="Solid",
+        width="0.12mm",
+        color="#112233",
+    )
+    pset = com.HParameterSet.HCellBorderFill
+    assert pset.items["BorderTypeLeft"] == 1
+    assert pset.items["BorderWidthLeft"] == 2
+    assert pset.items["BorderCorlorLeft"] == com.RGBColor(17, 34, 51)
+    assert "BorderColorLeft" not in pset.items
+    assert pset.items["BorderColorRight"] == com.RGBColor(17, 34, 51)
+    assert "CellBorderFill" in com.HAction.executed
+
+
+def test_cell_border_rejects_type_horz() -> None:
+    with pytest.raises(Exception) as exc:
+        make_canvas(StubCom()).set_cell_border_current(
+            sides=["horizontal"],
+            line_type="Solid",
+            width="0.12mm",
+            color="#000000",
+        )
+    assert "TypeHorz" in str(exc.value)
+
+
+def test_pagedef_and_break_page_use_verified_actions() -> None:
+    com = StubCom()
+    canvas = make_canvas(com)
+    canvas.set_pagedef(
+        paper_width=210,
+        paper_height=297,
+        left=20,
+        right=20,
+        landscape=True,
+        apply="all",
+    )
+    pset = com.HParameterSet.HSecDef
+    assert pset.PageDef.items["PaperWidth"] == com.MiliToHwpUnit(210)
+    assert pset.PageDef.items["LeftMargin"] == com.MiliToHwpUnit(20)
+    assert pset.PageDef.items["Landscape"] == 1
+    assert pset.HSet.items["ApplyTo"] == 3
+    assert "PageSetup" in com.HAction.executed
+    canvas.break_page()
+    assert "BreakPage" in com.HAction.calls
+
+
+def test_named_style_calls_pyhwpx_set_style_only() -> None:
+    class StubPx:
+        def __init__(self) -> None:
+            self.styles = []
+
+        def set_style(self, style):
+            self.styles.append(style)
+            return True
+
+    px = StubPx()
+    canvas = HangulCanvas(px=px, com=StubCom(), backend="pyhwpx")
+    canvas.set_style("개요 1")
+    assert px.styles == ["개요 1"]

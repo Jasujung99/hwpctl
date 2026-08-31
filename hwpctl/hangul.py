@@ -356,6 +356,11 @@ class HangulCanvas:
                 f"{n}번 표 {col + 1}열은 병합 구조 때문에 너비를 조절할 셀을 찾지 못했습니다."
             )
         self.goto_addr(addr)
+        self.set_col_width_current(width_mm)
+        return 1
+
+    def set_col_width_current(self, width_mm: float) -> None:
+        """현재 셀이 속한 열을 선택해 너비(mm)를 설정한다."""
         self.assert_no_dialog()
         if not (
             self.run("TableColPageUp")
@@ -363,7 +368,7 @@ class HangulCanvas:
             and self.run("TableCellBlockExtend")
             and self.run("TableColPageDown")
         ):
-            raise HangulCommandError(f"{n}번 표 {col + 1}열 선택에 실패했습니다.")
+            raise HangulCommandError("현재 열 선택에 실패했습니다.")
         try:
             pset = self.com.HParameterSet.HShapeObject
             self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
@@ -372,13 +377,25 @@ class HangulCanvas:
             pset.ShapeTableCell.Width = self._mm_to_hwpunit(width_mm)
             ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
         except Exception as exc:
-            raise HangulCommandError(
-                f"{n}번 표 {col + 1}열 너비 조절에 실패했습니다: {exc}"
-            ) from exc
+            raise HangulCommandError(f"현재 열 너비 조절에 실패했습니다: {exc}") from exc
         if not ok:
-            raise HangulCommandError(f"{n}번 표 {col + 1}열 너비 조절 액션이 실패했습니다.")
+            raise HangulCommandError("현재 열 너비 조절 액션이 실패했습니다.")
         self.assert_no_dialog()
-        return 1
+
+    def get_col_width(self) -> float:
+        """현재 셀의 열 너비(mm). GetCellWidth 대신 TablePropertyDialog를 쓴다."""
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 열 너비를 읽을 수 없습니다.")
+        return self._get_col_width_mm()
+
+    def get_table_column_widths(self) -> list[float]:
+        """현재 표의 각 열 너비(mm)를 첫 행의 실제 셀 기준으로 읽는다."""
+        representatives = self.table_column_addresses()
+        widths: list[float] = []
+        for _col, addr in sorted(representatives.items()):
+            self.goto_addr(addr)
+            widths.append(self._get_col_width_mm())
+        return widths
 
     def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
         """행 높이를 mm로 설정한다. 성공하면 한/글 액션 수 1."""
@@ -392,28 +409,30 @@ class HangulCanvas:
                 f"{n}번 표 {row + 1}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
             )
         self.goto_addr(addr)
-        self.assert_no_dialog()
-        if self.px:
-            try:
-                ok = self.px.set_row_height(height_mm, as_="mm")
-            except Exception as exc:
-                raise HangulCommandError(f"{n}번 표 {row + 1}행 높이 조절에 실패했습니다: {exc}") from exc
-        else:
-            try:
-                pset = self.com.HParameterSet.HShapeObject
-                self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
-                pset.HSet.SetItem("ShapeType", 3)
-                pset.HSet.SetItem("ShapeCellSize", 1)
-                pset.ShapeTableCell.Height = self._mm_to_hwpunit(height_mm)
-                ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
-            except Exception as exc:
-                raise HangulCommandError(
-                    f"{n}번 표 {row + 1}행 높이 조절에 실패했습니다: {exc}"
-                ) from exc
-        if not ok:
-            raise HangulCommandError(f"{n}번 표 {row + 1}행 높이 조절 액션이 실패했습니다.")
-        self.assert_no_dialog()
+        self.set_row_height_current(height_mm)
         return 1
+
+    def set_row_height_current(self, height_mm: float) -> None:
+        """현재 셀이 속한 행 높이(mm)를 설정한다."""
+        self.assert_no_dialog()
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.HSet.SetItem("ShapeType", 3)
+            pset.HSet.SetItem("ShapeCellSize", 1)
+            pset.ShapeTableCell.Height = self._mm_to_hwpunit(height_mm)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"현재 행 높이 조절에 실패했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("현재 행 높이 조절 액션이 실패했습니다.")
+        self.assert_no_dialog()
+
+    def get_row_height(self) -> float:
+        """현재 셀의 행 높이(mm). TablePropertyDialog 기본값에서 읽는다."""
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 행 높이를 읽을 수 없습니다.")
+        return self._get_row_height_mm()
 
     # --- 편집 (COM 액션, 키 입력 없음) ------------------------------------
 
@@ -564,6 +583,32 @@ class HangulCanvas:
             raise HangulCommandError(f"정렬을 적용하지 못했습니다: {exc}") from exc
         if not ok:
             raise HangulCommandError("정렬(ParagraphShape) 액션이 실패했습니다.")
+
+    def set_style(self, style: str | int) -> None:
+        """현재 문단 스타일을 적용한다. HwpOutlineType/Style 변환 API는 쓰지 않는다."""
+        self.assert_no_dialog()
+        try:
+            if self.px:
+                ok = bool(self.px.set_style(style))
+            elif isinstance(style, int):
+                pset = self.com.HParameterSet.HStyle
+                self.com.HAction.GetDefault("Style", pset.HSet)
+                pset.Apply = style
+                ok = bool(self.com.HAction.Execute("Style", pset.HSet))
+            else:
+                raise HangulCommandError(
+                    "스타일 이름 적용은 pyhwpx 1.7.2가 필요합니다. "
+                    "HwpOutlineType/HwpOutlineStyle 직접 호출은 한글 2022에서 실패하므로 사용하지 않습니다."
+                )
+        except HangulCommandError:
+            raise
+        except (KeyError, ValueError) as exc:
+            raise HangulCommandError(f"문서에서 스타일 '{style}'을 찾지 못했습니다.") from exc
+        except Exception as exc:
+            raise HangulCommandError(f"스타일 '{style}'을 적용하지 못했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError(f"스타일 '{style}' 적용 액션이 실패했습니다.")
+        self.assert_no_dialog()
 
     def create_table(self, rows: int, cols: int, header: bool = True) -> None:
         if rows < 1 or cols < 1:
@@ -717,6 +762,7 @@ class HangulCanvas:
             pset = self.com.HParameterSet.HShapeObject
             self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
             pset.HSet.SetItem("ShapeType", 3)
+            pset.HSet.SetItem("ShapeCellSize", 0)
             cell = pset.ShapeTableCell
             cell.HasMargin = 1
             cell.MarginLeft = self._mm_to_hwpunit(left)
@@ -732,33 +778,46 @@ class HangulCanvas:
     def set_table_inside_margin(
         self, left: float, right: float, top: float, bottom: float
     ) -> None:
-        """캐럿이 들어 있는 표의 모든 셀 안쪽 여백을 mm 로 일괄 지정."""
-        if self.px:
-            if not self.px.set_table_inside_margin(
-                left=left, right=right, top=top, bottom=bottom, as_="mm"
-            ):
-                raise HangulCommandError(
-                    "표 안 여백을 적용하지 못했습니다. 캐럿이 표 안에 있어야 합니다."
-                )
-            return
-        if not self.is_cell():
-            raise HangulCommandError(
-                "캐럿이 표 안에 있지 않아 표 안 여백을 적용할 수 없습니다."
-            )
-        # pyhwpx set_table_inside_margin 소스와 동일: TablePropertyDialog + CellMargin*
-        ok = False
-        try:
-            pset = self.com.HParameterSet.HShapeObject
-            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
-            pset.CellMarginLeft = self._mm_to_hwpunit(left)
-            pset.CellMarginRight = self._mm_to_hwpunit(right)
-            pset.CellMarginTop = self._mm_to_hwpunit(top)
-            pset.CellMarginBottom = self._mm_to_hwpunit(bottom)
-            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
-        except Exception as exc:
-            raise HangulCommandError(f"표 안 여백 적용에 실패했습니다: {exc}") from exc
-        if not ok:
-            raise HangulCommandError("표 안 여백(TablePropertyDialog) 액션이 실패했습니다.")
+        """지원하지 않는 pyhwpx 일괄 API를 명시적으로 막는다."""
+        raise HangulCommandError(
+            "set_table_inside_margin은 한글 2022에서 성공을 반환해도 값이 바뀌지 않습니다. "
+            "표 전체 안 여백은 셀을 순회해 set_cell_margin을 적용해야 합니다."
+        )
+
+    def table_cell_addresses(self) -> list[str]:
+        """현재 표의 실제 셀 주소를 이동 액션과 KeyIndicator로 읽는다."""
+        addresses = self._table_addresses()
+        if not addresses:
+            raise HangulCommandError("현재 표의 셀 구조를 읽지 못했습니다.")
+        return addresses
+
+    def table_column_addresses(self) -> dict[int, str]:
+        """현재 표에서 각 열을 대표하는 실제 셀 주소."""
+        representatives: dict[int, str] = {}
+        for addr in self.table_cell_addresses():
+            _row, col = _parse_a1(addr)
+            representatives.setdefault(col, addr)
+        return representatives
+
+    def table_row_addresses(self) -> dict[int, str]:
+        """현재 표에서 각 행을 대표하는 실제 셀 주소."""
+        representatives: dict[int, str] = {}
+        for addr in self.table_cell_addresses():
+            row, _col = _parse_a1(addr)
+            representatives.setdefault(row, addr)
+        return representatives
+
+    def set_all_cell_margins(
+        self, left: float, right: float, top: float, bottom: float
+    ) -> int:
+        """현재 표의 실제 셀을 하나씩 순회해 안 여백을 적용한다."""
+        addresses = self.table_cell_addresses()
+        actions = 0
+        for addr in addresses:
+            self.goto_addr(addr)
+            self.set_cell_margin_current(left, right, top, bottom)
+            actions += 1
+        return actions
 
     def select_all_cells(self) -> None:
         """캐럿이 들어 있는 표의 모든 셀을 셀블록으로 선택 (차트 데이터용)."""
@@ -787,6 +846,103 @@ class HangulCanvas:
         for _ in range(r1 - r0):
             if not self.run("TableLowerCell"):
                 raise HangulCommandError("셀블록 확장(행)에 실패했습니다.")
+
+    def merge_cells(self, start: str, end: str) -> None:
+        """한글 2022에서 확인된 셀블록 선택 순서로 범위를 합친다."""
+        r0, c0 = _parse_a1(start)
+        r1, c1 = _parse_a1(end)
+        if r1 < r0:
+            r0, r1 = r1, r0
+        if c1 < c0:
+            c0, c1 = c1, c0
+        if r0 == r1 and c0 == c1:
+            raise UsageError("두 칸 이상을 지정해야 셀을 합칠 수 있습니다.")
+        self.goto_addr(_a1(r0, c0))
+        self.assert_no_dialog()
+        if not self.run("TableCellBlock"):
+            raise HangulCommandError("셀 합치기 선택 시작(TableCellBlock)에 실패했습니다.")
+        if not self.run("TableCellBlockExtend"):
+            raise HangulCommandError("셀 합치기 선택 확장(TableCellBlockExtend)에 실패했습니다.")
+        for _ in range(c1 - c0):
+            if not self.run("TableRightCell"):
+                raise HangulCommandError("셀 합치기 범위의 열 이동에 실패했습니다.")
+        for _ in range(r1 - r0):
+            if not self.run("TableLowerCell"):
+                raise HangulCommandError("셀 합치기 범위의 행 이동에 실패했습니다.")
+        if not self.run("TableMergeCell"):
+            raise HangulCommandError(
+                "셀 합치기(TableMergeCell)에 실패했습니다. "
+                "TableMergeCell은 셀블록 선택 없이 단독으로 실행할 수 없습니다."
+            )
+        self.assert_no_dialog()
+
+    def set_valign_current(self, align: str) -> int:
+        """현재 셀의 세로 정렬. VertAlign 0/1/2에 대응하는 확인된 액션만 쓴다."""
+        actions = {
+            "top": ("TableVAlignTop", 0),
+            "center": ("TableVAlignCenter", 1),
+            "bottom": ("TableVAlignBottom", 2),
+        }
+        key = (align or "").strip().lower()
+        if key not in actions:
+            raise UsageError("세로 정렬은 top, center, bottom 중 하나여야 합니다.")
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 세로 정렬을 적용할 수 없습니다.")
+        action_id, vert_align = actions[key]
+        self.assert_no_dialog()
+        if not self.run(action_id):
+            raise HangulCommandError(f"셀 세로 정렬({action_id})에 실패했습니다.")
+        self.assert_no_dialog()
+        return vert_align
+
+    def set_cell_border_current(
+        self,
+        *,
+        sides: list[str],
+        line_type: str | int,
+        width: str | int,
+        color: str,
+    ) -> None:
+        """현재 셀 테두리를 CellBorderFill로 설정한다."""
+        allowed = {"left", "right", "top", "bottom"}
+        unknown = set(sides) - allowed
+        if unknown:
+            if unknown & {"horz", "horizontal", "inside-horizontal"}:
+                raise UsageError("한글 2022에서 TypeHorz는 지원하지 않습니다.")
+            raise UsageError(f"지원하지 않는 셀 테두리 방향입니다: {', '.join(sorted(unknown))}")
+        if not sides:
+            raise UsageError("셀 테두리 방향을 하나 이상 지정하세요.")
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 테두리를 적용할 수 없습니다.")
+        rgb = parse_color(color)
+        try:
+            line_type_value = (
+                int(line_type)
+                if isinstance(line_type, int)
+                else int(self.com.HwpLineType(line_type))
+            )
+            width_value = (
+                int(width) if isinstance(width, int) else int(self.com.HwpLineWidth(width))
+            )
+            color_value = self._rgb_value(rgb)
+            pset = self.com.HParameterSet.HCellBorderFill
+            self.com.HAction.GetDefault("CellBorderFill", pset.HSet)
+            for side in sides:
+                suffix = side.title()
+                setattr(pset, f"BorderType{suffix}", line_type_value)
+                setattr(pset, f"BorderWidth{suffix}", width_value)
+                # 한글 2022 자동화의 왼쪽 색 항목은 실제로 Corlor 오탈자다.
+                color_attr = "BorderCorlorLeft" if side == "left" else f"BorderColor{suffix}"
+                setattr(pset, color_attr, color_value)
+            self.assert_no_dialog()
+            ok = bool(self.com.HAction.Execute("CellBorderFill", pset.HSet))
+        except (UsageError, HangulCommandError):
+            raise
+        except Exception as exc:
+            raise HangulCommandError(f"셀 테두리를 적용하지 못했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("셀 테두리(CellBorderFill) 액션이 실패했습니다.")
+        self.assert_no_dialog()
 
     def insert_chart(
         self,
@@ -935,6 +1091,60 @@ class HangulCanvas:
 
     def undo_once(self) -> None:
         self.run("Undo")
+
+    def set_pagedef(
+        self,
+        *,
+        paper_width: float | None = None,
+        paper_height: float | None = None,
+        left: float | None = None,
+        right: float | None = None,
+        top: float | None = None,
+        bottom: float | None = None,
+        header: float | None = None,
+        footer: float | None = None,
+        gutter: float | None = None,
+        landscape: bool | None = None,
+        apply: str = "current",
+    ) -> None:
+        """현재 편집용지의 용지·여백·방향을 PageSetup으로 바꾼다."""
+        apply_to = {"current": 2, "all": 3, "new": 4}
+        if apply not in apply_to:
+            raise UsageError("편집용지 적용 범위는 current, all, new 중 하나여야 합니다.")
+        fields = {
+            "PaperWidth": paper_width,
+            "PaperHeight": paper_height,
+            "LeftMargin": left,
+            "RightMargin": right,
+            "TopMargin": top,
+            "BottomMargin": bottom,
+            "HeaderLen": header,
+            "FooterLen": footer,
+            "GutterLen": gutter,
+        }
+        self.assert_no_dialog()
+        try:
+            pset = self.com.HParameterSet.HSecDef
+            self.com.HAction.GetDefault("PageSetup", pset.HSet)
+            for name, value in fields.items():
+                if value is not None:
+                    setattr(pset.PageDef, name, self._mm_to_hwpunit(value))
+            if landscape is not None:
+                pset.PageDef.Landscape = 1 if landscape else 0
+            pset.HSet.SetItem("ApplyTo", apply_to[apply])
+            ok = bool(self.com.HAction.Execute("PageSetup", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"편집용지를 적용하지 못했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("편집용지(PageSetup) 액션이 실패했습니다.")
+        self.assert_no_dialog()
+
+    def break_page(self) -> None:
+        """캐럿 위치에서 확인된 BreakPage 액션으로 쪽을 나눈다."""
+        self.assert_no_dialog()
+        if not self.run("BreakPage"):
+            raise HangulCommandError("쪽 나누기(BreakPage) 액션이 실패했습니다.")
+        self.assert_no_dialog()
 
     def goto_page(self, page_index_1: int) -> None:
         if page_index_1 < 1:

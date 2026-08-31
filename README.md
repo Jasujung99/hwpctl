@@ -10,7 +10,7 @@ Grok Bot, Cursor, Codex, Gemini CLI, Claude Code 는 설정을 갈아끼우기�
 - **자동저장 없음.** 원본은 덮어쓰지 않고 `save_as` 로 새 파일에 저장합니다.
 - 작성기는 한 번에 하나만. 잠금 파일이 두 클라이언트의 동시 쓰기를 막습니다.
 
-대상: Windows PC (`DESKTOP-FH9UHKD` 등) + 한글 오피스 2022.  
+대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + pyhwpx `1.7.2`.  
 한글 2024 전용 GSG / `GetCtrlInstID` / `SelectCtrl` 은 쓰지 않습니다.
 
 ---
@@ -113,11 +113,18 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
+| `set_col_width` / `get_col_width` | 열 너비를 mm·비율로 설정 / mm로 조회 |
+| `set_row_height` / `get_row_height` | 행 높이를 mm로 설정 / 조회 |
+| `merge_cells` | `TableCellBlock` 선택 범위의 셀 합치기 |
+| `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
+| `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
 | `set_format` | 글꼴·크기·굵게·정렬·셀 색. `--range` 는 요청 칸에만 |
+| `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
 | `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
 | `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
-| `page` | 현재 쪽 읽기 / `--goto N` 이동 |
+| `page` | 현재 쪽·`PageCount` 읽기 / `--goto N` 이동 / `--break` 쪽 나누기 |
+| `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
 | `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
@@ -175,6 +182,76 @@ hwpctl layout_review --table 0 --dry-run     :: 수정하지 않고 JSON 계획�
 hwpctl set_cell_margin --table 0                        :: 0번 표 전체 칸, 기본 3.5/2.0mm
 hwpctl set_cell_margin --table 0 --left 4 --right 4 --top 2 --bottom 2
 hwpctl set_cell_margin --table 0 --range A1:D4          :: 해당 칸들만
+```
+
+한글 2022에서 `set_table_inside_margin`은 `True`를 반환해도 실제 값이 바뀌지
+않았습니다. 따라서 `create_table`의 기본 여백과 `set_cell_margin --table N`은
+모두 표의 실제 셀 주소를 순회하며 각 셀에 `set_cell_margin`을 한 번씩 적용합니다.
+Undo 기록에도 적용한 셀 수가 그대로 들어갑니다.
+
+## 한글 2022 실측 서식 명령
+
+MCP/Engine 시그니처(같은 이름의 CLI도 제공):
+
+```python
+set_col_width(widths, table=None, column=None, unit="mm")  # unit: mm | ratio
+get_col_width(table=None, column=None)                     # 결과 단위: mm
+set_row_height(height, table=None, row=None)               # mm, row는 1부터
+get_row_height(table=None, row=None)                       # 결과 단위: mm
+merge_cells(cell_range, table=None)
+set_valign(align, table=None, cell_range="")               # top | center | bottom
+set_cell_border(sides="all", line_type="Solid", width="0.12mm",
+                color="#000000", table=None, cell_range="")
+set_style(style)                                           # 예: "개요 1"
+set_pagedef(paper_width=None, paper_height=None, left=None, right=None,
+            top=None, bottom=None, header=None, footer=None, gutter=None,
+            landscape=None, apply="current")
+page(goto=None, break_page=False)
+```
+
+- 열·행 치수는 `GetCellWidth` 없이 `TablePropertyDialog`의
+  `ShapeTableCell.Width/Height`를 읽고, 설정할 때 `ShapeCellSize=1`을 씁니다.
+  `ratio`는 현재 표 전체 폭을 유지하며 모든 열의 비율을 지정합니다.
+- 병합은 `TableCellBlock` → `TableCellBlockExtend` → 셀 이동 →
+  `TableMergeCell` 순서입니다. `TableMergeCell` 단독 호출은 하지 않습니다.
+- 세로 정렬은 `TableVAlignTop/Center/Bottom`이며 결과의 `vert_align`은 각각
+  `0/1/2`입니다.
+- 테두리는 `CellBorderFill`을 사용합니다. 왼쪽 색 항목은 한글 2022의 실제
+  철자인 `BorderCorlorLeft`를 사용합니다. 내부 가로선 `TypeHorz`는 오류로
+  거부합니다.
+- 쪽 나누기는 `BreakPage`, 쪽 수는 `PageCount`입니다.
+- `set_style("개요 1")`은 pyhwpx의 `set_style`을 사용합니다.
+  한글 2022에서 COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출은
+  하지 않습니다.
+- 편집 전후에 한/글 대화상자를 확인하며, 떠 있으면 대신 누르지 않고 한국어
+  오류로 중단합니다. SendKeys와 자동저장은 사용하지 않습니다.
+
+CLI 예:
+
+```bat
+hwpctl set_col_width --table 0 --widths 1,2,1 --unit ratio
+hwpctl get_col_width --table 0
+hwpctl set_row_height --table 0 --row 2 --height 12
+hwpctl merge_cells --table 0 --range A1:B1
+hwpctl set_valign center --table 0 --range A1:C2
+hwpctl set_cell_border --table 0 --range A1:C2 --sides all --color #333333
+hwpctl set_style "개요 1"
+hwpctl set_pagedef --paper-width 210 --paper-height 297 --left 20 --right 20
+hwpctl page --break
+```
+
+저장 없이 시험하려면 빈 문서에서 다음처럼 실행하고, 결과 확인 뒤 `undo`로
+직전 명령을 되돌립니다. `save`/`save_as`를 호출하지 않는 한 자동으로 저장되지
+않습니다.
+
+```bat
+hwpctl open --new
+hwpctl create_table --rows 2 --cols 3
+hwpctl set_col_width --widths 1,2,1 --unit ratio
+hwpctl set_valign center --table 0
+hwpctl layout_review --table 0
+hwpctl page
+hwpctl undo
 ```
 
 ## 한/글 네이티브 차트 (insert_chart)
