@@ -1,0 +1,62 @@
+name: 버그 보고
+description: 개인정보 없는 최소 재현으로 hwpctl 결함을 알려 주세요.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        보안 문제는 공개 Issue를 만들지 말고 Security 탭의 비공개 신고를 사용하세요.
+        실제 문서, 토큰, 사용자명, 컴퓨터명, 절대 경로와 화면 캡처는 첨부하지 마세요.
+  - type: input
+    id: version
+    attributes:
+      label: hwpctl 버전 또는 커밋
+      placeholder: 0.1.0 또는 커밋 SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      description: Windows, 한글 빌드, Python, pyhwpx, AI 클라이언트 버전을 적어 주세요.
+      placeholder: Windows 11 / 한글 2022 12.x / Python 3.12 / pyhwpx 1.7.2 / Cursor ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 최소 재현 절차
+      description: 개인정보 없는 빈 문서나 복사본에서 사용한 명령을 순서대로 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 예상 결과
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 결과
+      description: 민감정보를 제거한 오류 메시지만 붙여 주세요.
+    validations:
+      required: true
+  - type: dropdown
+    id: live_hangul
+    attributes:
+      label: 실제 한글 2022에서 재현했나요?
+      options:
+        - 예, 개인정보 없는 복사본에서 재현했습니다.
+        - 아니요, 자동 테스트 또는 모의 환경에서만 확인했습니다.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 개인정보 확인
+      options:
+        - label: 실제 문서·개인정보·토큰·사용자 경로를 제거했습니다.
+          required: true

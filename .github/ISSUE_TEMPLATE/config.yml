@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 비공개 신고
+    url: https://github.com/Jasujung99/hwpctl/security/advisories/new
+    about: 문서 노출, 임의 편집, 인증 우회는 공개 Issue 대신 이 경로를 사용하세요.
+  - name: 설치·조합·사용 질문
+    url: https://github.com/Jasujung99/hwp-ai-bridge/discussions
+    about: 여러 AI 클라이언트와 엔진 조합에 관한 질문은 허브 Discussions에서 받습니다.

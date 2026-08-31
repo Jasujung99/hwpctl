@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test and build dependencies
+        run: python -m pip install --upgrade pip build tomli
+
+      - name: Install hwpctl in an isolated MCP 1.x environment
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Validate public files and client configs
+        run: python scripts/validate_public_files.py
+
+      - name: List MCP tools without starting Hangul
+        run: python -m hwpctl mcp --list-tools
+
+      - name: Build wheel and source distribution
+        run: python -m build
