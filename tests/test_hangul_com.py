@@ -372,7 +372,6 @@ def test_select_cell_range_checked_moves() -> None:
         make_canvas(bad).select_cell_range("A1", "B3")
 
 
-<<<<<<< HEAD
 def test_col_width_uses_table_property_dialog_and_not_getcellwidth() -> None:
     com = StubCom()
     canvas = make_canvas(com)
