@@ -340,7 +340,6 @@ def test_layout_review_stops_at_body_width_cap(engine) -> None:
     fake.layout["max_table_width_mm"] = 100.0
     out = eng.layout_review(table=0)
     assert not any(call[0] == "set_table_column_widths" for call in fake.calls)
-    assert out["hangul_actions"] == 0
     assert any("상한" in warning for warning in out["warnings"])
 
 

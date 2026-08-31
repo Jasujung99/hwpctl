@@ -316,7 +316,7 @@ class HangulCanvas:
                     )
             row_heights.append(row_height)
 
-        table_width = self._get_table_width_mm()
+        table_width = max(self._get_table_width_mm(), sum(column_widths))
         body_width = self._get_body_width_mm()
         outside = self._get_table_outside_margin_mm()
         max_width = max(0.0, body_width - outside["left"] - outside["right"])
@@ -355,9 +355,18 @@ class HangulCanvas:
             # pyhwpx adjust_cellwidth(list)는 열마다 TablePropertyDialog를 한 번 실행한다.
             return len(widths_mm)
 
+        addresses = self._table_addresses()
         for col, width in enumerate(widths_mm):
+            addr = next(
+                (addr for addr in addresses if _parse_a1(addr)[1] == col),
+                None,
+            )
+            if addr is None:
+                raise HangulCommandError(
+                    f"{n}번 표 {col + 1}열은 병합 구조 때문에 너비를 조절할 셀을 찾지 못했습니다."
+                )
             self.get_into_nth_table(n)
-            self.goto_addr(_a1(0, col))
+            self.goto_addr(addr)
             if not (
                 self.run("TableColPageUp")
                 and self.run("TableCellBlock")
@@ -1074,8 +1083,7 @@ class HangulCanvas:
         try:
             return self._hwpunit_to_mm(self.com.CellShape.Item("Width"))
         except Exception:
-            # 열 합계는 병합 없는 일반 표에서 표 폭과 같다.
-            return sum(self._get_col_width_mm() for _ in range(1))
+            return 0.0
 
     def _get_cell_margin_mm(self) -> dict[str, float]:
         if self.px:

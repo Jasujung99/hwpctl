@@ -421,9 +421,21 @@ class Engine:
                         actions += int(result if result is not None else len(plan["target_column_widths_mm"]))
                         # 열 변경 뒤 실제 조판 줄 수로 행 높이를 다시 계산한다.
                         after_width = canvas.inspect_table_layout(index)
+                        plan["width_after_mm"] = round(
+                            float(after_width["table_width_mm"]), 2
+                        )
+                        actual_widths = after_width.get("column_widths_mm", [])
+                        for change in plan["column_changes"]:
+                            col = int(change["column_index"])
+                            if col < len(actual_widths):
+                                change["actual_to_mm"] = round(
+                                    float(actual_widths[col]), 2
+                                )
                         row_plan = plan_table_layout(after_width)
                         plan["row_changes"] = row_plan["row_changes"]
                         plan["warnings"].extend(row_plan["warnings"])
+                    else:
+                        plan["width_after_mm"] = plan["width_before_mm"]
                     if not dry_run:
                         for change in plan["row_changes"]:
                             result = canvas.set_table_row_height(
