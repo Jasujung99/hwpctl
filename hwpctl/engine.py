@@ -12,6 +12,7 @@ from typing import Any
 
 from hwpctl.errors import DestructiveGuardError, HangulCommandError, UsageError
 from hwpctl.hangul import HangulCanvas, a1, expand_range, parse_a1
+from hwpctl.layout import plan_table_layout
 from hwpctl.lock import SingleWriterLock, WriterState, load_state, save_state
 from hwpctl.tools import tool_catalog
 
@@ -77,6 +78,7 @@ class Engine:
             "create_table": self.create_table,
             "fill_cells": self.fill_cells,
             "set_cell_margin": self.set_cell_margin,
+            "layout_review": self.layout_review,
             "insert_chart": self.insert_chart,
             "set_format": self.set_format,
             "replace_selection": self.replace_selection,
@@ -382,6 +384,129 @@ class Engine:
                 "table": table,
                 "written": written,
                 "undo_units": 1,
+            }
+
+    def layout_review(
+        self,
+        table: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """표 줄바꿈·행 높이·본문 폭·쪽 수를 검토하고 기본적으로 바로 고친다."""
+        if table is not None and table < 0:
+            raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            dialog_check = getattr(canvas, "assert_no_dialog", None)
+            if dialog_check:
+                dialog_check()
+            count = canvas.table_count()
+            if table is not None and table >= count:
+                raise HangulCommandError(
+                    f"{table}번 표를 찾지 못했습니다. 문서의 표는 {count}개입니다."
+                )
+            targets = [table] if table is not None else list(range(count))
+            before_pages = canvas.doc_info().page_count
+            saved_pos = canvas.get_pos()
+            saved_sel = canvas.selection_range()
+            table_results: list[dict[str, Any]] = []
+            actions = 0
+            try:
+                for index in targets:
+                    measured = canvas.inspect_table_layout(index)
+                    plan = plan_table_layout(measured)
+                    if not dry_run and plan["column_changes"]:
+                        set_one_column = getattr(canvas, "set_table_column_width", None)
+                        if set_one_column:
+                            for change in plan["column_changes"]:
+                                col = int(change["column_index"])
+                                result = set_one_column(
+                                    index,
+                                    col,
+                                    float(plan["target_column_widths_mm"][col]),
+                                )
+                                actions += int(result if result is not None else 1)
+                        else:
+                            result = canvas.set_table_column_widths(
+                                index, plan["target_column_widths_mm"]
+                            )
+                            actions += int(
+                                result
+                                if result is not None
+                                else len(plan["target_column_widths_mm"])
+                            )
+                        # 열 변경 뒤 실제 조판 줄 수로 행 높이를 다시 계산한다.
+                        after_width = canvas.inspect_table_layout(index)
+                        plan["width_after_mm"] = round(
+                            float(after_width["table_width_mm"]), 2
+                        )
+                        actual_widths = after_width.get("column_widths_mm", [])
+                        for change in plan["column_changes"]:
+                            col = int(change["column_index"])
+                            if col < len(actual_widths):
+                                change["actual_to_mm"] = round(
+                                    float(actual_widths[col]), 2
+                                )
+                        row_plan = plan_table_layout(after_width)
+                        plan["row_changes"] = row_plan["row_changes"]
+                        plan["warnings"].extend(row_plan["warnings"])
+                    else:
+                        plan["width_after_mm"] = plan["width_before_mm"]
+                    if not dry_run:
+                        for change in plan["row_changes"]:
+                            result = canvas.set_table_row_height(
+                                index,
+                                int(change["row_index"]),
+                                float(change["to_mm"]),
+                            )
+                            actions += int(result if result is not None else 1)
+                    plan["applied"] = not dry_run
+                    table_results.append(plan)
+            except Exception:
+                # 앞선 열/행 액션이 성공한 뒤 다음 액션이 실패해도 실제 편집분은
+                # hwpctl undo 스택에서 잃지 않는다.
+                if actions:
+                    self._record_undo("layout_review", actions)
+                raise
+            finally:
+                canvas.set_pos(saved_pos)
+                if saved_sel:
+                    canvas.restore_selection(saved_sel)
+
+            after_pages = canvas.doc_info().page_count
+            warnings = [
+                warning
+                for result in table_results
+                for warning in result.get("warnings", [])
+            ]
+            if after_pages > before_pages:
+                if before_pages == 1:
+                    warnings.append(
+                        f"레이아웃 검토 뒤 문서가 1쪽에서 {after_pages}쪽으로 늘었습니다. "
+                        "내용은 자동으로 지우지 않았습니다."
+                    )
+                else:
+                    warnings.append(
+                        f"레이아웃 검토 뒤 문서가 {before_pages}쪽에서 "
+                        f"{after_pages}쪽으로 늘었습니다. 내용은 자동으로 지우지 않았습니다."
+                    )
+            if actions:
+                self._record_undo("layout_review", actions)
+            return {
+                "ok": True,
+                "command": "layout_review",
+                "table": table,
+                "dry_run": bool(dry_run),
+                "tables_reviewed": len(targets),
+                "tables": table_results,
+                "page_count": {
+                    "before": before_pages,
+                    "after": after_pages,
+                    "changed": before_pages != after_pages,
+                },
+                "warnings": list(dict.fromkeys(warnings)),
+                "undo_units": 1 if actions else 0,
+                "hangul_actions": actions,
+                "autosave": False,
             }
 
     def set_format(

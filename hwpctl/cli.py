@@ -97,6 +97,8 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "cells": parse_cells_json(args.cells),
             "assignments": parse_cell_assignments(args.cell),
         }
+    if cmd == "layout_review":
+        return {"table": args.table, "dry_run": args.dry_run}
     if cmd == "set_format":
         return {
             "bold": args.bold,

@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from hwpctl.colors import parse_color, rgb_to_bgr_int
 from hwpctl.errors import HangulCommandError, HangulMissingError, UsageError
+from hwpctl.layout import hard_line_count
 
 MISSING_KO = (
     "한/글(한글 오피스)을 찾을 수 없습니다. "
@@ -251,6 +252,168 @@ class HangulCanvas:
                 preview.append(line)
             tables.append({"index": i, "rows": rows, "cols": cols, "preview": preview})
         return tables
+
+    def inspect_table_layout(self, n: int) -> dict[str, Any]:
+        """n번 표의 조판 치수를 읽는다 (한글 2022 Automation만 사용).
+
+        셀의 실제 조판 줄 수는 셀 리스트 안에서 조판 줄 끝을 순회하며 위치 진행과
+        KeyIndicator를 함께 확인한다. 이동/상태바 조회가 실패한 셀만 명시 줄바꿈
+        수로 보수적으로 대체한다.
+        """
+        self.get_into_nth_table(n)
+        addresses = self._table_addresses()
+        if not addresses:
+            raise HangulCommandError(f"{n}번 표의 셀 구조를 읽지 못했습니다.")
+        parsed = [(_parse_a1(addr), addr) for addr in addresses]
+        rows = max(rc[0][0] for rc in parsed) + 1
+        cols = max(rc[0][1] for rc in parsed) + 1
+
+        column_widths: list[float] = []
+        for col in range(cols):
+            addr = next((addr for (row_col, addr) in parsed if row_col[1] == col), None)
+            if addr is None:
+                column_widths.append(0.0)
+                continue
+            self.goto_addr(addr)
+            column_widths.append(self._get_col_width_mm())
+
+        row_heights: list[float] = []
+        cells: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        for row in range(rows):
+            row_height = 0.0
+            for (cell_row, cell_col), addr in parsed:
+                if cell_row != row:
+                    continue
+                self.goto_addr(addr)
+                text = self._get_current_cell_text().rstrip("\x00")
+                line_count, measured = self._cell_line_count(text)
+                margins = self._get_cell_margin_mm()
+                height = self._get_row_height_mm()
+                font_size, line_spacing = self._get_cell_typography()
+                row_height = max(row_height, height)
+                cells.append(
+                    {
+                        "row": cell_row,
+                        "col": cell_col,
+                        "address": addr,
+                        "text": text,
+                        "line_count": line_count,
+                        "hard_line_count": hard_line_count(text),
+                        "soft_wrapped": line_count > hard_line_count(text),
+                        "line_measurement": (
+                            "key_indicator" if measured else "explicit_break_estimate"
+                        ),
+                        "font_size_pt": font_size,
+                        "line_spacing_percent": line_spacing,
+                        "margins_mm": margins,
+                        "row_height_mm": height,
+                    }
+                )
+                if not measured:
+                    warnings.append(
+                        f"{n}번 표 {addr} 셀은 KeyIndicator 줄 수를 읽지 못해 "
+                        "명시적 줄바꿈만 사용했습니다."
+                    )
+            row_heights.append(row_height)
+
+        table_width = max(self._get_table_width_mm(), sum(column_widths))
+        body_width = self._get_body_width_mm()
+        outside = self._get_table_outside_margin_mm()
+        max_width = max(0.0, body_width - outside["left"] - outside["right"])
+        if table_width > max_width + 0.5:
+            warnings.append(
+                f"{n}번 표 폭({table_width:.2f}mm)이 본문 가용 폭"
+                f"({max_width:.2f}mm)을 넘습니다."
+            )
+        return {
+            "index": n,
+            "rows": rows,
+            "cols": cols,
+            "table_width_mm": table_width,
+            "body_width_mm": body_width,
+            "max_table_width_mm": max_width,
+            "column_widths_mm": column_widths,
+            "row_heights_mm": row_heights,
+            "cells": cells,
+            "warnings": warnings,
+        }
+
+    def set_table_column_widths(self, n: int, widths_mm: list[float]) -> int:
+        """열 너비를 mm로 일괄 적용하고 실제 TablePropertyDialog 액션 수를 반환."""
+        actions = 0
+        for col, width in enumerate(widths_mm):
+            actions += self.set_table_column_width(n, col, width)
+        return actions
+
+    def set_table_column_width(self, n: int, col: int, width_mm: float) -> int:
+        """한 열의 너비를 직접 설정한다. Execute 결과를 확인해 성공 시 1을 반환."""
+        self.get_into_nth_table(n)
+        addresses = self._table_addresses()
+        addr = next((addr for addr in addresses if _parse_a1(addr)[1] == col), None)
+        if addr is None:
+            raise HangulCommandError(
+                f"{n}번 표 {col + 1}열은 병합 구조 때문에 너비를 조절할 셀을 찾지 못했습니다."
+            )
+        self.goto_addr(addr)
+        self.assert_no_dialog()
+        if not (
+            self.run("TableColPageUp")
+            and self.run("TableCellBlock")
+            and self.run("TableCellBlockExtend")
+            and self.run("TableColPageDown")
+        ):
+            raise HangulCommandError(f"{n}번 표 {col + 1}열 선택에 실패했습니다.")
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.HSet.SetItem("ShapeType", 3)
+            pset.HSet.SetItem("ShapeCellSize", 1)
+            pset.ShapeTableCell.Width = self._mm_to_hwpunit(width_mm)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(
+                f"{n}번 표 {col + 1}열 너비 조절에 실패했습니다: {exc}"
+            ) from exc
+        if not ok:
+            raise HangulCommandError(f"{n}번 표 {col + 1}열 너비 조절 액션이 실패했습니다.")
+        self.assert_no_dialog()
+        return 1
+
+    def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
+        """행 높이를 mm로 설정한다. 성공하면 한/글 액션 수 1."""
+        self.get_into_nth_table(n)
+        addr = next(
+            (addr for addr in self._table_addresses() if _parse_a1(addr)[0] == row),
+            None,
+        )
+        if addr is None:
+            raise HangulCommandError(
+                f"{n}번 표 {row + 1}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
+            )
+        self.goto_addr(addr)
+        self.assert_no_dialog()
+        if self.px:
+            try:
+                ok = self.px.set_row_height(height_mm, as_="mm")
+            except Exception as exc:
+                raise HangulCommandError(f"{n}번 표 {row + 1}행 높이 조절에 실패했습니다: {exc}") from exc
+        else:
+            try:
+                pset = self.com.HParameterSet.HShapeObject
+                self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+                pset.HSet.SetItem("ShapeType", 3)
+                pset.HSet.SetItem("ShapeCellSize", 1)
+                pset.ShapeTableCell.Height = self._mm_to_hwpunit(height_mm)
+                ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+            except Exception as exc:
+                raise HangulCommandError(
+                    f"{n}번 표 {row + 1}행 높이 조절에 실패했습니다: {exc}"
+                ) from exc
+        if not ok:
+            raise HangulCommandError(f"{n}번 표 {row + 1}행 높이 조절 액션이 실패했습니다.")
+        self.assert_no_dialog()
+        return 1
 
     # --- 편집 (COM 액션, 키 입력 없음) ------------------------------------
 
@@ -801,7 +964,266 @@ class HangulCanvas:
         except Exception:
             return False
 
+    def assert_no_dialog(self) -> None:
+        """대상 한/글 창이 소유한 보이는 대화상자가 있으면 한국어로 실패."""
+        if sys.platform != "win32":
+            return
+        try:
+            import win32gui  # type: ignore
+
+            target = self.window_handle()
+            found: list[str] = []
+
+            def inspect(hwnd: int, _extra: Any) -> None:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return
+                if win32gui.GetClassName(hwnd) != "#32770":
+                    return
+                owner = win32gui.GetWindow(hwnd, 4)  # GW_OWNER
+                while owner:
+                    if owner == target:
+                        found.append(win32gui.GetWindowText(hwnd) or "대화상자")
+                        return
+                    owner = win32gui.GetWindow(owner, 4)
+
+            win32gui.EnumWindows(inspect, None)
+            if found:
+                raise HangulCommandError(
+                    f"한/글 대화상자('{found[0]}')가 떠 있어 레이아웃 검토를 중단했습니다. "
+                    "대화상자를 닫은 뒤 다시 실행하세요."
+                )
+        except HangulCommandError:
+            raise
+        except Exception:
+            # 창 열거 자체가 불가능해도 COM 편집을 막지는 않는다.
+            return
+
     # --- 내부 --------------------------------------------------------------
+
+    def _table_addresses(self) -> list[str]:
+        """현재 표 셀을 2022의 TableRightCell+KeyIndicator로 순회."""
+        saved = self.get_pos()
+        addresses: list[str] = []
+        seen: set[str] = set()
+        try:
+            if not self.run("TableColBegin") or not self.run("TableColPageUp"):
+                return []
+            for _ in range(5000):
+                addr = self.current_cell_addr()
+                if not addr or addr in seen:
+                    break
+                seen.add(addr)
+                addresses.append(addr)
+                if not self.run("TableRightCell"):
+                    break
+        finally:
+            self.set_pos(saved)
+        return addresses
+
+    def _cell_line_count(self, text: str) -> tuple[int, bool]:
+        """현재 셀의 실제 조판 줄 수.
+
+        KeyIndicator의 줄 번호를 단순히 빼면 쪽/구역/중첩 리스트 경계에서 번호가
+        재시작될 수 있다. 따라서 MoveLineEnd와 문서 위치의 실제 진행으로 줄을 세고,
+        매 단계에서 같은 셀 주소인지 KeyIndicator로 검증한다.
+        """
+        saved = self.get_pos()
+        try:
+            cell_addr = self.current_cell_addr()
+            if not cell_addr:
+                return hard_line_count(text), False
+            if not self.run("MoveListEnd"):
+                return hard_line_count(text), False
+            end_pos = self.get_pos()
+            if not end_pos:
+                return hard_line_count(text), False
+            if not self.run("MoveListBegin"):
+                return hard_line_count(text), False
+            count = 1
+            for _ in range(10000):
+                current = self.get_pos()
+                if current == end_pos:
+                    return count, True
+                if not current or not self.run("MoveLineEnd"):
+                    return hard_line_count(text), False
+                line_end = self.get_pos()
+                if line_end == end_pos:
+                    return count, True
+                if not line_end or not self.run("MoveNextChar"):
+                    return hard_line_count(text), False
+                next_pos = self.get_pos()
+                if not next_pos or next_pos == line_end:
+                    return hard_line_count(text), False
+                if self.current_cell_addr() != cell_addr:
+                    return hard_line_count(text), False
+                count += 1
+        except Exception:
+            pass
+        finally:
+            self.set_pos(saved)
+        return hard_line_count(text), False
+
+    def _get_current_cell_text(self) -> str:
+        """현재 셀만 명시적으로 선택해 텍스트를 읽고 캐럿을 복원."""
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 셀 내용을 읽을 수 없습니다.")
+        saved = self.get_pos()
+        try:
+            self.select_cell_text()
+            return self.get_selected_text()
+        finally:
+            self.set_pos(saved)
+
+    def _get_col_width_mm(self) -> float:
+        if self.px:
+            try:
+                return float(self.px.get_col_width(as_="mm"))
+            except Exception:
+                pass
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            return self._hwpunit_to_mm(pset.ShapeTableCell.Width)
+        except Exception as exc:
+            raise HangulCommandError(f"열 너비를 읽지 못했습니다: {exc}") from exc
+
+    def _get_row_height_mm(self) -> float:
+        if self.px:
+            try:
+                return float(self.px.get_row_height(as_="mm"))
+            except Exception:
+                pass
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            return self._hwpunit_to_mm(pset.ShapeTableCell.Height)
+        except Exception as exc:
+            raise HangulCommandError(f"행 높이를 읽지 못했습니다: {exc}") from exc
+
+    def _get_table_width_mm(self) -> float:
+        if self.px:
+            try:
+                return float(self.px.get_table_width(as_="mm"))
+            except Exception:
+                pass
+        try:
+            return self._hwpunit_to_mm(self.com.CellShape.Item("Width"))
+        except Exception:
+            return 0.0
+
+    def _get_cell_margin_mm(self) -> dict[str, float]:
+        if self.px:
+            try:
+                margins = self.px.get_cell_margin(as_="mm")
+                if isinstance(margins, dict):
+                    return {key: float(margins[key]) for key in ("left", "right", "top", "bottom")}
+            except Exception:
+                pass
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            cell = pset.ShapeTableCell
+            return {
+                "left": self._hwpunit_to_mm(cell.MarginLeft),
+                "right": self._hwpunit_to_mm(cell.MarginRight),
+                "top": self._hwpunit_to_mm(cell.MarginTop),
+                "bottom": self._hwpunit_to_mm(cell.MarginBottom),
+            }
+        except Exception:
+            return {"left": 3.5, "right": 3.5, "top": 2.0, "bottom": 2.0}
+
+    def _get_font_size_pt(self) -> float:
+        try:
+            shape = self.px.get_charshape() if self.px else self.com.CharShape
+            height = shape.Item("Height")
+            return max(1.0, float(height) / 100.0)
+        except Exception:
+            return 10.0
+
+    def _get_line_spacing_percent(self) -> float:
+        try:
+            shape = self.px.get_parashape() if self.px else self.com.ParaShape
+            value = float(shape.Item("LineSpacing"))
+            return value if 50 <= value <= 500 else 160.0
+        except Exception:
+            return 160.0
+
+    def _get_cell_typography(self) -> tuple[float, float]:
+        """셀 전체를 순회해 가장 큰 글자와 줄간격을 읽는다.
+
+        한 지점만 표본으로 삼으면 혼합 서식 셀의 큰 글자를 놓쳐 행을 너무 낮출 수
+        있다. MoveNextChar는 현재 셀 리스트 안에서만 움직이며 편집 액션이 아니다.
+        매우 긴 셀은 5000자까지만 확인하고, 이 경우에도 시작점 표본보다 안전하다.
+        """
+        saved = self.get_pos()
+        max_font = 10.0
+        max_spacing = 160.0
+        try:
+            if not self.run("MoveListBegin"):
+                return self._get_font_size_pt(), self._get_line_spacing_percent()
+            for _ in range(5000):
+                max_font = max(max_font, self._get_font_size_pt())
+                max_spacing = max(max_spacing, self._get_line_spacing_percent())
+                if not self.run("MoveNextChar"):
+                    break
+        except Exception:
+            pass
+        finally:
+            self.set_pos(saved)
+        return max_font, max_spacing
+
+    def _get_body_width_mm(self) -> float:
+        if self.px:
+            try:
+                page = self.px.get_pagedef_as_dict(as_="eng")
+                paper = float(page["PaperHeight"] if int(page.get("Landscape", 0)) else page["PaperWidth"])
+                return max(
+                    0.0,
+                    paper
+                    - float(page.get("LeftMargin", 0))
+                    - float(page.get("RightMargin", 0))
+                    - float(page.get("GutterLen", 0)),
+                )
+            except Exception:
+                pass
+        try:
+            pset = self.com.HParameterSet.HSecDef
+            self.com.HAction.GetDefault("PageSetup", pset.HSet)
+            page = pset.PageDef
+            paper = page.PaperHeight if int(page.Landscape) else page.PaperWidth
+            return self._hwpunit_to_mm(
+                paper - page.LeftMargin - page.RightMargin - page.GutterLen
+            )
+        except Exception:
+            return 150.0
+
+    def _get_table_outside_margin_mm(self) -> dict[str, float]:
+        if self.px:
+            try:
+                margins = self.px.get_table_outside_margin(as_="mm")
+                if isinstance(margins, dict):
+                    return {"left": float(margins["left"]), "right": float(margins["right"])}
+            except Exception:
+                pass
+        saved = self.get_pos()
+        try:
+            self.run("TableCellBlock")
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            return {
+                "left": self._hwpunit_to_mm(pset.OutsideMarginLeft),
+                "right": self._hwpunit_to_mm(pset.OutsideMarginRight),
+            }
+        except Exception:
+            return {"left": 0.0, "right": 0.0}
+        finally:
+            self.set_pos(saved)
+
+    def _hwpunit_to_mm(self, value: Any) -> float:
+        try:
+            return float(self.com.HwpUnitToMili(value))
+        except Exception:
+            return float(value) * 25.4 / 7200.0
 
     def _table_count(self) -> int:
         return len(self._table_ctrls())

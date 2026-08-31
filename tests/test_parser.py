@@ -22,6 +22,7 @@ def test_required_commands_exist() -> None:
         "insert_paragraph",
         "create_table",
         "fill_cells",
+        "layout_review",
         "set_cell_margin",
         "insert_chart",
         "set_format",
@@ -121,6 +122,15 @@ def test_fill_cells_json_and_assignments() -> None:
     )
     assert parse_cells_json(ns.cells) == [["항목", "내용"]]
     assert parse_cell_assignments(ns.cell) == {"A2": "목표"}
+
+
+def test_layout_review_parse_defaults_and_dry_run() -> None:
+    ns = parse_args(["layout_review"])
+    assert ns.table is None
+    assert ns.dry_run is False
+    ns = parse_args(["layout_review", "--table", "2", "--dry-run"])
+    assert ns.table == 2
+    assert ns.dry_run is True
 
 
 def test_fill_cells_bad_json() -> None:

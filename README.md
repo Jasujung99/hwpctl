@@ -111,6 +111,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `insert_paragraph` | 본문 문단. Undo 1단위 |
 | `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
 | `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
+| `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
 | `set_format` | 글꼴·크기·굵게·정렬·셀 색. `--range` 는 요청 칸에만 |
@@ -133,10 +134,31 @@ hwpctl mcp --list-tools
 hwpctl insert_title 사업계획서
 hwpctl create_table --rows 8 --cols 4 --header-fill gray
 hwpctl fill_cells --table 0 --cells "[[\"항목\",\"내용\",\"담당\",\"기한\"]]"
+hwpctl layout_review
 hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
 ```
 
 서브커맨드 이름은 밑줄입니다 (`insert_title`, `fill_cells`).
+
+### 표 편집 뒤 항상 레이아웃 검토
+
+`create_table`, `fill_cells`, `set_format`, `set_cell_margin`, `insert_chart` 등으로
+표를 만들거나 채운 뒤에는 **항상 `layout_review`를 한 번 실행합니다.** 편집 명령과
+자동으로 묶지는 않습니다. 한/글 잠금과 Undo 단위를 섞지 않기 위해 별도 명령으로
+호출해야 합니다.
+
+```bat
+hwpctl layout_review                         :: 문서의 모든 표를 검토하고 기본적으로 수정
+hwpctl layout_review --table 0               :: 0번 표만 검토하고 수정
+hwpctl layout_review --table 0 --dry-run     :: 수정하지 않고 JSON 계획만 출력
+```
+
+셀의 조판 줄 수는 한글 2022의 `MoveLineEnd` 위치 진행과 `KeyIndicator` 셀 주소를
+함께 확인해 실측합니다. 명시적 줄바꿈보다 조판 줄 수가 많을 때만 열 너비로 인한
+줄바꿈으로 판정합니다. 한글 2022 Automation에는 문자열 조판 폭을 직접 재는 API가
+없으므로 필요한 목표 열 너비는 글자 크기와 유니코드 문자 폭으로 추정하며, 열 하나가
+본문 폭의 45% 또는 기존 너비의 1.6배를 넘지 않게 제한합니다. 표 폭은 용지 폭에서
+좌우·제본·표 바깥 여백을 뺀 범위를 넘기지 않습니다.
 
 ---
 
