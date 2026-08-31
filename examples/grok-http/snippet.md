@@ -1,7 +1,9 @@
-# Grok Bot / 일반 HTTP 클라이언트
+# 일반 HTTP 클라이언트
 
-Grok Bot 은 원격입니다. `hwpctl` HTTP 는 **이 Windows PC의 localhost** 에만 붙습니다.  
-봇이 바로 도달한다고 가정하지 마세요. 나중에 SSH 터널이나 Cloudflare Tunnel 로 노출하는 것은 사용자 몫입니다.
+`hwpctl` HTTP는 기본적으로 **이 Windows PC의 localhost**에만 붙습니다. 같은 PC에서
+명령줄을 실행하는 Grok Build 등은 HTTP 대신 stdio 예제를 사용하세요. 외부 서비스가
+필요하다면 사용자가 인증·네트워크 노출·문서 접근 위험을 검토하고 별도로 연결해야
+합니다. 이 예제는 외부 공개나 터널을 구성하지 않습니다.
 
 ## 로컬에서 서버 켜기
 

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hwpctl": {
+      "command": "hwpctl",
+      "args": ["mcp"],
+      "env": {
+        "HWPCTL_CLIENT": "grok-build"
+      }
+    }
+  }
+}
