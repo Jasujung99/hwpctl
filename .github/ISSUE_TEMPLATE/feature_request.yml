@@ -1,0 +1,37 @@
+name: 기능 제안
+description: 열린 한글 문서 직접 편집 엔진의 개선을 제안합니다.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결하려는 문제
+      description: 현재 작업 흐름에서 불편한 점을 설명해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 원하는 동작
+      description: 입력, 대상 문서·선택 범위, 화면 결과와 승인 조건을 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: 데이터 보호와 되돌리기
+      description: 잘못 적용됐을 때의 거부·확인·Undo 동작을 제안해 주세요.
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: 요청 대상
+      options:
+        - hwpctl 직접 편집 엔진
+        - hwp-ai-bridge 설치·조합 안내
+        - 잘 모르겠습니다
+    validations:
+      required: true
