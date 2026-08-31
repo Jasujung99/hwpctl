@@ -292,6 +292,69 @@ class FakeCanvas:
     def break_page(self) -> None:
         self.calls.append(("break_page", None))
 
+    def register_file_path_checker(self) -> None:
+        self.calls.append(("register_file_path_checker", None))
+
+    def create_page_image(
+        self,
+        path: str,
+        page_index_0: int,
+        resolution: int = 150,
+        depth: int = 24,
+    ) -> str:
+        self.calls.append(
+            (
+                "create_page_image",
+                {
+                    "path": path,
+                    "pgno": page_index_0,
+                    "resolution": resolution,
+                    "depth": depth,
+                },
+            )
+        )
+        dest = Path(path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"BM" + b"\x00" * 4096)
+        return str(dest)
+
+    def walk_paragraph_formats(self, limit: int = 40) -> list[dict]:
+        self.calls.append(("walk_paragraph_formats", limit))
+        rows = getattr(
+            self,
+            "format_rows",
+            [
+                {
+                    "align": "center",
+                    "font": "함초롬돋움",
+                    "size_pt": 20,
+                    "bold": True,
+                    "color": 0,
+                    "snippet": "제목",
+                    "in_table": False,
+                },
+                {
+                    "align": "center",
+                    "font": "함초롬돋움",
+                    "size_pt": 20,
+                    "bold": True,
+                    "color": 0,
+                    "snippet": "부제",
+                    "in_table": False,
+                },
+                {
+                    "align": "left",
+                    "font": "함초롬바탕",
+                    "size_pt": 10,
+                    "bold": False,
+                    "color": 0,
+                    "snippet": "표셀",
+                    "in_table": True,
+                },
+            ],
+        )
+        return list(rows)[:limit]
+
     def set_pagedef(self, **kwargs) -> None:
         self.calls.append(("set_pagedef", kwargs))
 
@@ -902,6 +965,62 @@ def test_insert_chart_rejects_unknown_type_and_missing_table(engine) -> None:
     with pytest.raises(UsageError):
         eng.insert_chart()  # table 없음 + 캐럿도 표 밖
     assert not any(c[0] == "insert_chart" for c in fake.calls)
+
+
+def test_page_image_uses_zero_based_pgno(
+    engine, tmp_path: Path
+) -> None:
+    eng, fake = engine
+    dest = tmp_path / "page-2.bmp"
+    out = eng.page_image(page=2, out=str(dest), resolution=150)
+    assert out["ok"] is True
+    assert out["page"] == 2
+    assert out["page_index_0"] == 1
+    assert out["autosave"] is False
+    calls = [c[1] for c in fake.calls if c[0] == "create_page_image"]
+    assert calls[0]["pgno"] == 1
+    assert calls[0]["resolution"] == 150
+    assert dest.is_file()
+    assert dest.stat().st_size >= 2048
+
+
+def test_page_image_page_zero_is_current(engine, tmp_path: Path) -> None:
+    eng, fake = engine
+    dest = tmp_path / "now.bmp"
+    out = eng.page_image(page=0, out=str(dest))
+    assert out["page"] == 1  # FakeCanvas doc_info.page
+    calls = [c[1] for c in fake.calls if c[0] == "create_page_image"]
+    assert calls[0]["pgno"] == 0
+
+
+def test_page_image_rejects_page_past_count(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(UsageError) as exc:
+        eng.page_image(page=9)
+    assert "쪽 수" in exc.value.message
+
+
+def test_inspect_format_groups_and_restores_caret(engine) -> None:
+    eng, fake = engine
+    fake.selection_active = True
+    out = eng.inspect_format(limit=40)
+    assert out["ok"] is True
+    assert out["command"] == "inspect_format"
+    assert out["scanned"] == 3
+    assert len(out["groups"]) == 2
+    assert out["groups"][0]["count"] == 2
+    assert out["groups"][0]["samples"] == ["제목", "부제"]
+    assert out["groups"][1]["in_table"] is True
+    assert ("walk_paragraph_formats", 40) in fake.calls
+    assert ("set_pos", (0, 3, 7)) in fake.calls
+    restored = [c for c in fake.calls if c[0] == "restore_selection"]
+    assert restored
+
+
+def test_inspect_format_rejects_bad_limit(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(UsageError):
+        eng.inspect_format(limit=0)
 
 
 def test_snapshot_restores_caret_and_selection(engine) -> None:

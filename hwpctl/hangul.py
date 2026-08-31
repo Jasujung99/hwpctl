@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from hwpctl.colors import parse_color, rgb_to_bgr_int
 from hwpctl.errors import HangulCommandError, HangulMissingError, UsageError
+from hwpctl.format_inspect import SNIPPET_LEN, map_align_type, normalize_size_pt
 from hwpctl.layout import hard_line_count
 
 MISSING_KO = (
@@ -244,6 +246,132 @@ class HangulCanvas:
             return str(self.com.GetPageText(pgno0, 0xFFFFFFFF) or "")
         except Exception as exc:
             raise HangulCommandError(f"쪽 텍스트를 읽지 못했습니다: {exc}") from exc
+
+    def register_file_path_checker(self) -> None:
+        """파일 쓰기 전에 FilePathChecker 를 등록한다. hwnd 고정 경로는 연결 때 생략된다."""
+        try:
+            if self.px is not None:
+                fn = getattr(self.px, "register_module", None)
+                if callable(fn):
+                    fn()
+                    return
+        except Exception:
+            pass
+        try:
+            self.com.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+        except Exception:
+            pass
+
+    def create_page_image(
+        self,
+        path: str,
+        page_index_0: int,
+        resolution: int = 150,
+        depth: int = 24,
+    ) -> str:
+        """고정된 창의 쪽을 bmp 로 저장. CreatePageImage 는 반드시 이름 인자.
+
+        위치 인자 ``CreatePageImage(path, page)`` 는 한글 12.0.0.850 에서
+        1KB 스텁만 쓴다. ``pgno`` 는 0부터.
+        """
+        dest = Path(path).expanduser()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        bmp_path = str(dest.resolve())
+        self.register_file_path_checker()
+        try:
+            ok = self.com.CreatePageImage(
+                Path=bmp_path,
+                pgno=int(page_index_0),
+                resolution=int(resolution),
+                depth=int(depth),
+                Format="bmp",
+            )
+        except TypeError as exc:
+            raise HangulCommandError(
+                "쪽 이미지를 만들지 못했습니다. "
+                "CreatePageImage는 Path/pgno/resolution/depth/Format 이름 인자로 호출해야 합니다."
+            ) from exc
+        except Exception as exc:
+            raise HangulCommandError(f"쪽 이미지를 만들지 못했습니다: {exc}") from exc
+        if ok is False:
+            raise HangulCommandError(
+                "쪽 이미지를 만들지 못했습니다. "
+                "보안 모듈(FilePathChecker) 대화 상자가 떠 있으면 허용해 주세요."
+            )
+        out = Path(bmp_path)
+        if not out.is_file():
+            raise HangulCommandError(f"쪽 이미지 파일이 생성되지 않았습니다: {bmp_path}")
+        size = out.stat().st_size
+        if size < 2048:
+            raise HangulCommandError(
+                f"쪽 이미지가 비정상적으로 작습니다({size}바이트). "
+                "CreatePageImage를 위치 인자로 호출하면 1KB 스텁만 쓰입니다. "
+                "보안 모듈(FilePathChecker)이 등록됐는지 확인하세요."
+            )
+        return bmp_path
+
+    def walk_paragraph_formats(self, limit: int = 40) -> list[dict[str, Any]]:
+        """문서 처음부터 문단을 순회하며 캐럿 위치의 CharShape/ParaShape 을 읽는다.
+
+        InitScan/GetText 는 쓰지 않는다. 표 안 문단도 포함하고 ``in_table`` 을 표시한다.
+        """
+        if not self.run("MoveDocBegin"):
+            raise HangulCommandError("문서 처음으로 이동하지 못했습니다.")
+        rows: list[dict[str, Any]] = []
+        for _ in range(max(1, int(limit))):
+            rows.append(self._read_current_paragraph_format())
+            if not self.run("MoveNextParaBegin"):
+                break
+        return rows
+
+    def _read_current_paragraph_format(self) -> dict[str, Any]:
+        saved = self.get_pos()
+        char = self.get_charshape()
+        para = self.get_parashape()
+        font = _pset_get(char, "FaceNameHangul") or _pset_get(char, "FaceName") or ""
+        height = _pset_get(char, "Height", 1000)
+        try:
+            size_pt = normalize_size_pt(float(height) / 100.0)
+        except (TypeError, ValueError):
+            size_pt = 10
+        color_raw = _pset_get(char, "TextColor", 0)
+        try:
+            color = int(color_raw)
+        except (TypeError, ValueError):
+            color = color_raw
+        row = {
+            "align": map_align_type(_pset_get(para, "AlignType", 1)),
+            "font": str(font),
+            "size_pt": size_pt,
+            "bold": bool(_pset_get(char, "Bold", False)),
+            "color": color,
+            "snippet": self._current_para_snippet(),
+            "in_table": self.is_cell(),
+        }
+        if saved:
+            self.set_pos(saved)
+        return row
+
+    def _current_para_snippet(self, n: int = SNIPPET_LEN) -> str:
+        """현재 문단을 선택해 앞부분을 읽는다. InitScan/GetText 는 쓰지 않는다."""
+        selected = False
+        text = ""
+        try:
+            if self.run("MoveSelNextParaBegin") or self.run("MoveSelParaEnd"):
+                selected = True
+            if selected or self.has_selection():
+                text = self.get_selected_text()
+        except Exception:
+            text = ""
+        finally:
+            if selected:
+                try:
+                    self.run("Cancel")
+                except Exception:
+                    pass
+        cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        cleaned = " ".join(cleaned.split())
+        return cleaned[:n]
 
     def table_count(self) -> int:
         return self._table_count()
@@ -1784,6 +1912,20 @@ def _attach_running_com(hwnd: int | None = None) -> Any | None:
         return picked
     except Exception:
         return None
+
+
+def _pset_get(pset: Any, name: str, default: Any = None) -> Any:
+    """CharShape/ParaShape 에서 항목을 읽는다. Item() 우선, 없으면 속성."""
+    if pset is None:
+        return default
+    try:
+        return pset.Item(name)
+    except Exception:
+        pass
+    try:
+        return getattr(pset, name)
+    except Exception:
+        return default
 
 
 def _infer_format(path: str, fmt: str) -> str:

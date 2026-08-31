@@ -340,6 +340,23 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "page", goto=goto, break_page=break_page)
 
     @mcp.tool()
+    async def page_image(
+        page: int = 0,
+        out: str = "",
+        resolution: int = 150,
+    ) -> dict[str, Any]:
+        """고정된 한/글 창의 쪽을 이미지로 저장한다.
+        page는 1부터, 0은 현재 쪽. out이 비면 %LOCALAPPDATA%/hwpctl/page-N.bmp.
+        CreatePageImage는 bmp로 쓰고, 경로가 .png/.jpg면 Pillow로 변환한다."""
+        return await _call(engine, "page_image", page=page, out=out, resolution=resolution)
+
+    @mcp.tool()
+    async def inspect_format(limit: int = 40) -> dict[str, Any]:
+        """문서 처음부터 문단을 순회해 정렬·글꼴·크기·굵게·색을 디자인 그룹으로 묶는다.
+        InitScan/GetText는 쓰지 않고 캐럿을 문단에 둔 뒤 CharShape/ParaShape를 읽는다."""
+        return await _call(engine, "inspect_format", limit=limit)
+
+    @mcp.tool()
     async def set_pagedef(
         paper_width: float | None = None,
         paper_height: float | None = None,

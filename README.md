@@ -124,6 +124,8 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
 | `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
 | `page` | 현재 쪽·`PageCount` 읽기 / `--goto N` 이동 / `--break` 쪽 나누기 |
+| `page_image` | 고정된 창의 쪽을 이미지로 저장. `--page N`(1부터, 0=현재 쪽), `--out PATH` |
+| `inspect_format` | 문단 정렬·글꼴·크기·굵게·색을 읽어 디자인 그룹으로 묶기. `--limit`(기본 40) |
 | `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
 | `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
@@ -207,6 +209,8 @@ set_pagedef(paper_width=None, paper_height=None, left=None, right=None,
             top=None, bottom=None, header=None, footer=None, gutter=None,
             landscape=None, apply="current")
 page(goto=None, break_page=False)
+page_image(page=0, out="", resolution=150)
+inspect_format(limit=40)
 ```
 
 - 열·행 치수는 `GetCellWidth` 없이 `TablePropertyDialog`의
@@ -238,7 +242,43 @@ hwpctl set_cell_border --table 0 --range A1:C2 --sides all --color #333333
 hwpctl set_style "개요 1"
 hwpctl set_pagedef --paper-width 210 --paper-height 297 --left 20 --right 20
 hwpctl page --break
+hwpctl page_image --page 1 --out "%LOCALAPPDATA%\hwpctl\page-1.bmp"
+hwpctl inspect_format --limit 40
 ```
+
+## 쪽 이미지 (`page_image`) · 서식 그룹 (`inspect_format`)
+
+둘 다 **읽기 전용**입니다. 문서를 저장하지 않습니다.
+
+```bat
+:: 1쪽을 bmp 로. 경로를 생략하면 %LOCALAPPDATA%\hwpctl\page-1.bmp
+hwpctl page_image --page 1
+
+:: 현재 쪽. png/jpg 는 내부에서 bmp 로 만든 뒤 Pillow 로 변환
+hwpctl page_image --page 0 --out C:\Temp\now.png
+
+:: 해상도 기본 150 DPI (300보다 빠름)
+hwpctl page_image --page 2 --out C:\Temp\p2.bmp --resolution 150
+```
+
+- 한글 2022 `12.0.0.850` 에서 `CreatePageImage` 는 **이름 인자**로만 호출합니다.
+  `CreatePageImage(path, page)` 위치 인자는 이 PC에서 1KB 스텁만 씁니다.
+- COM `pgno` 는 **0부터**. CLI `--page` 는 1부터이므로 `pgno=N-1` 을 넘깁니다.
+  `--page 0` 은 현재 쪽 (pyhwpx 관례).
+- 쓰기 전에 `FilePathChecker` 를 등록합니다. 보안 모듈 대화 상자가 뜨면 허용하세요.
+- `png`/`jpg`/`jpeg` 경로는 먼저 bmp 를 만든 뒤 Pillow 로 변환합니다 (`pyhwpx.create_page_image` 와 동일).
+
+```bat
+:: 문서 처음부터 문단을 순회해 같은 서식이 이어지면 한 그룹으로
+hwpctl inspect_format
+hwpctl inspect_format --limit 80
+```
+
+- `MoveDocBegin` 후 각 문단에 캐럿을 두고 `CharShape`/`ParaShape` 를 읽습니다.
+- `InitScan`/`GetText` 는 쓰지 않습니다. 이 PC에서 모든 단위를 굴림 13pt 가운데로 잘못 보고합니다.
+- 표 안 문단도 포함하고 `in_table: true` 로 표시합니다 (`CurFieldState` 1 또는 17).
+- 정렬 맵: AlignType `0=justify 1=left 2=right 3=center 4=distribute`.
+- 결과는 `{ ok, command, groups: [{ key, count, samples }] }` JSON 입니다.
 
 저장 없이 시험하려면 빈 문서에서 다음처럼 실행하고, 결과 확인 뒤 `undo`로
 직전 명령을 되돌립니다. `save`/`save_as`를 호출하지 않는 한 자동으로 저장되지

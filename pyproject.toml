@@ -28,6 +28,7 @@ dependencies = [
 windows = [
     "pyhwpx>=1.0",
     "pywin32>=306",
+    "pillow>=10",
 ]
 dev = [
     "pytest>=8",

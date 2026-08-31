@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from hwpctl.errors import DestructiveGuardError, HangulCommandError, UsageError
+from hwpctl.format_inspect import (
+    convert_bmp_with_pillow,
+    group_format_rows,
+    page_image_write_plan,
+    resolve_page_image_path,
+)
 from hwpctl.hangul import HangulCanvas, a1, expand_range, parse_a1
 from hwpctl.layout import plan_table_layout
 from hwpctl.lock import SingleWriterLock, WriterState, load_state, save_state
@@ -103,6 +109,8 @@ class Engine:
             "replace_selection": self.replace_selection,
             "undo": self.undo,
             "page": self.page,
+            "page_image": self.page_image,
+            "inspect_format": self.inspect_format,
             "set_pagedef": self.set_pagedef,
             "save_as": self.save_as,
             "save": self.save,
@@ -995,6 +1003,85 @@ class Engine:
                 "text": text,
                 "break": bool(break_page),
                 "undo_units": 1 if break_page else 0,
+            }
+
+    def page_image(
+        self,
+        page: int = 0,
+        out: str = "",
+        resolution: int = 150,
+    ) -> dict[str, Any]:
+        """고정된 한/글 창의 쪽을 이미지로 저장. ``page`` 는 1부터, 0 은 현재 쪽."""
+        try:
+            page_n = int(page)
+        except (TypeError, ValueError) as exc:
+            raise UsageError("--page 는 0(현재 쪽) 또는 1 이상이어야 합니다.") from exc
+        if page_n < 0:
+            raise UsageError("--page 는 0(현재 쪽) 또는 1 이상이어야 합니다.")
+        try:
+            dpi = int(resolution)
+        except (TypeError, ValueError) as exc:
+            raise UsageError("--resolution 은 1 이상이어야 합니다.") from exc
+        if dpi <= 0:
+            raise UsageError("--resolution 은 1 이상이어야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            info = canvas.doc_info()
+            page_1 = int(info.page) if page_n == 0 else page_n
+            if page_1 < 1:
+                raise HangulCommandError("현재 쪽 번호를 읽지 못했습니다.")
+            if info.page_count and page_1 > int(info.page_count):
+                raise UsageError(
+                    f"쪽 번호 {page_1}은 문서 쪽 수 {info.page_count}를 넘습니다."
+                )
+            dest = resolve_page_image_path(out or "", page_1)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            bmp_path, convert_to = page_image_write_plan(dest)
+            canvas.create_page_image(
+                str(bmp_path),
+                page_index_0=page_1 - 1,
+                resolution=dpi,
+            )
+            final = convert_to or bmp_path
+            if convert_to is not None:
+                convert_bmp_with_pillow(bmp_path, convert_to)
+            size = final.stat().st_size if final.is_file() else 0
+            return {
+                "ok": True,
+                "command": "page_image",
+                "page": page_1,
+                "page_index_0": page_1 - 1,
+                "path": str(final),
+                "resolution": dpi,
+                "format": (final.suffix.lstrip(".") or "bmp").lower(),
+                "bytes": size,
+                "autosave": False,
+            }
+
+    def inspect_format(self, limit: int = 40) -> dict[str, Any]:
+        """문단을 순회해 정렬·글꼴·크기·굵게·색을 디자인 그룹으로 묶는다."""
+        try:
+            cap = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise UsageError("--limit 은 1 이상이어야 합니다.") from exc
+        if cap < 1:
+            raise UsageError("--limit 은 1 이상이어야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            saved_pos = canvas.get_pos()
+            saved_sel = canvas.selection_range()
+            try:
+                rows = canvas.walk_paragraph_formats(limit=cap)
+            finally:
+                canvas.set_pos(saved_pos)
+                if saved_sel:
+                    canvas.restore_selection(saved_sel)
+            return {
+                "ok": True,
+                "command": "inspect_format",
+                "groups": group_format_rows(rows),
+                "scanned": len(rows),
+                "limit": cap,
             }
 
     def set_pagedef(

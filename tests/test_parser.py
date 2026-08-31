@@ -37,6 +37,8 @@ def test_required_commands_exist() -> None:
         "replace_selection",
         "undo",
         "page",
+        "page_image",
+        "inspect_format",
         "set_pagedef",
         "save_as",
     ):
@@ -224,6 +226,22 @@ def test_close_requires_force_flag_default_false() -> None:
     assert ns.force is True
 
 
+def test_page_image_and_inspect_format_parse() -> None:
+    ns = parse_args(["page_image", "--page", "2", "--out", "C:/tmp/a.png"])
+    assert ns.command == "page_image"
+    assert ns.page == 2
+    assert ns.out == "C:/tmp/a.png"
+    assert ns.resolution == 150
+    ns = parse_args(["page_image"])
+    assert ns.page == 0
+    assert ns.out == ""
+    ns = parse_args(["inspect_format"])
+    assert ns.command == "inspect_format"
+    assert ns.limit == 40
+    ns = parse_args(["inspect_format", "--limit", "80"])
+    assert ns.limit == 80
+
+
 def test_save_as_and_page() -> None:
     ns = parse_args(["save_as", "out.hwpx", "--format", "HWPX"])
     assert ns.path == "out.hwpx"
@@ -275,3 +293,6 @@ def test_tool_catalog_marks_destructive() -> None:
     assert by_name["save_as"]["destructive"] is False
     assert by_name["insert_title"]["write"] is True
     assert by_name["snapshot"]["write"] is False
+    assert by_name["page_image"]["write"] is False
+    assert by_name["inspect_format"]["write"] is False
+    assert by_name["page_image"]["destructive"] is False
