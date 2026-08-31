@@ -562,21 +562,23 @@ def test_window_pinning_rejects_other_window(engine) -> None:
 
 
 def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """회귀: open --new 직후 pin 이 이전 창에 남으면 status/insert 가 거부된다.
+    """회귀: pyhwpx 는 ROT 첫 인스턴스(120.1)에 붙고 pin 은 120.2 에 있다.
 
-    라이브(한글 12.0.0.850): 고정 855126(이미 연 파일) vs 연결 3738628(새 빈 문서).
-    새 창의 WindowHandle 로 pin 을 옮기고, 다음 연결은 그 핸들을 넘겨야 한다.
+    라이브(한글 12.0.0.850):
+    - !HwpObject.120.1 hwnds [3738628] doc4.hwp  — Hwp(new=False) 가 붙는 쪽
+    - !HwpObject.120.2 hwnds [855126, 2100322] — open --new 가 만든 인스턴스
+    pin=855126. 다음 명령은 hwnd=855126 으로 120.2 를 골라야 한다.
     """
     monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
     monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
 
-    old = FakeCanvas()
-    old.hwnd = 855126
-    old.title = "보고서.hwp - 한글"
-    old.path = r"C:\docs\보고서.hwp"
+    rot_first = FakeCanvas()
+    rot_first.hwnd = 3738628
+    rot_first.title = "doc4.hwp - 한글"
+    rot_first.path = r"C:\docs\doc4.hwp"
 
     created = FakeCanvas()
-    created.hwnd = 3738628
+    created.hwnd = 855126
     created.title = "빈 문서 2 - 한글"
     created.path = ""
 
@@ -588,34 +590,33 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
             return created
         if hwnd == created.hwnd:
             return created
-        # hwnd 미지정 또는 이전 창 — ROT 첫 창(이미 연 파일)을 흉내
-        return old
+        # hwnd 미지정 — pyhwpx/ROT 첫 창 (120.1)
+        return rot_first
 
     eng = Engine(lock_timeout=1, canvas_factory=factory)
 
     st = eng.status()
-    assert st["window_title"] == "보고서.hwp - 한글"
-    assert load_state().target_hwnd == 855126
+    assert st["window_title"] == "doc4.hwp - 한글"
+    assert load_state().target_hwnd == 3738628
 
     out = eng.open(new=True)
     assert out["ok"] is True
     assert out["new"] is True
     assert out["window_title"] == "빈 문서 2 - 한글"
-    assert load_state().target_hwnd == 3738628
-    assert any(c["new"] is True for c in calls)
+    assert load_state().target_hwnd == 855126
+    assert any(c["new"] is True and c["hwnd"] == 0 for c in calls)
 
-    # 다음 명령은 ROT 첫 창이 아니라 방금 연 창의 WindowHandle 로 붙어야 한다
     before = len(calls)
     st2 = eng.status()
     assert st2["window_title"] == "빈 문서 2 - 한글"
-    assert calls[before]["hwnd"] == 3738628
+    assert calls[before]["hwnd"] == 855126
     assert calls[before]["new"] is False
 
     created.calls.clear()
     title = eng.insert_title("제목")
     assert title["ok"] is True
     assert any(c[0] == "insert_text" for c in created.calls)
-    assert not any(c[0] == "insert_text" for c in old.calls)
+    assert not any(c[0] == "insert_text" for c in rot_first.calls)
 
 
 def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

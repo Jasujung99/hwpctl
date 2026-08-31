@@ -48,8 +48,8 @@ class Engine:
         엉뚱한 문서를 편집할 수 있다.)
         """
         state = load_state()
-        # open --new 는 새 창을 만들므로 이전 고정을 따라가지 않는다.
-        # 그 외에는 고정된 WindowHandle 로 붙고, ROT 첫 창에 조용히 쓰지 않는다.
+        # 일반 명령은 고정된 WindowHandle 로 ROT 객체를 고른다 (라이브: 120.2).
+        # open --new 는 이전 핸들을 넘기지 않는다. 만든 뒤 활성 창을 다시 고정한다.
         want_hwnd = 0 if new else int(state.target_hwnd or 0)
         canvas = self.canvas_factory(
             new=new, allow_launch=allow_launch, hwnd=want_hwnd
