@@ -61,12 +61,20 @@ class HangulCanvas:
     # --- 연결 --------------------------------------------------------------
 
     @classmethod
-    def connect(cls, new: bool = False, allow_launch: bool = False) -> HangulCanvas:
+    def connect(
+        cls,
+        new: bool = False,
+        allow_launch: bool = False,
+        hwnd: int = 0,
+    ) -> HangulCanvas:
         """열린 한/글 창에 붙는다.
 
         기본은 *붙기만* 한다: 실행 중인 인스턴스가 없으면 한/글을 새로 띄우지 않고
         한국어 오류를 낸다 (pyhwpx ``Hwp()`` 는 없으면 자동 실행하므로 ROT 로 먼저 확인).
         ``new=True`` 또는 ``allow_launch=True`` (open 명령) 일 때만 실행을 허용한다.
+
+        ``hwnd`` 가 있으면 ROT 첫 창이 아니라 그 ``WindowHandle`` 을 가진 창을 고른다.
+        (여러 창이 열려 있을 때 엉뚱한 문서에 쓰는 것을 막는다.)
         """
         require_windows()
         if not new and not allow_launch and not _hwp_running():
@@ -75,8 +83,18 @@ class HangulCanvas:
         try:
             from pyhwpx import Hwp  # type: ignore
 
+            if hwnd and not new:
+                # Hwp() 는 '마지막 접근 창' 또는 ROT 첫 인스턴스에 붙는다.
+                # 고정된 창이 있으면 핸들로 직접 고른다.
+                found = _attach_running_com(hwnd=hwnd)
+                if found is not None:
+                    return cls(px=None, com=found, backend="win32com")
             px = Hwp(new=new, visible=True, register_module=True)
             com = getattr(px, "hwp", None) or getattr(px, "Application", None) or px
+            if hwnd and not new and not _com_has_hwnd(com, hwnd):
+                found = _attach_running_com(hwnd=hwnd)
+                if found is not None:
+                    return cls(px=None, com=found, backend="win32com")
             return cls(px=px, com=com, backend="pyhwpx")
         except HangulMissingError:
             raise
@@ -90,7 +108,8 @@ class HangulCanvas:
             com: Any | None = None
             if not new:
                 # Dispatch 는 새 인스턴스를 띄우므로, 붙을 때는 반드시 ROT 로 기존 창에 바인딩.
-                com = _attach_running_com()
+                # hwnd 가 있으면 ROT 첫 창이 아니라 그 핸들의 창을 고른다.
+                com = _attach_running_com(hwnd=hwnd)
                 if com is None and not allow_launch:
                     raise HangulMissingError(NO_WINDOW_KO)
             if com is None:
@@ -99,10 +118,7 @@ class HangulCanvas:
                 com.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
             except Exception:
                 pass
-            try:
-                com.XHwpWindows.Item(0).Visible = True
-            except Exception:
-                pass
+            _show_window(com, hwnd)
             if new:
                 try:
                     com.XHwpDocuments.Add(False)
@@ -117,11 +133,12 @@ class HangulCanvas:
             raise HangulMissingError(CONNECT_KO) from (last_error or exc)
 
     def window_handle(self) -> int:
-        """연결된 한/글 창의 윈도우 핸들. 대상 창 고정(pinning)에 쓴다. 실패 시 0."""
-        try:
-            return int(self.com.XHwpWindows.Item(0).WindowHandle)
-        except Exception:
-            return 0
+        """연결된 한/글 창의 윈도우 핸들. 대상 창 고정(pinning)에 쓴다. 실패 시 0.
+
+        ``XHwpWindows.Item(0)`` 은 *처음 연* 창이라 ``open --new`` 직후 새 창과
+        어긋난다. 활성 창(``Active_XHwpWindow``)을 우선한다.
+        """
+        return _window_handle_of(self.com)
 
     # --- 조회 --------------------------------------------------------------
 
@@ -1524,6 +1541,93 @@ class HangulCanvas:
         return "" if value is None else str(value)
 
 
+def _window_handle_of(com: Any) -> int:
+    """COM 객체가 가리키는 창의 WindowHandle. 활성 창 우선, 없으면 Item(0). 실패 시 0."""
+    try:
+        return int(com.XHwpWindows.Active_XHwpWindow.WindowHandle)
+    except Exception:
+        pass
+    try:
+        return int(com.XHwpWindows.Item(0).WindowHandle)
+    except Exception:
+        return 0
+
+
+def _iter_window_handles(com: Any):
+    """이 HwpObject 의 모든 창 WindowHandle 을 낸다 (활성 창 포함)."""
+    seen: set[int] = set()
+    try:
+        windows = com.XHwpWindows
+    except Exception:
+        return
+    try:
+        active = int(windows.Active_XHwpWindow.WindowHandle)
+        if active:
+            seen.add(active)
+            yield active
+    except Exception:
+        pass
+    count = 0
+    try:
+        count = int(windows.Count)
+    except Exception:
+        count = 0
+    if count <= 0:
+        # Count 를 못 읽으면 Item(0) 만이라도.
+        try:
+            handle = int(windows.Item(0).WindowHandle)
+        except Exception:
+            return
+        if handle and handle not in seen:
+            yield handle
+        return
+    for i in range(count):
+        try:
+            handle = int(windows.Item(i).WindowHandle)
+        except Exception:
+            continue
+        if handle and handle not in seen:
+            seen.add(handle)
+            yield handle
+
+
+def _com_has_hwnd(com: Any, hwnd: int) -> bool:
+    if not hwnd:
+        return False
+    return any(handle == int(hwnd) for handle in _iter_window_handles(com))
+
+
+def _show_window(com: Any, hwnd: int = 0) -> None:
+    """해당 핸들의 창(없으면 활성/첫 창)을 보이게 한다."""
+    try:
+        windows = com.XHwpWindows
+    except Exception:
+        return
+    if hwnd:
+        count = 0
+        try:
+            count = int(windows.Count)
+        except Exception:
+            count = 8  # Count 미지원 시 몇 개만 훑는다
+        for i in range(max(count, 1)):
+            try:
+                win = windows.Item(i)
+                if int(win.WindowHandle) == int(hwnd):
+                    win.Visible = True
+                    return
+            except Exception:
+                continue
+    try:
+        windows.Active_XHwpWindow.Visible = True
+        return
+    except Exception:
+        pass
+    try:
+        windows.Item(0).Visible = True
+    except Exception:
+        pass
+
+
 def _iter_running_hwp_monikers() -> Any:
     """ROT(Running Object Table)에서 HwpObject 모니커를 순회한다. (Windows 전용)"""
     import pythoncom  # type: ignore
@@ -1558,24 +1662,36 @@ def _hwp_running() -> bool:
         return True
 
 
-def _attach_running_com() -> Any | None:
-    """ROT 에 등록된 기존 한/글 인스턴스에 IDispatch 로 붙는다. 없으면 None."""
+def _attach_running_com(hwnd: int = 0) -> Any | None:
+    """ROT 의 한/글 인스턴스에 IDispatch 로 붙는다.
+
+    ``hwnd`` 가 있으면 그 WindowHandle 을 가진 창만 고른다 (ROT 첫 창 금지).
+    없거나 못 찾으면, hwnd 미지정일 때만 첫 인스턴스를 반환한다.
+    """
     try:
         import pythoncom  # type: ignore
         import win32com.client  # type: ignore
     except ImportError:
         return None
+    first: Any | None = None
     try:
         for rot, moniker in _iter_running_hwp_monikers():
             try:
                 obj = rot.GetObject(moniker)
                 disp = obj.QueryInterface(pythoncom.IID_IDispatch)
-                return win32com.client.Dispatch(disp)
+                com = win32com.client.Dispatch(disp)
             except Exception:
                 continue
+            if first is None:
+                first = com
+            if hwnd and _com_has_hwnd(com, hwnd):
+                _show_window(com, hwnd)
+                return com
+        if hwnd:
+            return None
+        return first
     except Exception:
         return None
-    return None
 
 
 def _infer_format(path: str, fmt: str) -> str:

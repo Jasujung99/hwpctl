@@ -9,7 +9,13 @@ from __future__ import annotations
 import pytest
 
 from hwpctl.errors import HangulCommandError
-from hwpctl.hangul import HangulCanvas
+from hwpctl.hangul import (
+    HangulCanvas,
+    _com_has_hwnd,
+    _iter_window_handles,
+    _show_window,
+    _window_handle_of,
+)
 
 
 class StubHAction:
@@ -150,6 +156,31 @@ class StubCom:
 
 def make_canvas(com: StubCom) -> HangulCanvas:
     return HangulCanvas(px=None, com=com, backend="win32com")
+
+
+class StubWindow:
+    def __init__(self, handle: int, visible: bool = False) -> None:
+        self.WindowHandle = handle
+        self.Visible = visible
+
+
+class StubWindows:
+    def __init__(self, handles: list[int], active_index: int = -1) -> None:
+        self._items = [StubWindow(h) for h in handles]
+        self.Count = len(self._items)
+        self._active_index = active_index if active_index >= 0 else len(self._items) - 1
+
+    def Item(self, i: int) -> StubWindow:
+        return self._items[i]
+
+    @property
+    def Active_XHwpWindow(self) -> StubWindow:
+        return self._items[self._active_index]
+
+
+class StubComWindows:
+    def __init__(self, handles: list[int], active_index: int = -1) -> None:
+        self.XHwpWindows = StubWindows(handles, active_index)
 
 
 def test_goto_addr_raises_when_nav_action_fails() -> None:
@@ -321,6 +352,7 @@ def test_select_cell_range_checked_moves() -> None:
         make_canvas(bad).select_cell_range("A1", "B3")
 
 
+<<<<<<< HEAD
 def test_col_width_uses_table_property_dialog_and_not_getcellwidth() -> None:
     com = StubCom()
     canvas = make_canvas(com)
@@ -445,3 +477,44 @@ def test_named_style_calls_pyhwpx_set_style_only() -> None:
     canvas = HangulCanvas(px=px, com=StubCom(), backend="pyhwpx")
     canvas.set_style("개요 1")
     assert px.styles == ["개요 1"]
+
+
+def test_window_handle_uses_active_not_item0() -> None:
+    """회귀: Item(0) 은 처음 연 창(이미 열린 파일). open --new 후 고정은 활성 창."""
+    com = StubComWindows([855126, 3738628], active_index=1)
+    canvas = HangulCanvas(px=None, com=com, backend="win32com")
+    assert canvas.window_handle() == 3738628
+    assert _window_handle_of(com) == 3738628
+    # Item(0) 만 보면 이전 창이 나온다 — 그걸 쓰면 안 된다
+    assert com.XHwpWindows.Item(0).WindowHandle == 855126
+
+
+def test_window_handle_falls_back_to_item0_without_active() -> None:
+    class FirstOnly:
+        class Wins:
+            def Item(self, i):
+                assert i == 0
+                return StubWindow(1111)
+
+        XHwpWindows = Wins()
+
+    assert _window_handle_of(FirstOnly()) == 1111
+    assert _window_handle_of(object()) == 0
+
+
+def test_iter_and_has_hwnd_covers_all_windows() -> None:
+    com = StubComWindows([855126, 3738628], active_index=1)
+    assert list(_iter_window_handles(com)) == [3738628, 855126]
+    assert _com_has_hwnd(com, 3738628) is True
+    assert _com_has_hwnd(com, 855126) is True
+    assert _com_has_hwnd(com, 1) is False
+    assert _com_has_hwnd(com, 0) is False
+
+
+def test_show_window_sets_matching_handle_visible() -> None:
+    com = StubComWindows([855126, 3738628], active_index=1)
+    _show_window(com, 3738628)
+    assert com.XHwpWindows.Item(1).Visible is True
+    assert com.XHwpWindows.Item(0).Visible is False
+    _show_window(com, 855126)
+    assert com.XHwpWindows.Item(0).Visible is True

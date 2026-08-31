@@ -24,6 +24,7 @@ class FakeCanvas:
         self.hwnd = 1111
         self.charshape = "CHAR0"
         self.parashape = "PARA0"
+        self.title = "빈 문서 1 - 한글"
         self.page_count = 2
         self.page_counts: list[int] = []
         self.created_shape: tuple[int, int] | None = None
@@ -212,7 +213,7 @@ class FakeCanvas:
 
         page_count = self.page_counts.pop(0) if self.page_counts else self.page_count
         return DocInfo(
-            window_title="빈 문서 1 - 한글",
+            window_title=self.title,
             path=self.path,
             modified=self.modified,
             page=1,
@@ -303,7 +304,10 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Engine, Fak
     fake = FakeCanvas()
     monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
     monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
-    eng = Engine(lock_timeout=1, canvas_factory=lambda new=False, allow_launch=False: fake)
+    eng = Engine(
+        lock_timeout=1,
+        canvas_factory=lambda new=False, allow_launch=False, hwnd=0: fake,
+    )
     return eng, fake
 
 
@@ -555,6 +559,112 @@ def test_window_pinning_rejects_other_window(engine) -> None:
     assert load_state().target_hwnd == 2222
     eng.insert_paragraph("본문")  # 이제 통과
     assert any(c[0] == "insert_text" for c in fake.calls)
+
+
+def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """회귀: open --new 직후 pin 이 이전 창에 남으면 status/insert 가 거부된다.
+
+    라이브(한글 12.0.0.850): 고정 855126(이미 연 파일) vs 연결 3738628(새 빈 문서).
+    새 창의 WindowHandle 로 pin 을 옮기고, 다음 연결은 그 핸들을 넘겨야 한다.
+    """
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    old = FakeCanvas()
+    old.hwnd = 855126
+    old.title = "보고서.hwp - 한글"
+    old.path = r"C:\docs\보고서.hwp"
+
+    created = FakeCanvas()
+    created.hwnd = 3738628
+    created.title = "빈 문서 2 - 한글"
+    created.path = ""
+
+    calls: list[dict] = []
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
+        if new:
+            return created
+        if hwnd == created.hwnd:
+            return created
+        # hwnd 미지정 또는 이전 창 — ROT 첫 창(이미 연 파일)을 흉내
+        return old
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+
+    st = eng.status()
+    assert st["window_title"] == "보고서.hwp - 한글"
+    assert load_state().target_hwnd == 855126
+
+    out = eng.open(new=True)
+    assert out["ok"] is True
+    assert out["new"] is True
+    assert out["window_title"] == "빈 문서 2 - 한글"
+    assert load_state().target_hwnd == 3738628
+    assert any(c["new"] is True for c in calls)
+
+    # 다음 명령은 ROT 첫 창이 아니라 방금 연 창의 WindowHandle 로 붙어야 한다
+    before = len(calls)
+    st2 = eng.status()
+    assert st2["window_title"] == "빈 문서 2 - 한글"
+    assert calls[before]["hwnd"] == 3738628
+    assert calls[before]["new"] is False
+
+    created.calls.clear()
+    title = eng.insert_title("제목")
+    assert title["ok"] is True
+    assert any(c[0] == "insert_text" for c in created.calls)
+    assert not any(c[0] == "insert_text" for c in old.calls)
+
+
+def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:
+    """open <path> 가 다른 창/문서로 바뀌면 pin 도 그 핸들을 따른다."""
+    eng, fake = engine
+    eng.status()
+    assert load_state().target_hwnd == 1111
+    orig_open = fake.open_path
+
+    def open_and_switch(path: str) -> None:
+        orig_open(path)
+        fake.hwnd = 2222
+        fake.title = "새파일.hwp - 한글"
+
+    fake.open_path = open_and_switch  # type: ignore[method-assign]
+    out = eng.open(path=r"C:\docs\새파일.hwp", discard=True)
+    assert out["path"] == r"C:\docs\새파일.hwp"
+    assert load_state().target_hwnd == 2222
+    eng.insert_paragraph("본문")
+    assert any(c[0] == "insert_text" for c in fake.calls)
+
+
+def test_followup_still_rejects_unpinned_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """안전장치: 우리가 연 창이 아닌 다른 창에는 여전히 쓰지 않는다."""
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    pinned = FakeCanvas()
+    pinned.hwnd = 3738628
+    other = FakeCanvas()
+    other.hwnd = 855126
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        if new or hwnd == pinned.hwnd:
+            return pinned
+        return other
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+    eng.open(new=True)
+    assert load_state().target_hwnd == 3738628
+
+    def rogue_factory(new=False, allow_launch=False, hwnd=0):
+        return other  # ROT 첫 창에 붙어 버린 상황
+
+    eng.canvas_factory = rogue_factory
+    with pytest.raises(HangulCommandError) as exc:
+        eng.insert_paragraph("비밀")
+    assert "다른 창" in exc.value.message
+    assert not any(c[0] == "insert_text" for c in other.calls)
 
 
 def test_close_unpins_window(engine) -> None:
