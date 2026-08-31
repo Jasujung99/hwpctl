@@ -618,6 +618,49 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
     assert not any(c[0] == "insert_text" for c in old.calls)
 
 
+def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_connect(new=True) 는 Add 전에 고정하지 않는다.
+
+    라이브: 그 시점의 window_handle() 은 아직 Item(0)=이전 창.
+    new_document()/Add 뒤에 활성 창 핸들로 고정해야 한다.
+    """
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+
+    canvas = FakeCanvas()
+    canvas.hwnd = 855126
+    canvas.title = "보고서.hwp - 한글"
+    pin_at_add: list[int] = []
+
+    def after_add() -> None:
+        pin_at_add.append(load_state().target_hwnd)
+        canvas.hwnd = 3738628
+        canvas.title = "빈 문서 2 - 한글"
+        canvas.path = ""
+        canvas.calls.append(("new_document", None))
+
+    canvas.new_document = after_add  # type: ignore[method-assign]
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        if new:
+            # Add 전: COM 이 아직 Item(0) 이전 창을 돌려주는 상황
+            canvas.hwnd = 855126
+            return canvas
+        if hwnd == 3738628:
+            canvas.hwnd = 3738628
+            return canvas
+        return canvas
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+    eng.status()
+    assert load_state().target_hwnd == 855126
+
+    out = eng.open(new=True)
+    assert pin_at_add == [855126]  # Add 직전 pin 은 아직 이전 창 (새 Item(0) 으로 덮지 않음)
+    assert load_state().target_hwnd == 3738628
+    assert out["window_title"] == "빈 문서 2 - 한글"
+
+
 def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:
     """open <path> 가 다른 창/문서로 바뀌면 pin 도 그 핸들을 따른다."""
     eng, fake = engine

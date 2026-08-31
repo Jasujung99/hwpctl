@@ -58,7 +58,11 @@ class Engine:
         if not hwnd:
             return canvas  # 핸들을 못 읽는 백엔드에서는 고정 기능을 끈다
         state = load_state()
-        if pin or new:
+        if new:
+            # FileNew/Add 는 open() 이 이어서 호출한다. 여기서 고정하면
+            # 아직 이전 창(Item(0)) 핸들이 남는다. Add 뒤에 다시 고정한다.
+            return canvas
+        if pin:
             if state.target_hwnd != hwnd:
                 state.target_hwnd = hwnd
                 save_state(state)

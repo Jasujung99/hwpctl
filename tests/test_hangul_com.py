@@ -502,6 +502,26 @@ def test_window_handle_falls_back_to_item0_without_active() -> None:
     assert _window_handle_of(object()) == 0
 
 
+def test_window_handle_never_item0_when_count_gt1_and_no_active() -> None:
+    """라이브: Active 속성이 없으면 Item 을 훑고, Count>1 일 때 Item(0) 금지."""
+
+    class NoActiveWindows:
+        def __init__(self) -> None:
+            self._items = [StubWindow(855126, visible=True), StubWindow(3738628, visible=True)]
+            self.Count = 2
+
+        def Item(self, i: int) -> StubWindow:
+            return self._items[i]
+
+        @property
+        def Active_XHwpWindow(self):
+            raise AttributeError("Active_XHwpWindow")
+
+    com = type("C", (), {"XHwpWindows": NoActiveWindows()})()
+    assert _window_handle_of(com) == 3738628
+    assert com.XHwpWindows.Item(0).WindowHandle == 855126
+
+
 def test_iter_and_has_hwnd_covers_all_windows() -> None:
     com = StubComWindows([855126, 3738628], active_index=1)
     assert list(_iter_window_handles(com)) == [3738628, 855126]

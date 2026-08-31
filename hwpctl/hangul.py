@@ -135,8 +135,8 @@ class HangulCanvas:
     def window_handle(self) -> int:
         """연결된 한/글 창의 윈도우 핸들. 대상 창 고정(pinning)에 쓴다. 실패 시 0.
 
-        ``XHwpWindows.Item(0)`` 은 *처음 연* 창이라 ``open --new`` 직후 새 창과
-        어긋난다. 활성 창(``Active_XHwpWindow``)을 우선한다.
+        ``XHwpWindows.Item(0)`` 은 *처음 연* 창이다. ``open --new`` 직후
+        Count>1 이면 이전 파일 창이므로 쓰면 안 된다. 활성 창을 고른다.
         """
         return _window_handle_of(self.com)
 
@@ -1541,16 +1541,81 @@ class HangulCanvas:
         return "" if value is None else str(value)
 
 
-def _window_handle_of(com: Any) -> int:
-    """COM 객체가 가리키는 창의 WindowHandle. 활성 창 우선, 없으면 Item(0). 실패 시 0."""
+def _active_hwp_window(windows: Any) -> Any | None:
+    """한글 2022 의 활성 창. 속성 이름이 달라도 찾는다. 없으면 None."""
+    for name in ("Active_XHwpWindow", "ActiveXHwpWindow"):
+        try:
+            win = getattr(windows, name, None)
+        except Exception:
+            win = None
+        if win is not None:
+            return win
     try:
-        return int(com.XHwpWindows.Active_XHwpWindow.WindowHandle)
+        win = windows.get_Active_XHwpWindow()
     except Exception:
-        pass
+        win = None
+    return win if win is not None else None
+
+
+def _windows_count(windows: Any) -> int:
     try:
-        return int(com.XHwpWindows.Item(0).WindowHandle)
+        return int(windows.Count)
     except Exception:
         return 0
+
+
+def _item_handle(windows: Any, index: int) -> int:
+    try:
+        return int(windows.Item(index).WindowHandle)
+    except Exception:
+        return 0
+
+
+def _window_handle_of(com: Any) -> int:
+    """이 COM 이 가리키는 *현재* 창의 WindowHandle.
+
+    Item(0) 은 처음 연 창이라 Count>1 이면 이전 파일이다 (라이브 855126 vs 3738628).
+    Active_XHwpWindow 를 쓰고, 없거나 이름이 다르면 Item 을 훑어
+    활성/보이는 현재 창을 고른다. Count>1 일 때 Item(0) 을 그대로 쓰지 않는다.
+    """
+    try:
+        windows = com.XHwpWindows
+    except Exception:
+        return 0
+
+    active = _active_hwp_window(windows)
+    if active is not None:
+        try:
+            handle = int(active.WindowHandle)
+            if handle:
+                return handle
+        except Exception:
+            pass
+
+    count = _windows_count(windows)
+    if count > 1:
+        # Add()/FileNew 직후 새 창은 보통 마지막 슬롯. 뒤부터 보이는 창을 고른다.
+        for i in range(count - 1, -1, -1):
+            try:
+                win = windows.Item(i)
+                handle = int(win.WindowHandle)
+            except Exception:
+                continue
+            if not handle:
+                continue
+            if i == 0:
+                continue  # Count>1 이면 첫 창은 이전 문서
+            visible = getattr(win, "Visible", True)
+            if visible in (False, 0):
+                continue
+            return handle
+        # Visible 을 못 읽으면 마지막 핸들 (방금 Add 한 창)
+        last = _item_handle(windows, count - 1)
+        if last:
+            return last
+        return 0
+
+    return _item_handle(windows, 0)
 
 
 def _iter_window_handles(com: Any):
