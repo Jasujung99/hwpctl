@@ -23,6 +23,45 @@ class FakeCanvas:
         self.hwnd = 1111
         self.charshape = "CHAR0"
         self.parashape = "PARA0"
+        self.page_count = 2
+        self.page_counts: list[int] = []
+        self.layout = {
+            "index": 0,
+            "rows": 1,
+            "cols": 2,
+            "table_width_mm": 100.0,
+            "body_width_mm": 150.0,
+            "max_table_width_mm": 150.0,
+            "column_widths_mm": [50.0, 50.0],
+            "row_heights_mm": [10.0],
+            "cells": [
+                {
+                    "row": 0,
+                    "col": 0,
+                    "address": "A1",
+                    "text": "긴 셀 내용",
+                    "line_count": 2,
+                    "hard_line_count": 1,
+                    "soft_wrapped": True,
+                    "font_size_pt": 10.0,
+                    "line_spacing_percent": 160.0,
+                    "margins_mm": {"left": 3.5, "right": 3.5, "top": 2.0, "bottom": 2.0},
+                },
+                {
+                    "row": 0,
+                    "col": 1,
+                    "address": "B1",
+                    "text": "짧음",
+                    "line_count": 1,
+                    "hard_line_count": 1,
+                    "soft_wrapped": False,
+                    "font_size_pt": 10.0,
+                    "line_spacing_percent": 160.0,
+                    "margins_mm": {"left": 3.5, "right": 3.5, "top": 2.0, "bottom": 2.0},
+                },
+            ],
+            "warnings": [],
+        }
 
     def window_handle(self) -> int:
         return self.hwnd
@@ -31,6 +70,27 @@ class FakeCanvas:
         return self.selection_active
 
     def table_count(self) -> int:
+        return 1
+
+    def assert_no_dialog(self) -> None:
+        return None
+
+    def inspect_table_layout(self, n: int):
+        assert n == self.layout["index"]
+        return self.layout
+
+    def set_table_column_widths(self, n: int, widths_mm: list[float]) -> int:
+        self.calls.append(("set_table_column_widths", (n, list(widths_mm))))
+        self.layout["column_widths_mm"] = list(widths_mm)
+        self.layout["table_width_mm"] = sum(widths_mm)
+        for cell in self.layout["cells"]:
+            cell["line_count"] = cell["hard_line_count"]
+            cell["soft_wrapped"] = False
+        return len(widths_mm)
+
+    def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
+        self.calls.append(("set_table_row_height", (n, row, height_mm)))
+        self.layout["row_heights_mm"][row] = height_mm
         return 1
 
     def get_pos(self):
@@ -98,12 +158,13 @@ class FakeCanvas:
     def doc_info(self):
         from hwpctl.hangul import DocInfo
 
+        page_count = self.page_counts.pop(0) if self.page_counts else self.page_count
         return DocInfo(
             window_title="빈 문서 1 - 한글",
             path=self.path,
             modified=self.modified,
             page=1,
-            page_count=2,
+            page_count=page_count,
             version=[13, 0, 0, 1],
             backend="fake",
         )
@@ -260,6 +321,45 @@ def test_fill_cells_grid(engine) -> None:
     addrs = [c[1] for c in fake.calls if c[0] == "goto_addr"]
     assert "A1" in addrs and "B1" in addrs
     assert load_state().undo_stack[-1] == 2
+
+
+def test_layout_review_wrapped_cell_increases_column_width(engine) -> None:
+    eng, fake = engine
+    out = eng.layout_review(table=0)
+    calls = [call for call in fake.calls if call[0] == "set_table_column_widths"]
+    assert len(calls) == 1
+    widths = calls[0][1][1]
+    assert widths[0] > 50.0
+    assert out["tables"][0]["column_changes"][0]["column"] == 1
+    assert out["hangul_actions"] >= 2  # pyhwpx는 열마다 TablePropertyDialog 1회
+    assert load_state().undo_stack[-1] == out["hangul_actions"]
+
+
+def test_layout_review_stops_at_body_width_cap(engine) -> None:
+    eng, fake = engine
+    fake.layout["max_table_width_mm"] = 100.0
+    out = eng.layout_review(table=0)
+    assert not any(call[0] == "set_table_column_widths" for call in fake.calls)
+    assert out["hangul_actions"] == 0
+    assert any("상한" in warning for warning in out["warnings"])
+
+
+def test_layout_review_dry_run_does_not_change_width(engine) -> None:
+    eng, fake = engine
+    out = eng.layout_review(table=0, dry_run=True)
+    assert out["tables"][0]["column_changes"]
+    assert not any(call[0] == "set_table_column_widths" for call in fake.calls)
+    assert not any(call[0] == "set_table_row_height" for call in fake.calls)
+    assert out["undo_units"] == 0
+    assert load_state().undo_stack == []
+
+
+def test_layout_review_warns_when_one_page_becomes_two(engine) -> None:
+    eng, fake = engine
+    fake.page_counts = [1, 2]
+    out = eng.layout_review(table=0)
+    assert out["page_count"] == {"before": 1, "after": 2, "changed": True}
+    assert any("1쪽에서 2쪽" in warning for warning in out["warnings"])
 
 
 def test_undo_replays_hangul_steps(engine) -> None:

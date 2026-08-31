@@ -121,6 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="개별 셀. 여러 번 지정 가능. 예: --cell A1=항목",
     )
 
+    p_layout = add_common(
+        sub.add_parser(
+            "layout_review",
+            help="표를 채운 뒤 항상 실행: 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정",
+        )
+    )
+    p_layout.add_argument("--table", type=int, default=None, help="표 번호(0부터). 없으면 모든 표")
+    p_layout.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="실제 너비/높이를 바꾸지 않고 계획만 JSON으로 출력",
+    )
+
     p_fmt = add_common(sub.add_parser("set_format", help="서식 적용"))
     p_fmt.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
     p_fmt.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)

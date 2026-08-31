@@ -28,6 +28,7 @@ INSTRUCTIONS = (
     "원본 파일은 덮어쓰지 말고 save_as 로 새 경로에 저장하라. "
     "자동저장은 없다. save/close 는 각각 overwrite/force 가 필요하다. "
     "새 표에는 기본 칸 안여백(좌우 3.5mm, 상하 2.0mm)이 적용된다. "
+    "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
     "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
     "insert_title, create_table(rows=8, cols=4, header_fill=gray)."
@@ -114,8 +115,9 @@ def build_mcp(lock_timeout: float = 8.0):
         header: bool = True,
         cell_padding: str = "3.5,2.0",
     ) -> dict[str, Any]:
-        """표를 만든다. header_fill 예: gray. cell_padding 은 새 표 모든 칸의
-        안쪽 여백(mm, '좌우,상하' 또는 '좌,우,상,하', 'none' 이면 미적용)."""
+        """표를 만든다. 완료 뒤 반드시 별도 layout_review를 호출한다.
+        header_fill 예: gray. cell_padding 은 새 표 모든 칸의 안쪽 여백
+        (mm, '좌우,상하' 또는 '좌,우,상,하', 'none' 이면 미적용)."""
         return await _call(
             engine,
             "create_table",
@@ -154,8 +156,18 @@ def build_mcp(lock_timeout: float = 8.0):
         cells: Any = None,
         assignments: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """표 셀을 채운다. cells 는 2차원 배열 또는 {\"A1\":\"값\"}."""
+        """표 셀을 채운다. cells는 2차원 배열 또는 {"A1":"값"}.
+        완료 뒤 반드시 별도 layout_review를 호출한다."""
         return await _call(engine, "fill_cells", table=table, cells=cells, assignments=assignments)
+
+    @mcp.tool()
+    async def layout_review(
+        table: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """표 편집 뒤 항상 호출한다. 셀 줄바꿈·행 높이·본문 폭·쪽 수를 읽고 고친다.
+        table이 없으면 모든 표. 기본은 수정하며 dry_run=true면 계획만 반환한다."""
+        return await _call(engine, "layout_review", table=table, dry_run=dry_run)
 
     @mcp.tool()
     async def insert_chart(

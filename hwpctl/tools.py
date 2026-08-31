@@ -26,6 +26,12 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("insert_paragraph", "본문 문단 삽입. Undo 1단위", False, True),
     ToolSpec("create_table", "표 생성. 첫 행 배경색·기본 칸 안여백(3.5/2.0mm). Undo 1단위", False, True),
     ToolSpec("fill_cells", "표 셀에 값 채우기. Undo 1단위", False, True),
+    ToolSpec(
+        "layout_review",
+        "표를 채운 뒤 항상 호출: 줄바꿈·행 높이·본문 폭·쪽 수 검토 및 수정",
+        False,
+        True,
+    ),
     ToolSpec("set_cell_margin", "표 칸 안쪽 여백(mm). 표 전체·범위·현재 셀", False, True),
     ToolSpec("insert_chart", "선택한 표 데이터로 한/글 네이티브 차트 삽입 (PNG 아님)", False, True),
     ToolSpec("set_format", "선택/문단/행 서식 (글꼴, 크기, 굵게, 정렬, 셀 색)", False, True),
