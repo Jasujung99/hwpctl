@@ -83,6 +83,36 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "top": args.top,
             "bottom": args.bottom,
         }
+    if cmd == "set_col_width":
+        return {
+            "widths": args.widths,
+            "table": args.table,
+            "column": args.column,
+            "unit": args.unit,
+        }
+    if cmd == "get_col_width":
+        return {"table": args.table, "column": args.column}
+    if cmd == "set_row_height":
+        return {"height": args.height, "table": args.table, "row": args.row}
+    if cmd == "get_row_height":
+        return {"table": args.table, "row": args.row}
+    if cmd == "merge_cells":
+        return {"cell_range": args.cell_range, "table": args.table}
+    if cmd == "set_valign":
+        return {
+            "align": args.align,
+            "table": args.table,
+            "cell_range": args.cell_range,
+        }
+    if cmd == "set_cell_border":
+        return {
+            "sides": args.sides,
+            "line_type": args.line_type,
+            "width": args.width,
+            "color": args.color,
+            "table": args.table,
+            "cell_range": args.cell_range,
+        }
     if cmd == "insert_chart":
         return {
             "table": args.table,
@@ -114,8 +144,24 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         }
     if cmd == "replace_selection":
         return {"text": args.text}
+    if cmd == "set_style":
+        return {"style": args.style}
     if cmd == "page":
-        return {"goto": args.goto}
+        return {"goto": args.goto, "break_page": args.break_page}
+    if cmd == "set_pagedef":
+        return {
+            "paper_width": args.paper_width,
+            "paper_height": args.paper_height,
+            "left": args.left,
+            "right": args.right,
+            "top": args.top,
+            "bottom": args.bottom,
+            "header": args.header,
+            "footer": args.footer,
+            "gutter": args.gutter,
+            "landscape": args.landscape,
+            "apply": args.apply,
+        }
     if cmd == "save_as":
         return {"path": args.path, "format": args.format}
     if cmd == "save":

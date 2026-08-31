@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -78,12 +79,21 @@ class Engine:
             "create_table": self.create_table,
             "fill_cells": self.fill_cells,
             "set_cell_margin": self.set_cell_margin,
+            "set_col_width": self.set_col_width,
+            "get_col_width": self.get_col_width,
+            "set_row_height": self.set_row_height,
+            "get_row_height": self.get_row_height,
+            "merge_cells": self.merge_cells,
+            "set_valign": self.set_valign,
+            "set_cell_border": self.set_cell_border,
             "layout_review": self.layout_review,
             "insert_chart": self.insert_chart,
             "set_format": self.set_format,
+            "set_style": self.set_style,
             "replace_selection": self.replace_selection,
             "undo": self.undo,
             "page": self.page,
+            "set_pagedef": self.set_pagedef,
             "save_as": self.save_as,
             "save": self.save,
             "close": self.close,
@@ -247,14 +257,20 @@ class Engine:
                     "안 여백/머리행 색을 적용하지 못했습니다. "
                     "set_cell_margin / set_format 으로 표 번호를 지정해 다시 적용하세요."
                 )
-            if margins:
-                canvas.set_table_inside_margin(*margins)
-                steps += 1
-            if header_fill:
-                canvas.goto_addr("A1")
-                canvas.select_row()
-                canvas.cell_fill(header_fill)
-                steps += 1
+            try:
+                if margins:
+                    for addr in canvas.table_cell_addresses():
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(*margins)
+                        steps += 1
+                if header_fill:
+                    canvas.goto_addr("A1")
+                    canvas.select_row()
+                    canvas.cell_fill(header_fill)
+                    steps += 1
+            except Exception:
+                self._record_undo("create_table", steps)
+                raise
             self._record_undo("create_table", steps)
             return {
                 "ok": True,
@@ -288,14 +304,28 @@ class Engine:
                         "--range 는 캐럿이 표 안에 있거나 --table 과 함께 써야 합니다."
                     )
                 addrs = expand_range(cell_range)
-                for addr in addrs:
-                    canvas.goto_addr(addr)
-                    canvas.set_cell_margin_current(left, right, top, bottom)
-                steps = len(addrs)
+                steps = 0
+                try:
+                    for addr in addrs:
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        steps += 1
+                except Exception:
+                    if steps:
+                        self._record_undo("set_cell_margin", steps)
+                    raise
                 scope = f"cells:{cell_range.upper()}"
             elif table is not None:
-                canvas.set_table_inside_margin(left, right, top, bottom)
-                steps = 1
+                steps = 0
+                try:
+                    for addr in canvas.table_cell_addresses():
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        steps += 1
+                except Exception:
+                    if steps:
+                        self._record_undo("set_cell_margin", steps)
+                    raise
                 scope = f"table:{table}"
             else:
                 canvas.set_cell_margin_current(left, right, top, bottom)
@@ -308,6 +338,303 @@ class Engine:
                 "scope": scope,
                 "margin_mm": [left, right, top, bottom],
                 "undo_units": 1,
+            }
+
+    def set_col_width(
+        self,
+        widths: Any,
+        table: int | None = None,
+        column: int | None = None,
+        unit: str = "mm",
+    ) -> dict[str, Any]:
+        values = _normalize_positive_numbers(widths, "열 너비")
+        unit = (unit or "").strip().lower()
+        if unit not in {"mm", "ratio"}:
+            raise UsageError("열 너비 단위는 mm 또는 ratio 여야 합니다.")
+        if column is not None and column < 1:
+            raise UsageError("--column 은 1 이상의 열 번호여야 합니다.")
+        if column is not None and len(values) != 1:
+            raise UsageError("--column 과 함께 쓸 때는 열 너비를 하나만 지정하세요.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                if table < 0:
+                    raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+                canvas.get_into_nth_table(table)
+            if not canvas.is_cell():
+                raise HangulCommandError("캐럿이 표 안에 있지 않아 열 너비를 바꿀 수 없습니다.")
+            representatives = canvas.table_column_addresses()
+            columns = sorted(representatives)
+            existing = canvas.get_table_column_widths()
+            if column is not None:
+                requested_col = column - 1
+                if requested_col not in representatives:
+                    raise UsageError(f"{column}열은 병합 구조 때문에 조절할 셀을 찾지 못했습니다.")
+                target_columns = [requested_col]
+            else:
+                target_columns = columns[: len(values)]
+            if len(target_columns) != len(values):
+                raise UsageError(
+                    f"지정한 열 범위가 표의 {len(existing)}개 열을 벗어납니다."
+                )
+            if unit == "ratio":
+                if column is not None:
+                    raise UsageError("ratio는 --column 없이 표의 모든 열 비율을 지정하세요.")
+                if len(values) != len(existing):
+                    raise UsageError(
+                        f"ratio 값은 표 열 수({len(existing)})와 같은 개수여야 합니다."
+                    )
+                total_width = sum(existing)
+                total_ratio = sum(values)
+                targets = [value / total_ratio * total_width for value in values]
+            else:
+                targets = values
+            actions = 0
+            try:
+                for target_col, target in zip(target_columns, targets):
+                    canvas.goto_addr(representatives[target_col])
+                    canvas.set_col_width_current(target)
+                    actions += 1
+            except Exception:
+                if actions:
+                    self._record_undo("set_col_width", actions)
+                raise
+            self._record_undo("set_col_width", actions)
+            return {
+                "ok": True,
+                "command": "set_col_width",
+                "table": table,
+                "column": column,
+                "unit": unit,
+                "requested": values,
+                "widths_mm": targets,
+                "undo_units": 1,
+                "hangul_actions": actions,
+            }
+
+    def get_col_width(
+        self,
+        table: int | None = None,
+        column: int | None = None,
+    ) -> dict[str, Any]:
+        if column is not None and column < 1:
+            raise UsageError("--column 은 1 이상의 열 번호여야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                if table < 0:
+                    raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+                canvas.get_into_nth_table(table)
+            if not canvas.is_cell():
+                raise HangulCommandError("캐럿이 표 안에 있지 않아 열 너비를 읽을 수 없습니다.")
+            saved = canvas.get_pos()
+            try:
+                if column is not None:
+                    representatives = canvas.table_column_addresses()
+                    if column - 1 not in representatives:
+                        raise UsageError(
+                            f"{column}열은 병합 구조 때문에 너비를 읽을 셀을 찾지 못했습니다."
+                        )
+                    canvas.goto_addr(representatives[column - 1])
+                    widths = [canvas.get_col_width()]
+                elif table is not None:
+                    widths = canvas.get_table_column_widths()
+                else:
+                    widths = [canvas.get_col_width()]
+            finally:
+                canvas.set_pos(saved)
+            return {
+                "ok": True,
+                "command": "get_col_width",
+                "table": table,
+                "column": column,
+                "unit": "mm",
+                "width_mm": widths[0] if len(widths) == 1 else None,
+                "widths_mm": widths,
+            }
+
+    def set_row_height(
+        self,
+        height: float,
+        table: int | None = None,
+        row: int | None = None,
+    ) -> dict[str, Any]:
+        if height <= 0 or height > 500:
+            raise UsageError("행 높이는 0보다 크고 500mm 이하여야 합니다.")
+        if row is not None and row < 1:
+            raise UsageError("--row 는 1 이상의 행 번호여야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                if table < 0:
+                    raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+                canvas.get_into_nth_table(table)
+            if row is not None:
+                representatives = canvas.table_row_addresses()
+                if row - 1 not in representatives:
+                    raise UsageError(
+                        f"{row}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
+                    )
+                canvas.goto_addr(representatives[row - 1])
+            canvas.set_row_height_current(height)
+            self._record_undo("set_row_height", 1)
+            return {
+                "ok": True,
+                "command": "set_row_height",
+                "table": table,
+                "row": row,
+                "height_mm": height,
+                "undo_units": 1,
+                "hangul_actions": 1,
+            }
+
+    def get_row_height(
+        self,
+        table: int | None = None,
+        row: int | None = None,
+    ) -> dict[str, Any]:
+        if row is not None and row < 1:
+            raise UsageError("--row 는 1 이상의 행 번호여야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                if table < 0:
+                    raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+                canvas.get_into_nth_table(table)
+            saved = canvas.get_pos()
+            try:
+                if row is not None:
+                    representatives = canvas.table_row_addresses()
+                    if row - 1 not in representatives:
+                        raise UsageError(
+                            f"{row}행은 병합 구조 때문에 높이를 읽을 셀을 찾지 못했습니다."
+                        )
+                    canvas.goto_addr(representatives[row - 1])
+                height = canvas.get_row_height()
+            finally:
+                canvas.set_pos(saved)
+            return {
+                "ok": True,
+                "command": "get_row_height",
+                "table": table,
+                "row": row,
+                "unit": "mm",
+                "height_mm": height,
+            }
+
+    def merge_cells(
+        self,
+        cell_range: str,
+        table: int | None = None,
+    ) -> dict[str, Any]:
+        start, end = _range_bounds(cell_range)
+        if start == end:
+            raise UsageError("merge_cells에는 두 칸 이상의 범위를 지정하세요.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                if table < 0:
+                    raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+                canvas.get_into_nth_table(table)
+            canvas.merge_cells(start, end)
+            self._record_undo("merge_cells", 1)
+            return {
+                "ok": True,
+                "command": "merge_cells",
+                "table": table,
+                "range": cell_range.upper(),
+                "undo_units": 1,
+                "hangul_actions": 1,
+            }
+
+    def set_valign(
+        self,
+        align: str,
+        table: int | None = None,
+        cell_range: str = "",
+    ) -> dict[str, Any]:
+        key = (align or "").strip().lower()
+        if key not in {"top", "center", "bottom"}:
+            raise UsageError("세로 정렬은 top, center, bottom 중 하나여야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            addresses = self._cell_targets(canvas, table, cell_range)
+            actions = 0
+            vert_align = {"top": 0, "center": 1, "bottom": 2}[key]
+            try:
+                if addresses is None:
+                    canvas.set_valign_current(key)
+                    actions = 1
+                else:
+                    for addr in addresses:
+                        canvas.goto_addr(addr)
+                        vert_align = canvas.set_valign_current(key)
+                        actions += 1
+            except Exception:
+                if actions:
+                    self._record_undo("set_valign", actions)
+                raise
+            self._record_undo("set_valign", actions)
+            return {
+                "ok": True,
+                "command": "set_valign",
+                "table": table,
+                "range": cell_range.upper(),
+                "align": key,
+                "vert_align": vert_align,
+                "undo_units": 1,
+                "hangul_actions": actions,
+            }
+
+    def set_cell_border(
+        self,
+        sides: str = "all",
+        line_type: str = "Solid",
+        width: str = "0.12mm",
+        color: str = "#000000",
+        table: int | None = None,
+        cell_range: str = "",
+    ) -> dict[str, Any]:
+        parsed_sides = _normalize_border_sides(sides)
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            addresses = self._cell_targets(canvas, table, cell_range)
+            actions = 0
+            try:
+                if addresses is None:
+                    canvas.set_cell_border_current(
+                        sides=parsed_sides,
+                        line_type=line_type,
+                        width=width,
+                        color=color,
+                    )
+                    actions = 1
+                else:
+                    for addr in addresses:
+                        canvas.goto_addr(addr)
+                        canvas.set_cell_border_current(
+                            sides=parsed_sides,
+                            line_type=line_type,
+                            width=width,
+                            color=color,
+                        )
+                        actions += 1
+            except Exception:
+                if actions:
+                    self._record_undo("set_cell_border", actions)
+                raise
+            self._record_undo("set_cell_border", actions)
+            return {
+                "ok": True,
+                "command": "set_cell_border",
+                "table": table,
+                "range": cell_range.upper(),
+                "sides": parsed_sides,
+                "line_type": line_type,
+                "width": width,
+                "color": color,
+                "undo_units": 1,
+                "hangul_actions": actions,
             }
 
     def insert_chart(
@@ -575,6 +902,21 @@ class Engine:
             self._record_undo("set_format", max(1, steps))
             return {"ok": True, "command": "set_format", "undo_units": 1}
 
+    def set_style(self, style: str | int) -> dict[str, Any]:
+        if isinstance(style, str) and not style.strip():
+            raise UsageError("적용할 스타일 이름이 비어 있습니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            canvas.set_style(style)
+            self._record_undo("set_style", 1)
+            return {
+                "ok": True,
+                "command": "set_style",
+                "style": style,
+                "undo_units": 1,
+                "hangul_actions": 1,
+            }
+
     def replace_selection(self, text: str) -> dict[str, Any]:
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
@@ -616,13 +958,22 @@ class Engine:
             save_state(state)
             return {"ok": True, "command": "undo", "hangul_undo_steps": steps}
 
-    def page(self, goto: int | None = None) -> dict[str, Any]:
+    def page(
+        self,
+        goto: int | None = None,
+        break_page: bool = False,
+    ) -> dict[str, Any]:
+        if goto is not None and break_page:
+            raise UsageError("--goto 와 --break 는 함께 쓸 수 없습니다.")
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
-            if goto is not None:
+            if break_page:
+                canvas.break_page()
+                self._record_undo("page", 1)
+            elif goto is not None:
                 canvas.goto_page(goto)
             info = canvas.doc_info()
-            page = goto if goto is not None else info.page
+            page = info.page
             text = canvas.get_page_text(page)
             return {
                 "ok": True,
@@ -630,6 +981,68 @@ class Engine:
                 "page": page,
                 "page_count": info.page_count,
                 "text": text,
+                "break": bool(break_page),
+                "undo_units": 1 if break_page else 0,
+            }
+
+    def set_pagedef(
+        self,
+        paper_width: float | None = None,
+        paper_height: float | None = None,
+        left: float | None = None,
+        right: float | None = None,
+        top: float | None = None,
+        bottom: float | None = None,
+        header: float | None = None,
+        footer: float | None = None,
+        gutter: float | None = None,
+        landscape: bool | None = None,
+        apply: str = "current",
+    ) -> dict[str, Any]:
+        numeric = {
+            "paper_width": paper_width,
+            "paper_height": paper_height,
+            "left": left,
+            "right": right,
+            "top": top,
+            "bottom": bottom,
+            "header": header,
+            "footer": footer,
+            "gutter": gutter,
+        }
+        if all(value is None for value in numeric.values()) and landscape is None:
+            raise UsageError("바꿀 용지 크기, 여백 또는 가로/세로 방향을 지정하세요.")
+        for name, value in numeric.items():
+            if value is not None and value < 0:
+                raise UsageError(f"{name} 값은 0 이상이어야 합니다.")
+        for name in ("paper_width", "paper_height"):
+            value = numeric[name]
+            if value is not None and value <= 0:
+                raise UsageError("용지 폭과 길이는 0보다 커야 합니다.")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            canvas.set_pagedef(
+                paper_width=paper_width,
+                paper_height=paper_height,
+                left=left,
+                right=right,
+                top=top,
+                bottom=bottom,
+                header=header,
+                footer=footer,
+                gutter=gutter,
+                landscape=landscape,
+                apply=apply,
+            )
+            self._record_undo("set_pagedef", 1)
+            return {
+                "ok": True,
+                "command": "set_pagedef",
+                **numeric,
+                "landscape": landscape,
+                "apply": apply,
+                "undo_units": 1,
+                "hangul_actions": 1,
             }
 
     def save_as(self, path: str, format: str = "") -> dict[str, Any]:
@@ -694,6 +1107,26 @@ class Engine:
         state.undo_stack.append(max(1, hangul_steps))
         state.last_command = command
         save_state(state)
+
+    def _cell_targets(
+        self,
+        canvas: HangulCanvas,
+        table: int | None,
+        cell_range: str,
+    ) -> list[str] | None:
+        if table is not None:
+            if table < 0:
+                raise UsageError("--table 은 0 이상의 표 번호여야 합니다.")
+            canvas.get_into_nth_table(table)
+        if cell_range:
+            if not canvas.is_cell():
+                raise UsageError("--range 는 캐럿이 표 안에 있거나 --table 과 함께 쓰세요.")
+            return expand_range(cell_range)
+        if table is not None:
+            return canvas.table_cell_addresses()
+        if not canvas.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않습니다.")
+        return None
 
 
 def suggested_save_as_path(original: str) -> str:
@@ -774,6 +1207,8 @@ def _normalize_margin(value: Any) -> tuple[float, float, float, float] | None:
 
 def _range_bounds(cell_range: str) -> tuple[str, str]:
     raw = cell_range.strip().upper()
+    if not raw:
+        raise UsageError("셀 범위를 지정하세요. 예: A1:B2")
     if ":" not in raw:
         parse_a1(raw)
         return raw, raw
@@ -781,6 +1216,43 @@ def _range_bounds(cell_range: str) -> tuple[str, str]:
     parse_a1(start)
     parse_a1(end)
     return start.strip(), end.strip()
+
+
+def _normalize_positive_numbers(value: Any, label: str) -> list[float]:
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            raise UsageError(f"{label} 값이 비어 있습니다.")
+        parts = [part.strip() for part in raw.split(",")]
+    elif isinstance(value, (int, float)):
+        parts = [value]
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        raise UsageError(f"{label}은 숫자 또는 숫자 목록이어야 합니다.")
+    try:
+        numbers = [float(part) for part in parts]
+    except (TypeError, ValueError) as exc:
+        raise UsageError(f"{label} 값이 올바르지 않습니다: {value}") from exc
+    if not numbers or any(not isfinite(number) or number <= 0 for number in numbers):
+        raise UsageError(f"{label} 값은 모두 0보다 커야 합니다.")
+    return numbers
+
+
+def _normalize_border_sides(value: str) -> list[str]:
+    raw = (value or "").strip().lower()
+    if raw == "all":
+        return ["left", "right", "top", "bottom"]
+    sides = [side.strip() for side in raw.split(",") if side.strip()]
+    unsupported = {"horz", "horizontal", "inside-horizontal"}
+    if set(sides) & unsupported:
+        raise UsageError("한글 2022에서 TypeHorz는 지원하지 않습니다.")
+    unknown = set(sides) - {"left", "right", "top", "bottom"}
+    if unknown:
+        raise UsageError(f"지원하지 않는 셀 테두리 방향입니다: {', '.join(sorted(unknown))}")
+    if not sides:
+        raise UsageError("셀 테두리 방향을 하나 이상 지정하세요.")
+    return list(dict.fromkeys(sides))
 
 
 def _normalize_cells(cells: Any, assignments: dict[str, str] | None) -> dict[str, str]:

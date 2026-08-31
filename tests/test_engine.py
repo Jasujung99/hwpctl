@@ -7,7 +7,7 @@ import pytest
 from hwpctl.colors import parse_color
 from hwpctl.engine import Engine, _normalize_cells, suggested_save_as_path
 from hwpctl.errors import DestructiveGuardError, HangulCommandError, UsageError
-from hwpctl.hangul import expand_range, parse_a1
+from hwpctl.hangul import a1, expand_range, parse_a1
 from hwpctl.layout import plan_table_layout
 from hwpctl.lock import load_state
 
@@ -26,6 +26,7 @@ class FakeCanvas:
         self.parashape = "PARA0"
         self.page_count = 2
         self.page_counts: list[int] = []
+        self.created_shape: tuple[int, int] | None = None
         self.layout = {
             "index": 0,
             "rows": 1,
@@ -121,11 +122,50 @@ class FakeCanvas:
         self.calls.append(("restore_selection", sel))
         return True
 
-    def set_table_inside_margin(self, left, right, top, bottom) -> None:
-        self.calls.append(("set_table_inside_margin", (left, right, top, bottom)))
-
     def set_cell_margin_current(self, left, right, top, bottom) -> None:
         self.calls.append(("set_cell_margin_current", (left, right, top, bottom)))
+
+    def table_cell_addresses(self) -> list[str]:
+        rows, cols = self.created_shape or (self.layout["rows"], self.layout["cols"])
+        return [a1(r, c) for r in range(rows) for c in range(cols)]
+
+    def set_all_cell_margins(self, left, right, top, bottom) -> int:
+        addresses = self.table_cell_addresses()
+        for addr in addresses:
+            self.goto_addr(addr)
+            self.set_cell_margin_current(left, right, top, bottom)
+        return len(addresses)
+
+    def get_table_column_widths(self) -> list[float]:
+        return list(self.layout["column_widths_mm"])
+
+    def table_column_addresses(self) -> dict[int, str]:
+        return {col: a1(0, col) for col in range(self.layout["cols"])}
+
+    def table_row_addresses(self) -> dict[int, str]:
+        return {row: a1(row, 0) for row in range(self.layout["rows"])}
+
+    def set_col_width_current(self, width: float) -> None:
+        self.calls.append(("set_col_width_current", width))
+
+    def get_col_width(self) -> float:
+        return 50.0
+
+    def set_row_height_current(self, height: float) -> None:
+        self.calls.append(("set_row_height_current", height))
+
+    def get_row_height(self) -> float:
+        return 10.0
+
+    def merge_cells(self, start: str, end: str) -> None:
+        self.calls.append(("merge_cells", (start, end)))
+
+    def set_valign_current(self, align: str) -> int:
+        self.calls.append(("set_valign_current", align))
+        return {"top": 0, "center": 1, "bottom": 2}[align]
+
+    def set_cell_border_current(self, **kwargs) -> None:
+        self.calls.append(("set_cell_border_current", kwargs))
 
     def select_all_cells(self) -> None:
         from hwpctl.errors import HangulCommandError as _E
@@ -203,6 +243,7 @@ class FakeCanvas:
         self.calls.append(("insert_text", text))
 
     def create_table(self, rows: int, cols: int, header: bool = True) -> None:
+        self.created_shape = (rows, cols)
         self.calls.append(("create_table", (rows, cols, header)))
 
     def is_cell(self) -> bool:
@@ -246,6 +287,15 @@ class FakeCanvas:
 
     def goto_page(self, page_index_1: int) -> None:
         self.calls.append(("goto_page", page_index_1))
+
+    def break_page(self) -> None:
+        self.calls.append(("break_page", None))
+
+    def set_pagedef(self, **kwargs) -> None:
+        self.calls.append(("set_pagedef", kwargs))
+
+    def set_style(self, style) -> None:
+        self.calls.append(("set_style", style))
 
 
 @pytest.fixture
@@ -301,20 +351,24 @@ def test_create_table_header_fill_and_default_margin(engine) -> None:
     eng.create_table(rows=8, cols=4, header_fill="gray")
     assert ("create_table", (8, 4, True)) in fake.calls
     # 새 표 기본 칸 안여백: 좌우 3.5mm, 상하 2.0mm — 방금 만든 표에 적용
-    assert ("set_table_inside_margin", (3.5, 3.5, 2.0, 2.0)) in fake.calls
+    margins = [call for call in fake.calls if call[0] == "set_cell_margin_current"]
+    assert len(margins) == 32
+    assert margins[0][1] == (3.5, 3.5, 2.0, 2.0)
     assert ("cell_fill", "gray") in fake.calls
     # 다른 표(0번 표)로 이동하지 않아야 한다 (#9 회귀 방지)
     assert not any(c[0] == "get_into_nth_table" for c in fake.calls)
-    assert load_state().undo_stack[-1] == 3
+    assert load_state().undo_stack[-1] == 34
 
 
 def test_create_table_custom_and_disabled_padding(engine) -> None:
     eng, fake = engine
     eng.create_table(rows=2, cols=2, cell_margin="4,3")
-    assert ("set_table_inside_margin", (4.0, 4.0, 3.0, 3.0)) in fake.calls
+    margins = [call for call in fake.calls if call[0] == "set_cell_margin_current"]
+    assert len(margins) == 4
+    assert margins[0][1] == (4.0, 4.0, 3.0, 3.0)
     fake.calls.clear()
     eng.create_table(rows=2, cols=2, cell_margin="none")
-    assert not any(c[0] == "set_table_inside_margin" for c in fake.calls)
+    assert not any(c[0] == "set_cell_margin_current" for c in fake.calls)
 
 
 def test_create_table_refuses_wrong_table_when_caret_outside(engine) -> None:
@@ -411,10 +465,10 @@ def test_layout_plan_never_uses_negative_growth_for_already_wide_column(engine) 
 def test_undo_replays_hangul_steps(engine) -> None:
     eng, fake = engine
     eng.insert_paragraph("하나")
-    eng.create_table(8, 4, header_fill="gray")  # 생성 + 안여백 + 머리행색 = 3
+    eng.create_table(8, 4, header_fill="gray")  # 생성 + 셀별 안여백 32 + 머리행색
     out = eng.undo()
-    assert out["hangul_undo_steps"] == 3
-    assert fake.undone == 3
+    assert out["hangul_undo_steps"] == 34
+    assert fake.undone == 34
 
 
 def test_undo_refuses_without_recorded_edits(engine) -> None:
@@ -525,7 +579,9 @@ def test_set_cell_margin_whole_table(engine) -> None:
     eng, fake = engine
     out = eng.set_cell_margin(table=0)
     assert ("get_into_nth_table", 0) in fake.calls
-    assert ("set_table_inside_margin", (3.5, 3.5, 2.0, 2.0)) in fake.calls
+    margins = [call for call in fake.calls if call[0] == "set_cell_margin_current"]
+    assert len(margins) == 2
+    assert margins[0][1] == (3.5, 3.5, 2.0, 2.0)
     assert out["scope"] == "table:0"
     assert out["margin_mm"] == [3.5, 3.5, 2.0, 2.0]
 
@@ -552,6 +608,114 @@ def test_set_cell_margin_rejects_out_of_range(engine) -> None:
     eng, _ = engine
     with pytest.raises(UsageError):
         eng.set_cell_margin(table=0, left=100)
+
+
+def test_set_col_width_mm_and_ratio(engine) -> None:
+    eng, fake = engine
+    out = eng.set_col_width("30,70", table=0, unit="mm")
+    assert out["widths_mm"] == [30.0, 70.0]
+    assert [c[1] for c in fake.calls if c[0] == "set_col_width_current"] == [30.0, 70.0]
+    assert load_state().undo_stack[-1] == 2
+
+    fake.calls.clear()
+    out = eng.set_col_width([1, 3], table=0, unit="ratio")
+    assert out["widths_mm"] == [25.0, 75.0]
+    assert [c[1] for c in fake.calls if c[0] == "set_col_width_current"] == [25.0, 75.0]
+
+
+def test_set_col_width_rejects_bad_ratio(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(UsageError):
+        eng.set_col_width([1], table=0, unit="ratio")
+    with pytest.raises(UsageError):
+        eng.set_col_width([1, 2], table=0, column=1, unit="ratio")
+
+
+def test_get_col_width_current_and_table(engine) -> None:
+    eng, _ = engine
+    current = eng.get_col_width()
+    assert current["width_mm"] == 50.0
+    all_columns = eng.get_col_width(table=0)
+    assert all_columns["widths_mm"] == [50.0, 50.0]
+    assert load_state().undo_stack == []
+
+
+def test_set_and_get_row_height(engine) -> None:
+    eng, fake = engine
+    out = eng.set_row_height(12.5, table=0, row=1)
+    assert out["height_mm"] == 12.5
+    assert ("set_row_height_current", 12.5) in fake.calls
+    assert load_state().undo_stack[-1] == 1
+    read = eng.get_row_height(table=0, row=1)
+    assert read["height_mm"] == 10.0
+
+
+def test_merge_cells_and_undo(engine) -> None:
+    eng, fake = engine
+    out = eng.merge_cells("A1:B2", table=0)
+    assert ("merge_cells", ("A1", "B2")) in fake.calls
+    assert out["undo_units"] == 1
+    assert load_state().undo_stack[-1] == 1
+    with pytest.raises(UsageError):
+        eng.merge_cells("A1", table=0)
+
+
+def test_set_valign_table_walks_each_cell(engine) -> None:
+    eng, fake = engine
+    out = eng.set_valign("bottom", table=0)
+    assert out["vert_align"] == 2
+    calls = [c for c in fake.calls if c[0] == "set_valign_current"]
+    assert len(calls) == 2
+    assert load_state().undo_stack[-1] == 2
+
+
+def test_set_cell_border_range_and_rejects_type_horz(engine) -> None:
+    eng, fake = engine
+    out = eng.set_cell_border(
+        sides="left,bottom",
+        color="#112233",
+        table=0,
+        cell_range="A1:B1",
+    )
+    calls = [c[1] for c in fake.calls if c[0] == "set_cell_border_current"]
+    assert len(calls) == 2
+    assert calls[0]["sides"] == ["left", "bottom"]
+    assert out["hangul_actions"] == 2
+    with pytest.raises(UsageError) as exc:
+        eng.set_cell_border(sides="horizontal", table=0)
+    assert "TypeHorz" in exc.value.message
+
+
+def test_set_style_named_style_records_undo(engine) -> None:
+    eng, fake = engine
+    out = eng.set_style("개요 1")
+    assert ("set_style", "개요 1") in fake.calls
+    assert out["undo_units"] == 1
+    assert load_state().undo_stack[-1] == 1
+
+
+def test_set_pagedef_and_page_break(engine) -> None:
+    eng, fake = engine
+    out = eng.set_pagedef(
+        paper_width=210,
+        paper_height=297,
+        left=20,
+        right=20,
+        landscape=True,
+    )
+    assert out["landscape"] is True
+    call = next(c[1] for c in fake.calls if c[0] == "set_pagedef")
+    assert call["paper_width"] == 210
+    assert call["left"] == 20
+    assert load_state().undo_stack[-1] == 1
+
+    fake.calls.clear()
+    page = eng.page(break_page=True)
+    assert ("break_page", None) in fake.calls
+    assert page["page_count"] == 2
+    assert page["undo_units"] == 1
+    with pytest.raises(UsageError):
+        eng.page(goto=2, break_page=True)
 
 
 def test_insert_chart_line_defaults(engine) -> None:

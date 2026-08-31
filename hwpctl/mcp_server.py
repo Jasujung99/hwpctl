@@ -151,6 +151,103 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
+    async def set_col_width(
+        widths: list[float],
+        table: int | None = None,
+        column: int | None = None,
+        unit: str = "mm",
+    ) -> dict[str, Any]:
+        """열 너비를 지정한다. unit=mm 또는 표 전체 widths 비율인 ratio."""
+        return await _call(
+            engine,
+            "set_col_width",
+            widths=widths,
+            table=table,
+            column=column,
+            unit=unit,
+        )
+
+    @mcp.tool()
+    async def get_col_width(
+        table: int | None = None,
+        column: int | None = None,
+    ) -> dict[str, Any]:
+        """현재 열 또는 table의 column(1부터) 너비를 mm로 읽는다."""
+        return await _call(engine, "get_col_width", table=table, column=column)
+
+    @mcp.tool()
+    async def set_row_height(
+        height: float,
+        table: int | None = None,
+        row: int | None = None,
+    ) -> dict[str, Any]:
+        """현재 행 또는 table의 row(1부터) 높이를 mm로 지정한다."""
+        return await _call(
+            engine,
+            "set_row_height",
+            height=height,
+            table=table,
+            row=row,
+        )
+
+    @mcp.tool()
+    async def get_row_height(
+        table: int | None = None,
+        row: int | None = None,
+    ) -> dict[str, Any]:
+        """현재 행 또는 table의 row(1부터) 높이를 mm로 읽는다."""
+        return await _call(engine, "get_row_height", table=table, row=row)
+
+    @mcp.tool()
+    async def merge_cells(
+        cell_range: str,
+        table: int | None = None,
+    ) -> dict[str, Any]:
+        """cell_range(예: A1:B2)를 셀블록으로 선택해 합친다."""
+        return await _call(
+            engine,
+            "merge_cells",
+            cell_range=cell_range,
+            table=table,
+        )
+
+    @mcp.tool()
+    async def set_valign(
+        align: str,
+        table: int | None = None,
+        cell_range: str = "",
+    ) -> dict[str, Any]:
+        """셀 세로 정렬. align은 top, center, bottom."""
+        return await _call(
+            engine,
+            "set_valign",
+            align=align,
+            table=table,
+            cell_range=cell_range,
+        )
+
+    @mcp.tool()
+    async def set_cell_border(
+        sides: str = "all",
+        line_type: str = "Solid",
+        width: str = "0.12mm",
+        color: str = "#000000",
+        table: int | None = None,
+        cell_range: str = "",
+    ) -> dict[str, Any]:
+        """셀 테두리. sides는 all 또는 left,right,top,bottom; TypeHorz는 미지원."""
+        return await _call(
+            engine,
+            "set_cell_border",
+            sides=sides,
+            line_type=line_type,
+            width=width,
+            color=color,
+            table=table,
+            cell_range=cell_range,
+        )
+
+    @mcp.tool()
     async def fill_cells(
         table: int = 0,
         cells: Any = None,
@@ -225,14 +322,53 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "replace_selection", text=text)
 
     @mcp.tool()
+    async def set_style(style: str) -> dict[str, Any]:
+        """현재 문단에 문서 스타일을 적용한다. 예: '개요 1'."""
+        return await _call(engine, "set_style", style=style)
+
+    @mcp.tool()
     async def undo() -> dict[str, Any]:
         """직전 hwpctl 명령을 한/글 Undo 한 덩어리로 되돌린다. 기록이 없으면 거부."""
         return await _call(engine, "undo")
 
     @mcp.tool()
-    async def page(goto: int | None = None) -> dict[str, Any]:
-        """현재 쪽을 읽거나 goto(1부터)로 이동한다."""
-        return await _call(engine, "page", goto=goto)
+    async def page(
+        goto: int | None = None,
+        break_page: bool = False,
+    ) -> dict[str, Any]:
+        """현재 쪽/PageCount를 읽고, goto로 이동하거나 break_page로 쪽을 나눈다."""
+        return await _call(engine, "page", goto=goto, break_page=break_page)
+
+    @mcp.tool()
+    async def set_pagedef(
+        paper_width: float | None = None,
+        paper_height: float | None = None,
+        left: float | None = None,
+        right: float | None = None,
+        top: float | None = None,
+        bottom: float | None = None,
+        header: float | None = None,
+        footer: float | None = None,
+        gutter: float | None = None,
+        landscape: bool | None = None,
+        apply: str = "current",
+    ) -> dict[str, Any]:
+        """용지 크기와 여백(mm), 가로/세로 방향을 지정한다."""
+        return await _call(
+            engine,
+            "set_pagedef",
+            paper_width=paper_width,
+            paper_height=paper_height,
+            left=left,
+            right=right,
+            top=top,
+            bottom=bottom,
+            header=header,
+            footer=footer,
+            gutter=gutter,
+            landscape=landscape,
+            apply=apply,
+        )
 
     @mcp.tool()
     async def save_as(path: str, format: str = "") -> dict[str, Any]:

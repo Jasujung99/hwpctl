@@ -86,6 +86,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_margin.add_argument("--top", type=float, default=2.0, help="상단 여백(mm)")
     p_margin.add_argument("--bottom", type=float, default=2.0, help="하단 여백(mm)")
 
+    p_col = add_common(sub.add_parser("set_col_width", help="표 열 너비를 mm 또는 비율로 지정"))
+    p_col.add_argument("--widths", required=True, help="너비 목록. 예: 30 또는 1,2,1")
+    p_col.add_argument("--unit", choices=["mm", "ratio"], default="mm")
+    p_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_col.add_argument("--column", type=int, default=None, help="열 번호(1부터, mm 단일값 전용)")
+
+    p_get_col = add_common(sub.add_parser("get_col_width", help="표 열 너비(mm) 읽기"))
+    p_get_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_get_col.add_argument("--column", type=int, default=None, help="열 번호(1부터)")
+
+    p_row_height = add_common(sub.add_parser("set_row_height", help="표 행 높이(mm) 지정"))
+    p_row_height.add_argument("--height", type=float, required=True, help="행 높이(mm)")
+    p_row_height.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_row_height.add_argument("--row", type=int, default=None, help="행 번호(1부터)")
+
+    p_get_row = add_common(sub.add_parser("get_row_height", help="표 행 높이(mm) 읽기"))
+    p_get_row.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_get_row.add_argument("--row", type=int, default=None, help="행 번호(1부터)")
+
+    p_merge = add_common(sub.add_parser("merge_cells", help="셀 범위 합치기"))
+    p_merge.add_argument("--range", dest="cell_range", required=True, help="셀 범위. 예: A1:B2")
+    p_merge.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+
+    p_valign = add_common(sub.add_parser("set_valign", help="표 셀 세로 정렬"))
+    p_valign.add_argument("align", choices=["top", "center", "bottom"])
+    p_valign.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_valign.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
+
+    p_border = add_common(sub.add_parser("set_cell_border", help="표 셀 테두리 지정"))
+    p_border.add_argument(
+        "--sides",
+        default="all",
+        help="all 또는 left,right,top,bottom 조합. TypeHorz는 미지원",
+    )
+    p_border.add_argument("--line-type", default="Solid", help="HwpLineType 이름")
+    p_border.add_argument("--width", default="0.12mm", help="HwpLineWidth 값")
+    p_border.add_argument("--color", default="#000000", help="테두리 색")
+    p_border.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_border.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
+
     p_chart = add_common(
         sub.add_parser("insert_chart", help="표 데이터로 한/글 네이티브 차트 삽입 (그림 아님)")
     )
@@ -146,6 +186,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_fmt.add_argument("--row", type=int, default=None, help="1부터. 표의 해당 행")
     p_fmt.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D1")
 
+    p_style = add_common(sub.add_parser("set_style", help="현재 문단에 문서 스타일 적용"))
+    p_style.add_argument("style", help='스타일 이름. 예: "개요 1"')
+
     p_repl = add_common(sub.add_parser("replace_selection", help="선택 영역 교체"))
     p_repl.add_argument("text")
 
@@ -153,6 +196,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_page = add_common(sub.add_parser("page", help="쪽 읽기 또는 이동"))
     p_page.add_argument("--goto", type=int, default=None, metavar="N", help="1부터")
+    p_page.add_argument(
+        "--break",
+        dest="break_page",
+        action="store_true",
+        help="캐럿 위치에서 BreakPage로 쪽 나누기",
+    )
+
+    p_pagedef = add_common(sub.add_parser("set_pagedef", help="용지 크기·여백·가로/세로 지정"))
+    p_pagedef.add_argument("--paper-width", type=float, default=None, help="용지 폭(mm)")
+    p_pagedef.add_argument("--paper-height", type=float, default=None, help="용지 길이(mm)")
+    p_pagedef.add_argument("--left", type=float, default=None, help="왼쪽 여백(mm)")
+    p_pagedef.add_argument("--right", type=float, default=None, help="오른쪽 여백(mm)")
+    p_pagedef.add_argument("--top", type=float, default=None, help="위쪽 여백(mm)")
+    p_pagedef.add_argument("--bottom", type=float, default=None, help="아래쪽 여백(mm)")
+    p_pagedef.add_argument("--header", type=float, default=None, help="머리말 여백(mm)")
+    p_pagedef.add_argument("--footer", type=float, default=None, help="꼬리말 여백(mm)")
+    p_pagedef.add_argument("--gutter", type=float, default=None, help="제본 여백(mm)")
+    p_pagedef.add_argument(
+        "--landscape",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="가로 방향(--landscape) 또는 세로 방향(--no-landscape)",
+    )
+    p_pagedef.add_argument(
+        "--apply",
+        choices=["current", "all", "new"],
+        default="current",
+        help="현재 구역, 모든 구역, 새 구역 적용",
+    )
 
     p_save_as = add_common(sub.add_parser("save_as", help="새 경로로 저장 (원본 유지)"))
     p_save_as.add_argument("path")
