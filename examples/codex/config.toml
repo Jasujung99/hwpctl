@@ -1,0 +1,9 @@
+# ~/.codex/config.toml 에 병합하세요.
+# 한/글 로직은 여기에 두지 않습니다. 서버는 hwpctl 하나입니다.
+
+[mcp_servers.hwpctl]
+command = "hwpctl"
+args = ["mcp"]
+
+[mcp_servers.hwpctl.env]
+HWPCTL_CLIENT = "codex"

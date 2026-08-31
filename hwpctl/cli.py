@@ -1,0 +1,125 @@
+"""hwpctl 엔트리. 오류는 한국어 한 줄, 성공은 JSON."""
+
+from __future__ import annotations
+
+import json
+import sys
+import traceback
+from typing import Any, Sequence
+
+from argparse import ArgumentTypeError
+
+from hwpctl.errors import HwpctlError, UsageError
+from hwpctl.parser import parse_args, parse_cell_assignments, parse_cells_json
+from hwpctl.tools import tool_catalog
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        args = parse_args(list(argv) if argv is not None else None)
+    except SystemExit as exc:
+        code = exc.code
+        return 0 if code in (0, None) else int(code)
+
+    debug = bool(getattr(args, "debug", False))
+    try:
+        if args.command == "mcp":
+            return _run_mcp(args)
+        payload = _run_engine(args)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    except HwpctlError as exc:
+        print(exc.message, file=sys.stderr)
+        if debug:
+            traceback.print_exc()
+        return exc.exit_code
+    except Exception:
+        print(
+            "내부 오류가 발생했습니다. --debug 로 다시 실행하면 자세한 내용을 볼 수 있습니다.",
+            file=sys.stderr,
+        )
+        if debug:
+            traceback.print_exc()
+        return 1
+
+
+def _run_engine(args: Any) -> dict[str, Any]:
+    from hwpctl.engine import Engine
+
+    engine = Engine(lock_timeout=float(args.lock_timeout))
+    kwargs = _kwargs_for(args)
+    return engine.dispatch(args.command, **kwargs)
+
+
+def _kwargs_for(args: Any) -> dict[str, Any]:
+    try:
+        return _kwargs_for_inner(args)
+    except ArgumentTypeError as exc:
+        raise UsageError(str(exc)) from exc
+
+
+def _kwargs_for_inner(args: Any) -> dict[str, Any]:
+    cmd = args.command
+    if cmd == "open":
+        return {"path": args.path, "new": args.new, "discard": args.discard}
+    if cmd == "insert_title":
+        return {"text": args.text, "size": args.size}
+    if cmd == "insert_paragraph":
+        return {"text": args.text}
+    if cmd == "create_table":
+        return {
+            "rows": args.rows,
+            "cols": args.cols,
+            "header_fill": args.header_fill,
+            "header": not args.no_header,
+        }
+    if cmd == "fill_cells":
+        return {
+            "table": args.table,
+            "cells": parse_cells_json(args.cells),
+            "assignments": parse_cell_assignments(args.cell),
+        }
+    if cmd == "set_format":
+        return {
+            "bold": args.bold,
+            "italic": args.italic,
+            "font": args.font,
+            "size": args.size,
+            "align": args.align,
+            "color": args.color,
+            "fill": args.fill,
+            "table": args.table,
+            "row": args.row,
+            "cell_range": args.cell_range,
+        }
+    if cmd == "replace_selection":
+        return {"text": args.text}
+    if cmd == "page":
+        return {"goto": args.goto}
+    if cmd == "save_as":
+        return {"path": args.path, "format": args.format}
+    if cmd == "save":
+        return {"overwrite": args.overwrite}
+    if cmd == "close":
+        return {"force": args.force}
+    return {}
+
+
+def _run_mcp(args: Any) -> int:
+    if args.list_tools:
+        print(json.dumps({"tools": tool_catalog()}, ensure_ascii=False, indent=2))
+        return 0
+    from hwpctl.mcp_server import run_mcp
+
+    run_mcp(
+        http=bool(args.http),
+        host=str(args.host),
+        port=int(args.port),
+        token=str(args.token or ""),
+        lock_timeout=float(args.lock_timeout),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
