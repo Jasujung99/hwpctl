@@ -69,8 +69,8 @@ hwpctl status
 pip install -e ".[hwpx]"
 hwpctl --backend auto hwpx_status
 python scripts/recreate_gongo.py --out artifacts/gongo
-hwpctl hwpx_inspect artifacts/gongo/rebuild_p1_10.hwpx
-hwpctl hwpx_compare artifacts/gongo/rebuild_p1_10.hwpx \
+hwpctl hwpx_inspect artifacts/gongo/rebuild_p1.hwpx
+hwpctl hwpx_compare artifacts/gongo/rebuild_p1.hwpx \
   --orig-dir fixtures/gongo --out-dir artifacts/gongo
 ```
 

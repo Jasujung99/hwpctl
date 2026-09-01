@@ -15,14 +15,71 @@ from hwpctl.hwpx.document import require_hwpx
 
 ALIGNMENTS = {"LEFT", "CENTER", "RIGHT", "JUSTIFY"}
 
-# 공고문 크림 구역 헤더(원본 p1–p3 실측 근사).
-CREAM_FILL = "#F5E6C8"
+# 원본 공고(한글 스크린샷) 실측. 스켈레톤 함초롬* 가 아니라
+# header.xml 에 공식 페이스를 선언해야 inspect / 한/글이 그 이름을 본다.
+CREAM_FILL = "#FCF5E7"
 TABLE_HEADER_FILL = "#C5D8EA"
 TABLE_LABEL_FILL = "#D6E3F0"
-GOTHIC_FONT = "함초롬돋움"
-MYEONGJO_FONT = "함초롬바탕"
+HEADLINE_FONT = "HY헤드라인M"
+MYEONGJO_FONT = "휴먼명조"
+GOTHIC_FONT = HEADLINE_FONT
+
+_HWP_UNITS_PER_MM = 7200 / 25.4
+_HWP_UNITS_PER_PT = 100
 
 RunLike = Mapping[str, Any]
+
+
+def _mm_to_hwp(value: float) -> int:
+    return round(float(value) * _HWP_UNITS_PER_MM)
+
+
+def _pt_to_hwp(value: float) -> int:
+    return round(float(value) * _HWP_UNITS_PER_PT)
+
+
+def _document_header(document: Any) -> Any:
+    root = getattr(document, "_root", None)
+    headers = list(getattr(root, "headers", None) or []) if root is not None else []
+    if headers:
+        return headers[0]
+    raise HwpxError("문서 header 를 찾을 수 없습니다.")
+
+
+def ensure_declared_font(
+    document: Any,
+    face: str,
+    *,
+    subst_face: str | None = None,
+) -> str:
+    """``hh:fontfaces`` 에 페이스를 등록한다. ``ensure_run(font=...)`` 보다 먼저 호출해야 한다."""
+
+    require_hwpx()
+    name = (face or "").strip()
+    if not name:
+        raise UsageError("등록할 글꼴 이름이 비어 있습니다.")
+    styles = getattr(document, "styles", None)
+    ensure = getattr(styles, "ensure_font", None)
+    if not callable(ensure):
+        raise HwpxError("python-hwpx styles.ensure_font 을 쓸 수 없습니다.")
+    kwargs: dict[str, Any] = {}
+    if subst_face and subst_face != name:
+        kwargs["subst_face"] = subst_face
+        kwargs["subst_type"] = "TTF"
+    try:
+        return str(ensure(name, **kwargs))
+    except Exception as exc:
+        raise HwpxError(f"HWPX 글꼴을 등록할 수 없습니다 ({name}): {exc}") from exc
+
+
+def _subst_for_face(face: str) -> str | None:
+    """한/글에 공식 페이스가 없을 때를 위한 스켈레톤 대체. inspect 는 선언 이름을 유지한다."""
+
+    if "명조" in face or "바탕" in face:
+        return None if face == "함초롬바탕" else "함초롬바탕"
+    if face == "함초롬돋움":
+        return None
+    return "함초롬돋움"
 
 
 def _hex_color(value: str | None) -> str | None:
@@ -54,11 +111,38 @@ def _paragraph_index(document: Any, paragraph: Any) -> int | None:
     return None
 
 
+def _has_para_format(
+    *,
+    alignment: str | None = None,
+    line_spacing_percent: float | None = None,
+    indent_left_mm: float | None = None,
+    indent_right_mm: float | None = None,
+    first_line_indent_mm: float | None = None,
+    spacing_before_pt: float | None = None,
+    spacing_after_pt: float | None = None,
+    page_break_before: bool | None = None,
+    bottom_border: bool = False,
+    **_extra: Any,
+) -> bool:
+    return bool(
+        alignment
+        or line_spacing_percent is not None
+        or indent_left_mm is not None
+        or indent_right_mm is not None
+        or first_line_indent_mm is not None
+        or spacing_before_pt is not None
+        or spacing_after_pt is not None
+        or page_break_before is not None
+        or bottom_border
+    )
+
+
 def _apply_on_paragraph(document: Any, paragraph: Any, **kwargs: Any) -> Any:
-    idx = _paragraph_index(document, paragraph)
-    if idx is None:
+    """최상위 문단과 표 셀 문단 모두에 paraPr 을 붙인다."""
+
+    if not _has_para_format(**kwargs):
         return None
-    return apply_paragraph_format(document, paragraph_index=idx, **kwargs)
+    return apply_paragraph_format(document, paragraph=paragraph, **kwargs)
 
 
 def insert_paragraph(
@@ -233,6 +317,7 @@ def ensure_run_style(
         kwargs["underline"] = True
         kwargs["underline_color"] = _hex_color(underline_color)
     if font:
+        ensure_declared_font(document, font, subst_face=_subst_for_face(font))
         kwargs["font"] = font
     if size is not None:
         kwargs["size"] = size
@@ -310,9 +395,78 @@ def set_run_props(
     }
 
 
+def _apply_format_via_header(
+    document: Any,
+    paragraph: Any,
+    *,
+    alignment: str | None = None,
+    line_spacing_percent: float | None = None,
+    indent_left_mm: float | None = None,
+    indent_right_mm: float | None = None,
+    first_line_indent_mm: float | None = None,
+    spacing_before_pt: float | None = None,
+    spacing_after_pt: float | None = None,
+    page_break_before: bool | None = None,
+    bottom_border: bool = False,
+    border_color: str = "#000000",
+    border_width: str = "0.12 mm",
+) -> dict[str, Any]:
+    """표 셀 문단처럼 document.paragraphs 밖에 있는 hp:p 에 paraPrIDRef 를 단다."""
+
+    header = _document_header(document)
+    ensure = getattr(header, "ensure_paragraph_format", None)
+    if not callable(ensure):
+        raise HwpxError("header.ensure_paragraph_format 을 쓸 수 없습니다.")
+    align = _normalize_align(alignment)
+    margins: dict[str, int] = {}
+    if first_line_indent_mm is not None:
+        margins["intent"] = _mm_to_hwp(first_line_indent_mm)
+    if indent_left_mm is not None:
+        margins["left"] = _mm_to_hwp(indent_left_mm)
+    if indent_right_mm is not None:
+        margins["right"] = _mm_to_hwp(indent_right_mm)
+    if spacing_before_pt is not None:
+        margins["prev"] = _pt_to_hwp(spacing_before_pt)
+    if spacing_after_pt is not None:
+        margins["next"] = _pt_to_hwp(spacing_after_pt)
+    break_setting: dict[str, bool] = {}
+    if page_break_before is not None:
+        break_setting["page_break_before"] = bool(page_break_before)
+    border: dict[str, str] | None = None
+    if bottom_border:
+        border_fill_id = header.ensure_border_fill(
+            border_color=border_color,
+            border_width=border_width,
+            active_borders=("bottom",),
+        )
+        border = {
+            "borderFillIDRef": str(border_fill_id),
+            "offsetLeft": "0",
+            "offsetRight": "0",
+            "offsetTop": "0",
+            "offsetBottom": "0",
+            "connect": "0",
+            "ignoreMargin": "0",
+        }
+    try:
+        para_pr_id = ensure(
+            base_para_pr_id=getattr(paragraph, "para_pr_id_ref", None),
+            alignment=align,
+            line_spacing_percent=line_spacing_percent,
+            margins=margins or None,
+            border=border,
+            break_setting=break_setting or None,
+        )
+    except Exception as exc:
+        raise HwpxError(f"HWPX 문단 서식을 만들 수 없습니다: {exc}") from exc
+    paragraph.para_pr_id_ref = para_pr_id
+    return {"ok": True, "para_pr_id": str(para_pr_id), "via": "header"}
+
+
 def apply_paragraph_format(
     document: Any,
     *,
+    paragraph: Any | None = None,
     paragraph_index: int | None = None,
     alignment: str | None = None,
     line_spacing_percent: float | None = None,
@@ -326,19 +480,74 @@ def apply_paragraph_format(
     border_color: str = "#000000",
     border_width: str = "0.12 mm",
 ) -> Any:
-    """문단 가로 정렬·줄간격·들여쓰기·쪽 나눔. ``styles.apply_paragraph_format``."""
+    """문단 가로 정렬·줄간격·들여쓰기·쪽 나눔.
+
+    최상위 문단은 ``styles.apply_paragraph_format`` 을 쓰고,
+    표 셀 문단은 ``header.ensure_paragraph_format`` + ``paraPrIDRef`` 로 직접 단다.
+    """
 
     require_hwpx()
-    styles = getattr(document, "styles", None)
-    apply = getattr(styles, "apply_paragraph_format", None)
-    if not callable(apply):
-        raise HwpxError("python-hwpx styles.apply_paragraph_format 을 쓸 수 없습니다.")
-    idx = paragraph_index
-    if idx is None:
+    if not _has_para_format(
+        alignment=alignment,
+        line_spacing_percent=line_spacing_percent,
+        indent_left_mm=indent_left_mm,
+        indent_right_mm=indent_right_mm,
+        first_line_indent_mm=first_line_indent_mm,
+        spacing_before_pt=spacing_before_pt,
+        spacing_after_pt=spacing_after_pt,
+        page_break_before=page_break_before,
+        bottom_border=bottom_border,
+    ):
+        return None
+
+    target = paragraph
+    if target is None:
         paragraphs = list(getattr(document, "paragraphs", []) or [])
         if not paragraphs:
             raise HwpxError("정렬할 문단이 없습니다.")
-        idx = len(paragraphs) - 1
+        if paragraph_index is None:
+            target = paragraphs[-1]
+        else:
+            if paragraph_index < 0 or paragraph_index >= len(paragraphs):
+                raise UsageError(f"문단 번호가 범위를 벗어났습니다: {paragraph_index}")
+            target = paragraphs[paragraph_index]
+
+    idx = _paragraph_index(document, target)
+    if idx is None:
+        return _apply_format_via_header(
+            document,
+            target,
+            alignment=alignment,
+            line_spacing_percent=line_spacing_percent,
+            indent_left_mm=indent_left_mm,
+            indent_right_mm=indent_right_mm,
+            first_line_indent_mm=first_line_indent_mm,
+            spacing_before_pt=spacing_before_pt,
+            spacing_after_pt=spacing_after_pt,
+            page_break_before=page_break_before,
+            bottom_border=bottom_border,
+            border_color=border_color,
+            border_width=border_width,
+        )
+
+    styles = getattr(document, "styles", None)
+    apply = getattr(styles, "apply_paragraph_format", None)
+    if not callable(apply):
+        return _apply_format_via_header(
+            document,
+            target,
+            alignment=alignment,
+            line_spacing_percent=line_spacing_percent,
+            indent_left_mm=indent_left_mm,
+            indent_right_mm=indent_right_mm,
+            first_line_indent_mm=first_line_indent_mm,
+            spacing_before_pt=spacing_before_pt,
+            spacing_after_pt=spacing_after_pt,
+            page_break_before=page_break_before,
+            bottom_border=bottom_border,
+            border_color=border_color,
+            border_width=border_width,
+        )
     kwargs: dict[str, Any] = {"paragraph_index": idx, "bottom_border": bottom_border}
     align = _normalize_align(alignment)
     if align:
@@ -360,23 +569,6 @@ def apply_paragraph_format(
     if bottom_border:
         kwargs["border_color"] = border_color
         kwargs["border_width"] = border_width
-    meaningful = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in {"paragraph_index", "bottom_border"} or value
-    }
-    if list(meaningful.keys()) == [] or (
-        not align
-        and line_spacing_percent is None
-        and indent_left_mm is None
-        and indent_right_mm is None
-        and first_line_indent_mm is None
-        and spacing_before_pt is None
-        and spacing_after_pt is None
-        and page_break_before is None
-        and not bottom_border
-    ):
-        return None
     try:
         return apply(**kwargs)
     except Exception as exc:
@@ -656,7 +848,7 @@ def cream_section_header(
             [
                 {
                     "text": number if col == 0 else title,
-                    "font": GOTHIC_FONT,
+                    "font": HEADLINE_FONT,
                     "size": 16 if col == 1 else 14,
                     "bold": True,
                 }
@@ -694,7 +886,7 @@ def boxed_block(
             table,
             0,
             0,
-            [{"text": header, "font": GOTHIC_FONT, "size": 13, "bold": True}],
+            [{"text": header, "font": HEADLINE_FONT, "size": 13, "bold": True}],
             align="LEFT",
         )
     first = True

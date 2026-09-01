@@ -13,8 +13,8 @@ from typing import Any
 
 from hwpctl.hwpx.document import close_document, new_document, save_document
 from hwpctl.hwpx.write import (
-    CREAM_FILL,
     GOTHIC_FONT,
+    HEADLINE_FONT,
     MYEONGJO_FONT,
     TABLE_HEADER_FILL,
     TABLE_LABEL_FILL,
@@ -35,6 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURES = REPO_ROOT / "fixtures" / "gongo"
 CONTENT_WIDTH = 48000  # ~169mm HWPUNIT
 STRONG_PAGES = (1, 2, 3)
+QUALITY_PAGES = (1,)
 ALL_PAGES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 27, 28, 29)
 
 RED = "#FF0000"
@@ -61,7 +62,7 @@ def _build_page1(doc: Any) -> None:
         doc,
         "「2026년 혁신 소상공인 AI 활용지원 사업」",
         inherit_style=False,
-        font=GOTHIC_FONT,
+        font=HEADLINE_FONT,
         size=18,
         bold=True,
         align="CENTER",
@@ -72,15 +73,12 @@ def _build_page1(doc: Any) -> None:
         doc,
         "참여 소상공인 모집 공고",
         inherit_style=False,
-        font=GOTHIC_FONT,
+        font=HEADLINE_FONT,
         size=16,
         bold=True,
         align="CENTER",
         line_spacing_percent=140,
         spacing_after_pt=6,
-        bottom_border=True,
-        border_color="#000000",
-        border_width="0.4 mm",
     )
     insert_paragraph(
         doc,
@@ -123,7 +121,7 @@ def _build_page1(doc: Any) -> None:
 
     qa_rows: list[list[dict[str, Any]]] = [
         [
-            {"text": "❶ 무엇을 지원해주나요?", "font": GOTHIC_FONT, "size": 12, "bold": True},
+            {"text": "❶ 무엇을 지원해주나요?", "font": HEADLINE_FONT, "size": 12, "bold": True},
         ],
         [
             {
@@ -135,7 +133,7 @@ def _build_page1(doc: Any) -> None:
                 "size": 11,
             }
         ],
-        [{"text": "❷ 얼마나 지원해주나요?", "font": GOTHIC_FONT, "size": 12, "bold": True}],
+        [{"text": "❷ 얼마나 지원해주나요?", "font": HEADLINE_FONT, "size": 12, "bold": True}],
         [
             {
                 "text": (
@@ -146,11 +144,24 @@ def _build_page1(doc: Any) -> None:
                 "size": 11,
             }
         ],
-        [{"text": "❸ 어떻게 신청하나요?", "font": GOTHIC_FONT, "size": 12, "bold": True}],
+        [{"text": "❸ 어떻게 신청하나요?", "font": HEADLINE_FONT, "size": 12, "bold": True}],
         [
             {
+                "text": "☞ 소상공인24 홈페이지(",
+                "font": MYEONGJO_FONT,
+                "size": 11,
+            },
+            {
+                "text": "sbiz24.kr",
+                "font": MYEONGJO_FONT,
+                "size": 11,
+                "underline": True,
+                "underline_color": BLUE,
+                "color": BLUE,
+            },
+            {
                 "text": (
-                    "☞ 소상공인24 홈페이지(sbiz24.kr)→[지원사업조회 및 신청]→[소진공 공고조회 및 신청]→ "
+                    ")→[지원사업조회 및 신청]→[소진공 공고조회 및 신청]→ "
                     "[2026년 혁신 소상공인 AI활용 지원사업] 검색해서 신청하면 됩니다. "
                     "시스템 접수기간은 2026. 6. 12(금)부터 "
                 ),
@@ -159,7 +170,7 @@ def _build_page1(doc: Any) -> None:
             },
             {
                 "text": "7. 3(금) 16시까지",
-                "font": GOTHIC_FONT,
+                "font": MYEONGJO_FONT,
                 "size": 11,
                 "bold": True,
                 "underline": True,
@@ -168,7 +179,7 @@ def _build_page1(doc: Any) -> None:
             },
             {"text": "입니다.", "font": MYEONGJO_FONT, "size": 11},
         ],
-        [{"text": "❹ 궁금한 점이 있어요!", "font": GOTHIC_FONT, "size": 12, "bold": True}],
+        [{"text": "❹ 궁금한 점이 있어요!", "font": HEADLINE_FONT, "size": 12, "bold": True}],
         [
             {
                 "text": "☞ 궁금한 점이 있을 때는 주관기관(p11, 문의처)으로 연락 바랍니다. 문의가 많아 통화가 어려울 수 있으니, 반드시 ",
@@ -186,7 +197,7 @@ def _build_page1(doc: Any) -> None:
         [
             {
                 "text": "❺ AI 활용모델 구축은 어떻게 진행되나요?",
-                "font": GOTHIC_FONT,
+                "font": HEADLINE_FONT,
                 "size": 12,
                 "bold": True,
             }
@@ -201,7 +212,7 @@ def _build_page1(doc: Any) -> None:
                 "size": 11,
             }
         ],
-        [{"text": "❻ 시중 AI 솔루션을 활용해도 되나요?", "font": GOTHIC_FONT, "size": 12, "bold": True}],
+        [{"text": "❻ 시중 AI 솔루션을 활용해도 되나요?", "font": HEADLINE_FONT, "size": 12, "bold": True}],
         [
             {
                 "text": (
@@ -599,9 +610,9 @@ def recreate_gongo(
     *,
     output: str | Path,
     fixtures: str | Path | None = None,
-    pages: tuple[int, ...] = ALL_PAGES,
+    pages: tuple[int, ...] = QUALITY_PAGES,
 ) -> dict[str, Any]:
-    """공고문 1–10·27–29쪽을 ``.hwpx`` 로 조립하고 경로를 돌려준다."""
+    """공고문을 ``.hwpx`` 로 조립한다. 기본은 1쪽 품질 재현이다."""
 
     fixtures_dir = Path(fixtures or DEFAULT_FIXTURES)
     if not (fixtures_dir / "gongo_pages.json").is_file():
@@ -641,6 +652,6 @@ def recreate_gongo(
         "hangul_required": False,
         "conversion": (
             "바이너리 .hwp → .hwpx 변환은 이 환경에서 쓰지 않았습니다. "
-            "gongo_pages.json 과 orig_p1–p3.png 를 기준으로 처음부터 조립했습니다."
+            "gongo_pages.json 과 orig_p1.png 를 기준으로 1쪽부터 조립했습니다."
         ),
     }

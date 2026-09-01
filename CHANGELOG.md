@@ -8,9 +8,10 @@
 ### Added
 
 - `--backend auto|hwpx|hancom` (`auto` 는 비-Windows 에서 `hwpx`)
-- HWPX 쓰기 래퍼: 부분 런(색·밑줄), 표 채움/테두리/열너비, 크림 구역 헤더
-- `scripts/recreate_gongo.py` 와 `hwpx_compare` — 공고문 1–3쪽 충실 재현, 4–10·27–29 골격
-- 한글 GUI 없이 inspect JSON·레이아웃 HTML·원본 PNG 비교 시트
+- HWPX 쓰기: `ensure_font` 후 런 서식, 셀 문단 paraPr, 공식 페이스(`휴먼명조`/`HY헤드라인M`)
+- 크림 채움 `#FCF5E7`, 부분 런(빨간 기한·파란 URL), 표 채움/테두리/열너비
+- `scripts/recreate_gongo.py` 기본 1쪽 `rebuild_p1.hwpx`. 품질은 `hwpx_inspect` 로 측정
+- 한글 GUI 없이 inspect JSON·레이아웃 HTML·원본 PNG 비교 시트(참고용)
 - 한글 없이 `.hwpx`를 다루는 준비 계층(`hwpctl/hwpx`, extra `hwpx`, `hwpx_status` / `hwpx_inspect`)
 - Codex, Claude Code, Cursor, Gemini CLI, Grok Build용 로컬 MCP 설정 예제
 - 공개용 보안 정책, 알려진 한계, 기여 안내와 릴리스 체크리스트

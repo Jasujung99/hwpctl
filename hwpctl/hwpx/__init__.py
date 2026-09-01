@@ -18,17 +18,24 @@ from hwpctl.hwpx.document import (
 from hwpctl.hwpx.gongo import recreate_gongo
 from hwpctl.hwpx.inspect import inspect_hwpx, inspect_owpml_parts
 from hwpctl.hwpx.write import (
+    CREAM_FILL,
+    HEADLINE_FONT,
+    MYEONGJO_FONT,
     apply_paragraph_align,
     apply_paragraph_format,
     boxed_block,
     cream_section_header,
     create_table_and_fill,
+    ensure_declared_font,
     insert_paragraph,
     insert_runs,
     set_run_props,
 )
 
 __all__ = [
+    "CREAM_FILL",
+    "HEADLINE_FONT",
+    "MYEONGJO_FONT",
     "apply_paragraph_align",
     "apply_paragraph_format",
     "boxed_block",
@@ -36,6 +43,7 @@ __all__ = [
     "compare_page_images",
     "cream_section_header",
     "create_table_and_fill",
+    "ensure_declared_font",
     "hwpx_available",
     "hwpx_version",
     "insert_paragraph",

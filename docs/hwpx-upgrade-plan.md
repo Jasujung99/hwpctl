@@ -5,30 +5,34 @@
 
 검증한 패키지: **`python-hwpx` 6.3.0** (PyPI, Apache-2.0, Python ≥3.10, 의존성 `lxml`).
 6.x 고수준 이름(`HwpxDocument.open` / `new` / `add_paragraph` / `add_table` /
-`styles.ensure_run` / `save_to_path(..., mode="patch")`)을 쓴다.
+`styles.ensure_font` / `styles.ensure_run` / `save_to_path(..., mode="patch")`)을 쓴다.
 7.0에서 5.x 호환 shim 이 제거될 수 있어 extra 는 `python-hwpx>=6.3,<7` 로 묶는다.
 `python-hwpx-automation` 은 양식 채움·별도 MCP 용이며 **지금은 넣지 않는다**.
 
 ```mermaid
 flowchart LR
-    A["fixtures 텍스트·원본 PNG"] --> B["hwpctl.hwpx.write<br/>서식 상속 조립"]
-    B --> C["rebuild_p1_10.hwpx"]
-    C --> D["hwpx_inspect + 쪽 PNG 근사"]
-    D --> E["원본 PNG 비교 시트"]
-    E --> F["선택: hwpctl --backend hancom open<br/>한글 2022 확인"]
+    A["fixtures 텍스트·원본 PNG"] --> B["hwpctl.hwpx.write<br/>OWPML 서식 라운드트립"]
+    B --> C["rebuild_p1.hwpx"]
+    C --> D["hwpx_inspect 가 진실"]
+    D --> E["선택: Pillow 비교 시트"]
+    E --> F["선택: 한글 2022 창 확인"]
 ```
 
-## 현재 상태 (이 PR)
+## 현재 상태 (품질 패스)
 
-- extra `hwpx`: `pip install -e ".[hwpx]"` — Linux CI 에서 한/글·pywin32 없이 설치.
-- `--backend auto|hwpx|hancom` — `auto` 는 Windows 가 아니면 `hwpx`.
-- `hwpctl/hwpx/write.py` — 문단, 부분 런(색·밑줄), 표 채움/테두리/열너비,
-  크림 구역 헤더, 쪽 설정.
-- `scripts/recreate_gongo.py` — 공고문 1–10·27–29쪽 조립. **1–3쪽 충실**,
-  나머지 골격.
-- `hwpx_compare` — inspect JSON + `python-hwpx` 레이아웃 HTML + Pillow 근사 PNG
-  + 원본 PNG 나란히 비교. 한/글 래스터·LibreOffice `hwpfilter` 없음.
-- 기존 `hangul.py` / Engine COM 명령은 그대로. 한글 2024 GSG 없음.
+Pillow 시트를 예쁘게 만드는 것이 목표가 아니다. **한/글이 열 때 원본에 가깝게
+보이도록 OWPML 에 서식이 실제로 남는지** 를 `hwpx_inspect` 로 잰다.
+
+- `ensure_run_style` 이 `styles.ensure_font` 를 먼저 호출한다. 스켈레톤에 없는
+  `휴먼명조` / `HY헤드라인M` 이 header.xml 에 선언된다.
+- 표 셀 문단은 `document.paragraphs` 밖에 있어 `styles.apply_paragraph_format`
+  이 무시하던 정렬·줄간격을 `header.ensure_paragraph_format` + `paraPrIDRef`
+  로 단다.
+- 크림 채움은 원본과 같은 `#FCF5E7`.
+- `scripts/recreate_gongo.py` 기본은 **1쪽만** `rebuild_p1.hwpx`. 4쪽 이후는
+  만들지 않는다. `--pages 1,2,3` 은 같은 엔진을 2–3쪽에 적용할 때만.
+- 쪽 PNG 는 HWPX XML 근사(Noto CJK). 한글 래스터·LibreOffice `hwpfilter` 없음.
+- 기존 `hangul.py` / Engine COM 은 그대로. 한글 2024 GSG 없음.
 
 Linux 에서 재현:
 
@@ -36,51 +40,37 @@ Linux 에서 재현:
 pip install -e ".[hwpx]"
 hwpctl --backend auto hwpx_status
 python scripts/recreate_gongo.py --out artifacts/gongo
-hwpctl hwpx_inspect artifacts/gongo/rebuild_p1_10.hwpx
-hwpctl hwpx_compare artifacts/gongo/rebuild_p1_10.hwpx \
+hwpctl hwpx_inspect artifacts/gongo/rebuild_p1.hwpx
+hwpctl hwpx_compare artifacts/gongo/rebuild_p1.hwpx \
   --orig-dir fixtures/gongo --out-dir artifacts/gongo
 pytest
 ```
 
 바이너리 `fixtures/gongo/doc1.hwp` → `.hwpx` 변환은 이 환경에서 검증된
-변환기를 쓰지 않았다. `gongo_pages.json` 과 `orig_p1.png`–`orig_p3.png` 로
-처음부터 조립한다.
+변환기를 쓰지 않았다. `gongo_pages.json` 과 `orig_p1.png` 로 처음부터 조립한다.
 
-## 1단계 — 준비 (완료, 이전 PR)
+## 1쪽 품질 — inspect 가 보장하는 것
 
-- 패키지 `hwpctl/hwpx/`: `document` · `inspect` · `write` · `compare`.
-- 읽기 명령 `hwpx_status` / `hwpx_inspect` — **COM·SingleWriterLock 없음**.
-
-## 2단계 — 원본 검사 (부분 완료)
-
-원본은 `.hwp` 라 `hwpx_inspect` 로 열 수 없다. 쪽 텍스트 JSON 과 1–3쪽
-스크린샷으로 글꼴(함초롬돋움/바탕), 정렬, 크림 채움, 빨간 기한 밑줄,
-파란 URL 밑줄을 고정한 뒤 그 값을 **상속**해 썼다.
-
-## 3단계 — 조립 (이 PR)
-
-`insert_paragraph` / `insert_runs` / `create_table_and_fill` /
-`cream_section_header` / `boxed_block` 으로 초안을 만들고 `save_document` 로
-저장한다. `add_shape` / `add_control` 은 쓰지 않는다.
-
-| 쪽 | 상태 |
+| 항목 | OWPML |
 |---|---|
-| 1 | 제목·양쪽 정렬 서문·우측 일자/이사장·크림 간단소개·Q1–Q6·빨간 기한 밑줄 |
-| 2 | 크림 `1 사업개요`·□ 항목·빨간 기한·파란 URL·STEP 표 |
-| 3 | 크림 `2 지원대상`·신청자격 부분 굵게·신청제외 상자·밑줄 주의 |
-| 4–10, 27–29 | 크림 헤더 + JSON 본문 골격. 표·도식 세부는 다음 |
+| 제목 페이스 | `HY헤드라인M` |
+| 본문·기한·일자 | `휴먼명조` |
+| 서문 정렬 | `JUSTIFY`, 줄간격 160% |
+| 일자/이사장 | `RIGHT` |
+| 간단소개 헤더 | 표 셀 채움 `#FCF5E7` |
+| 기한 `7. 3(금) 16시까지` | 같은 문단의 부분 런, `#FF0000` + 밑줄 |
+| URL `sbiz24.kr` | 파란 밑줄 런 |
 
-## 4단계 — 시각 비교 (이 PR, 한/글 없음)
+## python-hwpx 가 아직 표현하지 못하는 것
 
-`compare.py` 가 쪽 PNG 근사와 원본 스크린샷을 붙인다.
-한/글이 그린 화면이 아니며, 글꼴은 Linux 의 Noto CJK 로 대체한다.
-셀 안 여러 문단·정확한 줄바꿈·오른쪽 빗금 장식은 근사이다.
+정직하게 적는다. 아래는 한/글 원본에 있으나 이 쓰기 경로로는 만들지 않는다.
 
-## 5단계 — 선택적 `hwpctl open` (사용자 PC, 다음)
-
-Windows + 한글 2022 가 있을 때만 `hwpctl --backend hancom open` 으로
-실물 창에서 확인·미세 조정한다. 자동저장 동작은 바꾸지 않는다.
-한글 2024 GSG API 는 쓰지 않는다.
+- 구역 헤더의 **갈매기/빗금(chevron·hatch) 도형**. `add_shape` 는 깨진 파일을
+  만들 수 있어 쓰지 않는다. 크림 배경 표 `[번호 \| 제목]` 으로 대체한다.
+- 한/글 2022 가 그리는 **정확한 래스터**(커닝, 함초롬/휴먼 힌팅, 줄 나눔).
+  Linux Pillow 시트는 Noto CJK 대체이며 품질 판정이 아니다.
+- 원본의 **정확한 자간·장평·금칙** 수치. 공개 API 로 맞추지 않았다.
+- 4쪽 이후 표·도식. 이 패스는 1쪽(선택 2–3쪽)만.
 
 ## 하지 않는 것
 
@@ -89,3 +79,4 @@ Windows + 한글 2022 가 있을 때만 `hwpctl --backend hancom open` 으로
 - LibreOffice `hwpfilter` 변환
 - `python-hwpx` 포크/벤더링
 - 한글 2024 GSG
+- 4–29쪽 확장 (PR #12 골격 초안과 분리)

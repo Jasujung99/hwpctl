@@ -352,7 +352,10 @@ def test_recreate_gongo_pages_1_3(tmp_path: Path) -> None:
     assert "www.sbiz24.kr" in blob
     assert "신청제외" in blob
     assert any(g.get("underline") and g.get("color") == "#FF0000" for g in inspected["run_groups"])
-    assert any(g.get("fill") == "#F5E6C8" for g in inspected["cell_fill_groups"])
+    assert any(g.get("fill") == "#FCF5E7" for g in inspected["cell_fill_groups"])
+    faces = {g.get("font") for g in inspected["run_groups"]}
+    assert "휴먼명조" in faces
+    assert "HY헤드라인M" in faces
     compared = compare_page_images(
         out,
         orig_dir=fixtures,
@@ -362,3 +365,133 @@ def test_recreate_gongo_pages_1_3(tmp_path: Path) -> None:
     assert compared["ok"] is True
     assert compared["checklist"]
     assert (tmp_path / "cmp" / "report.json").is_file()
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_write_official_faces_cream_deadline_roundtrip(tmp_path: Path) -> None:
+    """inspect() 가 선언 페이스·크림·부분 빨간 밑줄을 그대로 보고하는지."""
+
+    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.write import (
+        CREAM_FILL,
+        HEADLINE_FONT,
+        MYEONGJO_FONT,
+        boxed_block,
+        insert_paragraph,
+        insert_runs,
+        set_page_setup,
+    )
+
+    deadline = "7. 3(금) 16시까지"
+    doc = new_document()
+    try:
+        set_page_setup(doc)
+        insert_paragraph(
+            doc,
+            "「2026년 혁신 소상공인 AI 활용지원 사업」",
+            inherit_style=False,
+            font=HEADLINE_FONT,
+            size=18,
+            bold=True,
+            align="CENTER",
+        )
+        insert_paragraph(
+            doc,
+            "양쪽 정렬 서문",
+            inherit_style=False,
+            font=MYEONGJO_FONT,
+            size=11,
+            align="JUSTIFY",
+            line_spacing_percent=160,
+        )
+        insert_paragraph(
+            doc,
+            "2026년 6월 12일",
+            inherit_style=False,
+            font=MYEONGJO_FONT,
+            size=11,
+            align="RIGHT",
+        )
+        insert_runs(
+            doc,
+            [
+                {"text": "시스템 접수기간은 ", "font": MYEONGJO_FONT, "size": 11},
+                {
+                    "text": deadline,
+                    "font": MYEONGJO_FONT,
+                    "size": 11,
+                    "bold": True,
+                    "underline": True,
+                    "underline_color": "#FF0000",
+                    "color": "#FF0000",
+                },
+                {"text": "입니다.", "font": MYEONGJO_FONT, "size": 11},
+            ],
+            align="JUSTIFY",
+            line_spacing_percent=160,
+        )
+        boxed_block(
+            doc,
+            "「혁신 소상공인 AI 활용지원 사업」 간단소개",
+            [[{"text": "☞ 본문", "font": MYEONGJO_FONT, "size": 11}]],
+            cream_header=True,
+        )
+        out = tmp_path / "roundtrip.hwpx"
+        save_document(doc, out)
+    finally:
+        close_document(doc)
+
+    inspected = inspect_hwpx(out)
+    fonts = inspected["definitions"]["fonts"]
+    assert "휴먼명조" in fonts.values()
+    assert "HY헤드라인M" in fonts.values()
+    assert any(g.get("font") == "휴먼명조" for g in inspected["run_groups"])
+    assert any(g.get("fill") == CREAM_FILL == "#FCF5E7" for g in inspected["cell_fill_groups"])
+    deadline_runs = [
+        g
+        for g in inspected["run_groups"]
+        if deadline in str(g.get("sample_text") or "")
+    ]
+    assert deadline_runs, inspected["run_groups"]
+    hit = deadline_runs[0]
+    assert hit["color"] == "#FF0000"
+    assert hit["underline"] is True
+    assert hit["underline_color"] == "#FF0000"
+    assert hit["bold"] is True
+    assert hit["font"] == "휴먼명조"
+    aligns = {g.get("align") for g in inspected["paragraph_groups"]}
+    assert "CENTER" in aligns
+    assert "JUSTIFY" in aligns
+    assert "RIGHT" in aligns
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_rebuild_page1_inspect_truth(tmp_path: Path) -> None:
+    """1쪽 재현의 품질은 Pillow 가 아니라 hwpx_inspect 로 잰다."""
+
+    from hwpctl.hwpx.gongo import recreate_gongo
+
+    fixtures = REPO / "fixtures" / "gongo"
+    if not (fixtures / "gongo_pages.json").is_file():
+        pytest.skip("gongo fixtures 없음")
+    out = tmp_path / "rebuild_p1.hwpx"
+    built = recreate_gongo(output=out, fixtures=fixtures, pages=(1,))
+    assert built["pages"] == [1]
+    inspected = inspect_hwpx(out)
+    blob = json.dumps(inspected, ensure_ascii=False)
+    assert "간단소개" in blob
+    assert "7. 3(금) 16시까지" in blob
+    assert "sbiz24.kr" in blob
+    fonts = inspected["definitions"]["fonts"]
+    assert "휴먼명조" in fonts.values()
+    assert any(g.get("font") == "휴먼명조" for g in inspected["run_groups"])
+    assert any(g.get("fill") == "#FCF5E7" for g in inspected["cell_fill_groups"])
+    deadline = next(
+        g
+        for g in inspected["run_groups"]
+        if "7. 3(금) 16시까지" in str(g.get("sample_text") or "")
+    )
+    assert deadline["color"] == "#FF0000"
+    assert deadline["underline"] is True
+    assert deadline["underline_color"] == "#FF0000"
+    assert deadline["font"] == "휴먼명조"

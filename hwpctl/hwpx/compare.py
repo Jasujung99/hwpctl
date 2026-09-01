@@ -177,7 +177,14 @@ def render_hwpx_preview_pngs(path: str | Path, out_dir: Path) -> list[Path]:
         info = char_map.get(char_pr) or {}
         size = max(10, int(round(float(info.get("size_pt") or 11) * 1.15)))
         face = info.get("font") or ""
-        gothic = "돋움" in face or "고딕" in face or prefer_gothic or bool(info.get("bold"))
+        if prefer_gothic:
+            gothic = True
+        elif any(tok in face for tok in ("명조", "바탕", "Batang", "Myeongjo")):
+            gothic = False
+        else:
+            gothic = any(
+                tok in face for tok in ("돋움", "고딕", "헤드라인", "Headline", "HY헤드")
+            ) or bool(info.get("bold"))
         path_used = gothic_path if gothic else (serif_path or gothic_path)
         if not path_used:
             return ImageFont.load_default()
@@ -385,17 +392,20 @@ def _style_checklist(inspected: dict[str, Any]) -> list[dict[str, Any]]:
         return False
 
     cream = any(
-        str(g.get("fill") or "").upper() in {"#F5E6C8", "#F3E5C0", "#FFF2CC", "#FAE6B8"}
+        str(g.get("fill") or "").upper()
+        in {"#FCF5E7", "#F5E6C8", "#F3E5C0", "#FFF2CC", "#FAE6B8"}
         for g in cells
     )
+    faces = " ".join(str(g.get("font") or "") for g in runs)
+    official = "휴먼명조" in faces or "HY헤드라인M" in faces
     any_fill = any(g.get("fill") for g in cells)
     return [
         {"id": "title_or_notice", "ok": "공고" in texts or "사업" in texts, "label": "제목/사업 문구"},
-        {"id": "cream_header", "ok": cream or any_fill, "label": "크림/셀 배경"},
+        {"id": "cream_header", "ok": cream, "label": "크림/셀 배경"},
         {"id": "red_underline", "ok": has_run(color="#FF0000", underline=True), "label": "빨간 밑줄 기한"},
         {"id": "blue_underline", "ok": has_run(color="#0000FF", underline=True), "label": "파란 밑줄 URL"},
         {"id": "bold_run", "ok": any(g.get("bold") for g in runs), "label": "굵은 런"},
-        {"id": "gothic_or_myeongjo", "ok": any("함초롬" in str(g.get("font") or "") for g in runs), "label": "함초롬 글꼴"},
+        {"id": "official_faces", "ok": official, "label": "휴먼명조/HY헤드라인M"},
     ]
 
 
