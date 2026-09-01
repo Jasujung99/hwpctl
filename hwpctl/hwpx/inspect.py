@@ -18,6 +18,7 @@ from hwpctl.hwpx.document import hwpx_version
 
 # HWPUNIT 100 = 1pt (한컴 문서 관행, python-hwpx charPr height 와 동일).
 HWPUNIT_PER_PT = 100
+HWPUNIT_PER_MM = 7200 / 25.4
 SAMPLE_LIMIT = 40
 
 
@@ -79,6 +80,24 @@ def _height_to_pt(raw: str) -> float | None:
         return None
 
 
+def _hwpunit_to_mm(raw: str) -> float | None:
+    if not raw:
+        return None
+    try:
+        return round(int(raw) / HWPUNIT_PER_MM, 3)
+    except ValueError:
+        return None
+
+
+def _int_or_none(raw: str) -> int | None:
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def _parse_fonts(header: ET.Element) -> dict[str, str]:
     """HANGUL fontface 의 id → 글꼴 이름."""
 
@@ -110,10 +129,21 @@ def _parse_para_pr(header: ET.Element) -> dict[str, dict[str, Any]]:
         if not pr_id:
             continue
         align = _first_child(node, "align")
+        line_spacing_nodes = _walk(node, "lineSpacing")
+        line_spacing = line_spacing_nodes[0] if line_spacing_nodes else None
         out[pr_id] = {
             "id": pr_id,
             "align": _attr(align, "horizontal") if align is not None else "",
             "valign": _attr(align, "vertical") if align is not None else "",
+            "line_spacing_percent": _int_or_none(
+                _attr(line_spacing, "value") if line_spacing is not None else ""
+            ),
+            "line_spacing_type": (
+                _attr(line_spacing, "type") if line_spacing is not None else ""
+            ),
+            "line_spacing_unit": (
+                _attr(line_spacing, "unit") if line_spacing is not None else ""
+            ),
         }
     return out
 
@@ -128,6 +158,8 @@ def _parse_char_pr(header: ET.Element, fonts: dict[str, str]) -> dict[str, dict[
         font_id = _attr(font_ref, "hangul") if font_ref is not None else ""
         bold = _first_child(node, "bold") is not None
         italic = _first_child(node, "italic") is not None
+        underline = _first_child(node, "underline")
+        underline_type = _attr(underline, "type") if underline is not None else ""
         out[pr_id] = {
             "id": pr_id,
             "font": fonts.get(font_id, ""),
@@ -136,6 +168,10 @@ def _parse_char_pr(header: ET.Element, fonts: dict[str, str]) -> dict[str, dict[
             "bold": bold,
             "italic": italic,
             "color": _attr(node, "textColor") or "",
+            "underline": underline is not None and underline_type.upper() != "NONE",
+            "underline_type": underline_type,
+            "underline_shape": _attr(underline, "shape") if underline is not None else "",
+            "underline_color": _attr(underline, "color") if underline is not None else "",
         }
     return out
 
@@ -152,8 +188,54 @@ def _parse_border_fills(header: ET.Element) -> dict[str, dict[str, Any]]:
             win = _first_child(brush, "winBrush")
             if win is not None:
                 fill = _attr(win, "faceColor")
-        out[fill_id] = {"id": fill_id, "fill": fill}
+        borders: dict[str, dict[str, str]] = {}
+        for side in ("left", "right", "top", "bottom"):
+            border = _first_child(node, f"{side}Border")
+            if border is not None:
+                borders[side] = {
+                    "type": _attr(border, "type"),
+                    "width": _attr(border, "width"),
+                    "color": _attr(border, "color"),
+                }
+        out[fill_id] = {"id": fill_id, "fill": fill, "borders": borders}
     return out
+
+
+def _table_summary(table: ET.Element) -> dict[str, Any]:
+    """Return geometry and cell style references from one ``hp:tbl``."""
+
+    size = _first_child(table, "sz")
+    cells = [
+        cell
+        for row in _children(table, "tr")
+        for cell in _children(row, "tc")
+    ]
+    widths: list[int | None] = []
+    heights: list[int | None] = []
+    for cell in cells:
+        cell_size = _first_child(cell, "cellSz")
+        widths.append(
+            _int_or_none(_attr(cell_size, "width") if cell_size is not None else "")
+        )
+        heights.append(
+            _int_or_none(_attr(cell_size, "height") if cell_size is not None else "")
+        )
+    width = _int_or_none(_attr(size, "width") if size is not None else "")
+    height = _int_or_none(_attr(size, "height") if size is not None else "")
+    return {
+        "rows": _int_or_none(_attr(table, "rowCnt")) or len(_children(table, "tr")),
+        "columns": _int_or_none(_attr(table, "colCnt")),
+        "width_hwpunit": width,
+        "width_mm": _hwpunit_to_mm(str(width)) if width is not None else None,
+        "height_hwpunit": height,
+        "height_mm": _hwpunit_to_mm(str(height)) if height is not None else None,
+        "border_fill_id": _attr(table, "borderFillIDRef"),
+        "cell_widths_hwpunit": widths,
+        "cell_heights_hwpunit": heights,
+        "cell_border_fill_ids": [
+            _attr(cell, "borderFillIDRef") for cell in cells
+        ],
+    }
 
 
 def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, Any]:
@@ -176,8 +258,10 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
     cell_keys: list[str] = []
     para_samples: dict[tuple[str, str, str], str] = {}
     run_samples: dict[str, str] = {}
+    runs: list[dict[str, Any]] = []
     paragraph_count = 0
     table_count = 0
+    tables: list[dict[str, Any]] = []
 
     for raw in section_xmls:
         if not raw.strip():
@@ -186,7 +270,9 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
             section = ET.fromstring(raw)
         except ET.ParseError as exc:
             raise HwpxError(f"HWPX section XML 을 해석할 수 없습니다: {exc}") from exc
-        table_count += len(_walk(section, "tbl"))
+        section_tables = _walk(section, "tbl")
+        table_count += len(section_tables)
+        tables.extend(_table_summary(table) for table in section_tables)
         for para in _walk(section, "p"):
             paragraph_count += 1
             para_pr = _attr(para, "paraPrIDRef")
@@ -203,16 +289,32 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
                 run_sample = _sample(_text_of(run))
                 if char_pr not in run_samples or (run_sample and not run_samples[char_pr]):
                     run_samples[char_pr] = run_sample
+                definition = char_defs.get(char_pr) or {}
+                runs.append(
+                    {
+                        "char_pr_id": char_pr,
+                        "text": run_sample,
+                        "font": definition.get("font") or "",
+                        "size_pt": definition.get("size_pt"),
+                        "bold": bool(definition.get("bold")),
+                        "color": definition.get("color") or "",
+                        "underline": bool(definition.get("underline")),
+                        "underline_color": definition.get("underline_color") or "",
+                    }
+                )
         for cell in _walk(section, "tc"):
             cell_keys.append(_attr(cell, "borderFillIDRef"))
 
     para_groups = []
     for (para_pr, style_id, align), count in Counter(para_keys).items():
+        definition = para_defs.get(para_pr) or {}
         para_groups.append(
             {
                 "para_pr_id": para_pr,
                 "style_id": style_id,
                 "align": align,
+                "line_spacing_percent": definition.get("line_spacing_percent"),
+                "line_spacing_type": definition.get("line_spacing_type") or "",
                 "count": count,
                 "sample_text": para_samples.get((para_pr, style_id, align), ""),
             }
@@ -230,6 +332,10 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
                 "bold": bool(definition.get("bold")),
                 "italic": bool(definition.get("italic")),
                 "color": definition.get("color") or "",
+                "underline": bool(definition.get("underline")),
+                "underline_type": definition.get("underline_type") or "",
+                "underline_shape": definition.get("underline_shape") or "",
+                "underline_color": definition.get("underline_color") or "",
                 "count": count,
                 "sample_text": run_samples.get(char_pr, ""),
             }
@@ -243,6 +349,7 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
             {
                 "border_fill_id": fill_id,
                 "fill": definition.get("fill") or "",
+                "borders": definition.get("borders") or {},
                 "count": count,
             }
         )
@@ -251,6 +358,8 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
     return {
         "paragraph_count": paragraph_count,
         "table_count": table_count,
+        "tables": tables,
+        "runs": runs,
         "paragraph_groups": para_groups,
         "run_groups": run_groups,
         "cell_fill_groups": cell_groups,
