@@ -325,7 +325,7 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
     title = next(
         group
         for group in inspected["run_groups"]
-        if "혁신 소상공인 AI 활용지원 사업" in group["sample_text"]
+        if group["sample_text"].startswith("「2026년 혁신 소상공인 AI 활용지원 사업")
         and group["font"] == "HY헤드라인M"
     )
     assert title["size_pt"] == 20.0
@@ -356,8 +356,9 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
         for group in inspected["run_groups"]
         if "소상공인24 홈페이지" in group["sample_text"]
     )
-    assert application_text["color"] == ""
+    assert application_text["color"] == "#000000"
     assert application_text["underline"] is False
+    assert application_text["bold"] is False
     question_label = next(
         group
         for group in inspected["run_groups"]
