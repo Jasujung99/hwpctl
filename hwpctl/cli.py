@@ -13,6 +13,8 @@ from hwpctl.errors import HwpctlError, UsageError
 from hwpctl.parser import parse_args, parse_cell_assignments, parse_cells_json
 from hwpctl.tools import tool_catalog
 
+HWPX_COMMANDS = frozenset({"hwpx_status", "hwpx_inspect"})
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
@@ -25,6 +27,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "mcp":
             return _run_mcp(args)
+        if args.command in HWPX_COMMANDS:
+            payload = _run_hwpx(args)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
         payload = _run_engine(args)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
@@ -41,6 +47,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if debug:
             traceback.print_exc()
         return 1
+
+
+def _run_hwpx(args: Any) -> dict[str, Any]:
+    """``.hwpx`` 읽기. Engine/COM/SingleWriterLock 을 거치지 않는다."""
+
+    from hwpctl.hwpx.commands import dispatch_hwpx
+
+    return dispatch_hwpx(args.command, path=getattr(args, "path", None))
 
 
 def _run_engine(args: Any) -> dict[str, Any]:
