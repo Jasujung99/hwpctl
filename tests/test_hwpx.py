@@ -223,6 +223,161 @@ def test_generate_and_inspect_tiny_hwpx(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: Path) -> None:
+    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.write import (
+        append_run,
+        apply_paragraph_format,
+        create_table_and_fill,
+        insert_paragraph,
+        set_run_props,
+    )
+
+    doc = new_document()
+    try:
+        paragraph = insert_paragraph(doc, "일반 본문", inherit_style=False)
+        set_run_props(
+            doc,
+            paragraph=paragraph,
+            font="휴먼명조",
+            size=11.5,
+            color="#202020",
+        )
+        append_run(
+            doc,
+            " 마감 시각",
+            paragraph=paragraph,
+            font="휴먼명조",
+            size=11.5,
+            color="#FF0000",
+            underline=True,
+            underline_shape="SOLID",
+            underline_color="#FF0000",
+        )
+        apply_paragraph_format(
+            doc,
+            paragraph=paragraph,
+            alignment="JUSTIFY",
+            line_spacing_percent=160,
+        )
+        create_table_and_fill(
+            doc,
+            2,
+            2,
+            [["항목", "값"], ["A", "1"]],
+            header_fill="#FCF5E7",
+            width_mm=168,
+            height_mm=20,
+            column_widths_mm=(136, 32),
+            border_color="#777777",
+            border_width="0.12 mm",
+        )
+        out = tmp_path / "rich-round-trip.hwpx"
+        save_document(doc, out)
+    finally:
+        close_document(doc)
+
+    inspected = inspect_hwpx(out)
+    assert "휴먼명조" in inspected["definitions"]["fonts"].values()
+    body_group = next(
+        group
+        for group in inspected["paragraph_groups"]
+        if "일반 본문" in group["sample_text"]
+    )
+    assert body_group["align"] == "JUSTIFY"
+    assert body_group["line_spacing_percent"] == 160
+
+    deadline_group = next(
+        group for group in inspected["run_groups"] if "마감 시각" in group["sample_text"]
+    )
+    assert deadline_group["font"] == "휴먼명조"
+    assert deadline_group["size_pt"] == 11.5
+    assert deadline_group["color"] == "#FF0000"
+    assert deadline_group["underline"] is True
+    assert deadline_group["underline_color"] == "#FF0000"
+
+    cream_cells = next(
+        group
+        for group in inspected["cell_fill_groups"]
+        if group["fill"] == "#FCF5E7"
+    )
+    assert cream_cells["borders"]["left"] == {
+        "type": "SOLID",
+        "width": "0.12 mm",
+        "color": "#777777",
+    }
+    table = next(table for table in inspected["tables"] if table["width_mm"] == 168.0)
+    assert table["cell_widths_hwpunit"][:2] == [38551, 9071]
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> None:
+    from hwpctl.hwpx.gongo import rebuild_gongo_page1
+
+    out = rebuild_gongo_page1(tmp_path / "rebuild_p1.hwpx")
+    inspected = inspect_hwpx(out)
+
+    assert out.is_file()
+    assert inspected["table_count"] == 1
+    assert set(("휴먼명조", "HY헤드라인M")).issubset(
+        set(inspected["definitions"]["fonts"].values())
+    )
+    title = next(
+        group
+        for group in inspected["run_groups"]
+        if "혁신 소상공인 AI 활용지원 사업" in group["sample_text"]
+        and group["font"] == "HY헤드라인M"
+    )
+    assert title["size_pt"] == 20.0
+    assert title["bold"] is True
+
+    intro = next(
+        group
+        for group in inspected["paragraph_groups"]
+        if "중소벤처기업부와 소상공인시장진흥공단" in group["sample_text"]
+    )
+    assert intro["align"] == "JUSTIFY"
+    assert intro["line_spacing_percent"] == 160
+    assert any(
+        group["align"] == "RIGHT" and "2026년 6월 12일" in group["sample_text"]
+        for group in inspected["paragraph_groups"]
+    )
+
+    deadline = next(
+        group
+        for group in inspected["run_groups"]
+        if "7. 3(금) 16시까지" in group["sample_text"]
+    )
+    assert deadline["color"] == "#FF0000"
+    assert deadline["underline"] is True
+    assert deadline["underline_color"] == "#FF0000"
+    application_text = next(
+        group
+        for group in inspected["run_groups"]
+        if "소상공인24 홈페이지" in group["sample_text"]
+    )
+    assert application_text["color"] == ""
+    assert application_text["underline"] is False
+    question_label = next(
+        group
+        for group in inspected["run_groups"]
+        if "❶ 무엇을 지원해주나요?" in group["sample_text"]
+    )
+    assert question_label["font"] == "HY헤드라인M"
+    assert question_label["bold"] is True
+
+    cream_cells = next(
+        group
+        for group in inspected["cell_fill_groups"]
+        if group["fill"] == "#FCF5E7"
+    )
+    assert cream_cells["borders"]["top"]["type"] == "SOLID"
+    table = inspected["tables"][0]
+    assert table["width_mm"] == 168.0
+    assert table["cell_widths_hwpunit"][:2] == [38551, 9071]
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
 def test_cli_hwpx_inspect_generated_file(tmp_path: Path) -> None:
     from hwpctl.hwpx.document import close_document, new_document, save_document
     from hwpctl.hwpx.write import insert_paragraph

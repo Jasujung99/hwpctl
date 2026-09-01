@@ -19,13 +19,18 @@ from hwpctl.hwpx.document import (
 from hwpctl.hwpx.inspect import inspect_hwpx, inspect_owpml_parts
 from hwpctl.hwpx.write import (
     apply_paragraph_align,
+    apply_paragraph_format,
+    append_run,
     create_table_and_fill,
     insert_paragraph,
+    set_paragraph_runs,
     set_run_props,
 )
 
 __all__ = [
     "apply_paragraph_align",
+    "apply_paragraph_format",
+    "append_run",
     "close_document",
     "compare_page_images",
     "create_table_and_fill",
@@ -38,5 +43,6 @@ __all__ = [
     "open_document",
     "require_hwpx",
     "save_document",
+    "set_paragraph_runs",
     "set_run_props",
 ]
