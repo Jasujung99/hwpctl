@@ -78,3 +78,5 @@ def test_cli_mcp_list_tools_without_hangul() -> None:
     assert "status" in names
     assert "create_table" in names
     assert "save_as" in names
+    assert "page_image" in names
+    assert "inspect_format" in names

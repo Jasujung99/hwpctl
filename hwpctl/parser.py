@@ -203,6 +203,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="캐럿 위치에서 BreakPage로 쪽 나누기",
     )
 
+    p_page_image = add_common(
+        sub.add_parser("page_image", help="고정된 한/글 창의 쪽을 이미지로 저장")
+    )
+    p_page_image.add_argument(
+        "--page",
+        type=int,
+        default=0,
+        metavar="N",
+        help="1부터. 0이면 현재 쪽 (pyhwpx 관례)",
+    )
+    p_page_image.add_argument(
+        "--out",
+        default="",
+        dest="out",
+        help="저장 경로. 없으면 %%LOCALAPPDATA%%/hwpctl/page-N.bmp. png/jpg는 변환",
+    )
+    p_page_image.add_argument(
+        "--resolution",
+        type=int,
+        default=150,
+        help="해상도(DPI). 기본 150 (300보다 빠름)",
+    )
+
+    p_inspect = add_common(
+        sub.add_parser("inspect_format", help="문단 서식을 읽어 디자인 그룹으로 묶기")
+    )
+    p_inspect.add_argument(
+        "--limit",
+        type=int,
+        default=40,
+        help="읽을 문단 수 상한",
+    )
+
     p_pagedef = add_common(sub.add_parser("set_pagedef", help="용지 크기·여백·가로/세로 지정"))
     p_pagedef.add_argument("--paper-width", type=float, default=None, help="용지 폭(mm)")
     p_pagedef.add_argument("--paper-height", type=float, default=None, help="용지 길이(mm)")

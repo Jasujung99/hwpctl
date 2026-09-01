@@ -46,6 +46,13 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("replace_selection", "선택 영역을 텍스트로 교체", False, True),
     ToolSpec("undo", "직전 명령을 한/글 Undo 한 덩어리로 되돌리기", False, True),
     ToolSpec("page", "현재 쪽 읽기, --goto 이동, --break 쪽 나누기", False, True),
+    ToolSpec("page_image", "고정된 한/글 창의 쪽을 이미지로 저장 (bmp, png/jpg는 변환)", False, False),
+    ToolSpec(
+        "inspect_format",
+        "문단 정렬·글꼴·크기·굵게·색을 읽어 디자인 그룹으로 묶기",
+        False,
+        False,
+    ),
     ToolSpec("set_pagedef", "용지 크기·여백·가로/세로 지정. Undo 1단위", False, True),
     ToolSpec("save_as", "새 경로로 저장. 원본은 덮어쓰지 않음", False, True),
     ToolSpec("save", "원본 경로에 저장. --overwrite 필수. 자동저장 없음", True, True),

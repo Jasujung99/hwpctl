@@ -6,6 +6,8 @@ SelectAll 이 문서 전체를 선택 → insert_text 가 문서를 통째로 �
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from hwpctl.errors import HangulCommandError
@@ -578,3 +580,129 @@ def test_make_window_current_uses_visible_and_set_active_doc() -> None:
     assert com.XHwpWindows.Item(1).Visible is True
     assert com.XHwpDocuments.Item(1).activated is True
     assert com.XHwpDocuments.Item(0).activated is False
+
+
+class SimplePSet:
+    def __init__(self, items: dict) -> None:
+        self._items = items
+
+    def Item(self, name: str):
+        return self._items[name]
+
+
+class PageImageCom(StubCom):
+    def __init__(self) -> None:
+        super().__init__()
+        self.registered: list[tuple[str, str]] = []
+        self.create_calls: list[dict] = []
+
+    def RegisterModule(self, a: str, b: str) -> None:
+        self.registered.append((a, b))
+
+    def CreatePageImage(self, *args, **kwargs):
+        if args:
+            raise AssertionError("위치 인자 CreatePageImage 는 1KB 스텁을 씁니다")
+        self.create_calls.append(dict(kwargs))
+        Path(kwargs["Path"]).write_bytes(b"BM" + b"\x00" * 4096)
+        return True
+
+
+def test_create_page_image_uses_named_args_and_registers(tmp_path: Path) -> None:
+    """라이브 12.0.0.850: 위치 인자는 1KB 스텁. 이름 인자 + FilePathChecker."""
+    com = PageImageCom()
+    dest = tmp_path / "page-1.bmp"
+    path = make_canvas(com).create_page_image(str(dest), page_index_0=0, resolution=150)
+    assert com.registered == [("FilePathCheckDLL", "FilePathCheckerModule")]
+    assert com.create_calls == [
+        {
+            "Path": str(dest.resolve()),
+            "pgno": 0,
+            "resolution": 150,
+            "depth": 24,
+            "Format": "bmp",
+        }
+    ]
+    assert Path(path).stat().st_size >= 2048
+
+
+def test_create_page_image_rejects_tiny_stub(tmp_path: Path) -> None:
+    class TinyCom(PageImageCom):
+        def CreatePageImage(self, *args, **kwargs):
+            Path(kwargs["Path"]).write_bytes(b"STUB")
+            return True
+
+    dest = tmp_path / "stub.bmp"
+    with pytest.raises(HangulCommandError) as exc:
+        make_canvas(TinyCom()).create_page_image(str(dest), page_index_0=0)
+    assert "1KB" in exc.value.message or "작습니다" in exc.value.message
+
+
+class InspectCom(StubCom):
+    def __init__(self, n_paras: int = 3, field_states: list[int] | None = None) -> None:
+        super().__init__(cur_field_state=0)
+        self.n_paras = n_paras
+        self.para_i = 0
+        self.field_states = field_states or [0] * n_paras
+        self.CharShape = SimplePSet(
+            {
+                "FaceNameHangul": "함초롬돋움",
+                "Height": 2000,
+                "Bold": True,
+                "TextColor": 255,
+            }
+        )
+        self.ParaShape = SimplePSet({"AlignType": 3})
+        self._texts = ["제목입니다 " * 10, "부제", "표 안 셀"]
+
+    @property
+    def CurFieldState(self) -> int:
+        return self.field_states[min(self.para_i, len(self.field_states) - 1)]
+
+    @CurFieldState.setter
+    def CurFieldState(self, value: int) -> None:
+        return None
+
+    def GetPos(self):
+        return (0, self.para_i, 0)
+
+    def SetPos(self, *args):
+        return True
+
+    def GetTextFile(self, *args):
+        return self._texts[min(self.para_i, len(self._texts) - 1)]
+
+
+def test_walk_paragraph_formats_reads_charshape_not_initscan() -> None:
+    com = InspectCom(n_paras=3, field_states=[0, 0, 17])
+    orig_run = com.HAction.Run
+
+    def run(act_id: str) -> bool:
+        com.HAction.calls.append(act_id)
+        if act_id == "MoveDocBegin":
+            com.para_i = 0
+            return True
+        if act_id == "MoveNextParaBegin":
+            if com.para_i + 1 >= com.n_paras:
+                return False
+            com.para_i += 1
+            return True
+        if act_id == "InitScan" or act_id == "GetText":
+            raise AssertionError("InitScan/GetText 는 가짜 기본 서식을 돌린다")
+        return act_id not in com.HAction.fail
+
+    com.HAction.Run = run  # type: ignore[method-assign]
+    rows = make_canvas(com).walk_paragraph_formats(limit=40)
+    assert orig_run is not None
+    assert [r["align"] for r in rows] == ["center", "center", "center"]
+    assert rows[0]["font"] == "함초롬돋움"
+    assert rows[0]["size_pt"] == 20
+    assert rows[0]["bold"] is True
+    assert rows[0]["color"] == 255
+    assert rows[0]["in_table"] is False
+    assert rows[2]["in_table"] is True
+    assert rows[0]["snippet"].startswith("제목입니다")
+    assert len(rows[0]["snippet"]) <= 80
+    assert "InitScan" not in com.HAction.calls
+    assert "GetText" not in com.HAction.calls
+    assert "MoveDocBegin" in com.HAction.calls
+    assert com.HAction.calls.count("MoveNextParaBegin") == 3

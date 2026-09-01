@@ -148,6 +148,10 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {"style": args.style}
     if cmd == "page":
         return {"goto": args.goto, "break_page": args.break_page}
+    if cmd == "page_image":
+        return {"page": args.page, "out": args.out, "resolution": args.resolution}
+    if cmd == "inspect_format":
+        return {"limit": args.limit}
     if cmd == "set_pagedef":
         return {
             "paper_width": args.paper_width,
