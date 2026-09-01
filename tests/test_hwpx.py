@@ -352,9 +352,7 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
     assert deadline["underline"] is True
     assert deadline["underline_color"] == "#FF0000"
     application_text = next(
-        group
-        for group in inspected["run_groups"]
-        if "소상공인24 홈페이지" in group["sample_text"]
+        run for run in inspected["runs"] if "소상공인24 홈페이지" in run["text"]
     )
     assert application_text["color"] == "#000000"
     assert application_text["underline"] is False

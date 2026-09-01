@@ -258,6 +258,7 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
     cell_keys: list[str] = []
     para_samples: dict[tuple[str, str, str], str] = {}
     run_samples: dict[str, str] = {}
+    runs: list[dict[str, Any]] = []
     paragraph_count = 0
     table_count = 0
     tables: list[dict[str, Any]] = []
@@ -288,6 +289,19 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
                 run_sample = _sample(_text_of(run))
                 if char_pr not in run_samples or (run_sample and not run_samples[char_pr]):
                     run_samples[char_pr] = run_sample
+                definition = char_defs.get(char_pr) or {}
+                runs.append(
+                    {
+                        "char_pr_id": char_pr,
+                        "text": run_sample,
+                        "font": definition.get("font") or "",
+                        "size_pt": definition.get("size_pt"),
+                        "bold": bool(definition.get("bold")),
+                        "color": definition.get("color") or "",
+                        "underline": bool(definition.get("underline")),
+                        "underline_color": definition.get("underline_color") or "",
+                    }
+                )
         for cell in _walk(section, "tc"):
             cell_keys.append(_attr(cell, "borderFillIDRef"))
 
@@ -345,6 +359,7 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
         "paragraph_count": paragraph_count,
         "table_count": table_count,
         "tables": tables,
+        "runs": runs,
         "paragraph_groups": para_groups,
         "run_groups": run_groups,
         "cell_fill_groups": cell_groups,
