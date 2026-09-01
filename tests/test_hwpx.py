@@ -348,7 +348,12 @@ def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: P
 
 @pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
 def test_page_setup_writes_hangul_portrait_orientation_token(tmp_path: Path) -> None:
-    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.document import (
+        close_document,
+        new_document,
+        open_document,
+        save_document,
+    )
     from hwpctl.hwpx.write import HWPX_PORTRAIT, set_page_setup
 
     doc = new_document()
@@ -365,7 +370,14 @@ def test_page_setup_writes_hangul_portrait_orientation_token(tmp_path: Path) -> 
     finally:
         close_document(doc)
 
-    inspected = inspect_hwpx(out)
+    reopened = open_document(out)
+    round_tripped = tmp_path / "a4-portrait-round-tripped.hwpx"
+    try:
+        save_document(reopened, round_tripped)
+    finally:
+        close_document(reopened)
+
+    inspected = inspect_hwpx(round_tripped)
     section = inspected["section_page_properties"][0]
     assert section["sec_pr_count"] == 1
     assert section["page_pr_count"] == 1
