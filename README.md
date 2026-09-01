@@ -58,6 +58,22 @@ hwpctl status
 한/글(한글 오피스)을 찾을 수 없습니다. 이 컴퓨터에 한글 2022가 설치되어 있고 Windows에서 실행 중인지 확인하세요. ...
 ```
 
+### 선택: 한글 없이 `.hwpx` 준비
+
+복잡한 공고문을 COM 으로 처음부터 재현하지 않고, `.hwpx` XML 을 조립하는
+준비 계층입니다. **재현 자체는 다음 단계**입니다.
+계획: [docs/hwpx-upgrade-plan.md](docs/hwpx-upgrade-plan.md) ·
+조사: [docs/research-hwp-without-hangul.md](docs/research-hwp-without-hangul.md)
+
+```bash
+pip install -e ".[hwpx]"
+hwpctl hwpx_status
+hwpctl hwpx_inspect 샘플.hwpx
+```
+
+한/글·COM·작성 잠금은 필요 없습니다. 기존 `status` / `insert_title` 등 COM
+명령은 그대로입니다.
+
 ---
 
 ## 클라이언트 바꾸기
@@ -143,6 +159,8 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
+| `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
+| `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
 
 도구 목록만 (한/글 불필요):
 
@@ -335,16 +353,20 @@ hwpctl status
 
 ```
 hwpctl/           엔진·CLI·MCP
+hwpctl/hwpx/      한글 없는 .hwpx 준비 (python-hwpx)
 examples/         클라이언트 설정만 (한/글 코드 없음)
-tests/            파서·잠금·한/글 없음
+tests/            파서·잠금·한/글 없음·HWPX XML
 ```
 
 라이브 편집은 Windows + 한글 2022 + `pip install -e ".[windows]"` 가 필요합니다.
+`.hwpx` 읽기 준비는 `pip install -e ".[hwpx]"` 로 Linux 에서도 됩니다.
 
 ---
 
 ## 공개 문서와 프로젝트 범위
 
+- [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md): 한글 없이 조립하는 단계 (준비만 완료)
+- [한글 없이 HWP 조사](docs/research-hwp-without-hangul.md): `python-hwpx` 1순위 근거
 - [알려진 한계](KNOWN_LIMITATIONS.md): 열린 창, Undo, 표·차트와 실기 검증 상태
 - [보안 정책](SECURITY.md): 로컬 MCP의 신뢰 경계와 비공개 취약점 신고
 - [기여 안내](CONTRIBUTING.md): 테스트 자료와 PR 원칙

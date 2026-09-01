@@ -7,6 +7,7 @@
 
 ### Added
 
+- 한글 없이 `.hwpx`를 다루는 준비 계층(`hwpctl/hwpx`, extra `hwpx`, `hwpx_status` / `hwpx_inspect`)
 - Codex, Claude Code, Cursor, Gemini CLI, Grok Build용 로컬 MCP 설정 예제
 - 공개용 보안 정책, 알려진 한계, 기여 안내와 릴리스 체크리스트
 - 표 너비·높이, 셀 병합·정렬·테두리, 쪽 설정, 스타일과 레이아웃 검토 문서

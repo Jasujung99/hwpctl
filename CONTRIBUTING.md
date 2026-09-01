@@ -11,7 +11,11 @@
 python -m pip install -e ".[dev]"
 pytest
 hwpctl mcp --list-tools
+hwpctl hwpx_status
 ```
+
+`.hwpx` 준비 계층만 쓰려면 `pip install -e ".[hwpx]"` 로도 충분합니다. 한/글은
+필요 없습니다.
 
 Windows와 한글 2022에서 실기 확인하려면 별도 가상환경에 다음을 설치하세요.
 

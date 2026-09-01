@@ -31,7 +31,8 @@ INSTRUCTIONS = (
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
     "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
-    "insert_title, create_table(rows=8, cols=4, header_fill=gray)."
+    "insert_title, create_table(rows=8, cols=4, header_fill=gray). "
+    "hwpx_status/hwpx_inspect 는 한글·COM·잠금 없이 .hwpx XML 을 읽는다."
 )
 
 
@@ -73,6 +74,25 @@ async def _call(engine: Any, name: str, **kwargs: Any) -> dict[str, Any]:
             "ok": False,
             "command": name,
             "error": f"한/글 명령 처리 중 예상치 못한 오류가 발생했습니다: {exc}",
+        }
+
+
+async def _call_hwpx(name: str, **kwargs: Any) -> dict[str, Any]:
+    """HWPX 읽기. Engine/COM/잠금을 거치지 않는다."""
+
+    from hwpctl.hwpx.commands import dispatch_hwpx
+
+    try:
+        return await anyio.to_thread.run_sync(
+            functools.partial(dispatch_hwpx, name, **kwargs)
+        )
+    except HwpctlError as exc:
+        return {"ok": False, "command": name, "error": exc.message}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "command": name,
+            "error": f"HWPX 명령 처리 중 예상치 못한 오류가 발생했습니다: {exc}",
         }
 
 
@@ -384,6 +404,16 @@ def build_mcp(lock_timeout: float = 8.0):
     async def close(force: bool = False) -> dict[str, Any]:
         """문서를 닫는다. force=true 필수."""
         return await _call(engine, "close", force=force)
+
+    @mcp.tool()
+    async def hwpx_status(path: str = "") -> dict[str, Any]:
+        """python-hwpx 설치 여부와 선택적 .hwpx 요약. 한글·COM·잠금 불필요."""
+        return await _call_hwpx("hwpx_status", path=path or None)
+
+    @mcp.tool()
+    async def hwpx_inspect(path: str) -> dict[str, Any]:
+        """.hwpx 문단·런·셀 서식 그룹을 읽는다(쓰기 전 상속용). 한글·COM·잠금 불필요."""
+        return await _call_hwpx("hwpx_inspect", path=path)
 
     @mcp.tool()
     async def list_tools() -> dict[str, Any]:

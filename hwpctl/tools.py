@@ -50,6 +50,18 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("save_as", "새 경로로 저장. 원본은 덮어쓰지 않음", False, True),
     ToolSpec("save", "원본 경로에 저장. --overwrite 필수. 자동저장 없음", True, True),
     ToolSpec("close", "문서 닫기. --force 필수", True, True),
+    ToolSpec(
+        "hwpx_status",
+        "python-hwpx 설치 여부와 .hwpx 요약. 한글·COM·잠금 불필요",
+        False,
+        False,
+    ),
+    ToolSpec(
+        "hwpx_inspect",
+        ".hwpx 문단·런·셀 서식 그룹 읽기(상속용). 한글·COM·잠금 불필요",
+        False,
+        False,
+    ),
 )
 
 

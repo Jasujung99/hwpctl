@@ -240,6 +240,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_close = add_common(sub.add_parser("close", help="문서 닫기 — --force 필수"))
     p_close.add_argument("--force", action="store_true", help="저장하지 않고 닫기")
 
+    p_hwpx_status = add_common(
+        sub.add_parser(
+            "hwpx_status",
+            help="python-hwpx 상태·선택적 .hwpx 요약 (한글 불필요)",
+        )
+    )
+    p_hwpx_status.add_argument("path", nargs="?", help=".hwpx 경로. 없으면 라이브러리 상태만")
+
+    p_hwpx_inspect = add_common(
+        sub.add_parser(
+            "hwpx_inspect",
+            help=".hwpx 문단·런·셀 서식 그룹 읽기 (한글 불필요)",
+        )
+    )
+    p_hwpx_inspect.add_argument("path", help=".hwpx 경로")
+
     p_mcp = add_common(sub.add_parser("mcp", help="MCP 서버 (stdio 또는 localhost HTTP)"))
     p_mcp.add_argument("--http", action="store_true", help="streamable HTTP 를 localhost 에 바인드")
     p_mcp.add_argument("--host", default="127.0.0.1")

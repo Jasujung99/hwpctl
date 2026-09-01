@@ -45,3 +45,15 @@ class HangulCommandError(HwpctlError):
     """한/글 액션이 실패함."""
 
     exit_code = 7
+
+
+class HwpxMissingError(HwpctlError):
+    """python-hwpx 가 설치되어 있지 않음. COM/한/글과는 무관."""
+
+    exit_code = 8
+
+
+class HwpxError(HwpctlError):
+    """HWPX 파일을 열거나 해석하지 못함."""
+
+    exit_code = 9

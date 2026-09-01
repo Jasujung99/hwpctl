@@ -34,8 +34,12 @@ windows = [
     "pyhwpx>=1.0",
     "pywin32>=306",
 ]
+hwpx = [
+    "python-hwpx>=6.3,<7",
+]
 dev = [
     "pytest>=8",
+    "python-hwpx>=6.3,<7",
 ]
 
 [project.scripts]
@@ -48,6 +52,7 @@ Documentation = "https://github.com/Jasujung99/hwpctl#readme"
 Issues = "https://github.com/Jasujung99/hwpctl/issues"
 Changelog = "https://github.com/Jasujung99/hwpctl/blob/main/CHANGELOG.md"
 "pyhwpx documentation" = "https://martiniifun.github.io/pyhwpx/core.html"
+"python-hwpx documentation" = "https://airmang.github.io/python-hwpx/"
 
 [tool.setuptools.packages.find]
 include = ["hwpctl*"]
