@@ -218,6 +218,7 @@ def build_gongo_page1(document: Any) -> None:
         2,
         2,
         header_fill=CREAM,
+        header_columns=(0,),
         width_mm=168,
         height_mm=163,
         column_widths_mm=(136, 32),

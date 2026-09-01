@@ -224,7 +224,12 @@ def test_generate_and_inspect_tiny_hwpx(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
 def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: Path) -> None:
-    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.document import (
+        close_document,
+        new_document,
+        open_document,
+        save_document,
+    )
     from hwpctl.hwpx.write import (
         append_run,
         apply_paragraph_format,
@@ -277,7 +282,14 @@ def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: P
     finally:
         close_document(doc)
 
-    inspected = inspect_hwpx(out)
+    round_tripped = tmp_path / "rich-round-tripped.hwpx"
+    reopened = open_document(out)
+    try:
+        save_document(reopened, round_tripped)
+    finally:
+        close_document(reopened)
+
+    inspected = inspect_hwpx(round_tripped)
     assert "휴먼명조" in inspected["definitions"]["fonts"].values()
     body_group = next(
         group
@@ -368,6 +380,7 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
         for group in inspected["cell_fill_groups"]
         if group["fill"] == "#FCF5E7"
     )
+    assert cream_cells["count"] == 1
     assert cream_cells["borders"]["top"]["type"] == "SOLID"
     table = inspected["tables"][0]
     assert table["width_mm"] == 168.0

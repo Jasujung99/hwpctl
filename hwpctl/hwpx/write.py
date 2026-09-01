@@ -422,6 +422,7 @@ def create_table_and_fill(
     cells: Sequence[Sequence[Any]] | None = None,
     *,
     header_fill: str = "",
+    header_columns: Sequence[int] | None = None,
     width_mm: float | None = None,
     height_mm: float | None = None,
     column_widths_mm: Sequence[float] | None = None,
@@ -434,12 +435,23 @@ def create_table_and_fill(
 
     ``column_widths_mm``는 상대 비율이 아니라 최종 열 폭(mm)이다. 합계는
     ``width_mm``와 같아야 하며, 생략하면 열 폭 합계를 표 폭으로 사용한다.
-    ``header_fill``은 첫 행의 셀이 참조하는 ``borderFill``에 기록된다.
+    ``header_fill``은 첫 행의 지정 셀이 참조하는 ``borderFill``에 기록된다.
+    ``header_columns``를 생략하면 첫 행 전체를 채운다.
     """
 
     require_hwpx()
     if rows < 1 or cols < 1:
         raise UsageError("표 행·열은 1 이상이어야 합니다.")
+    try:
+        header_cols = (
+            list(range(cols))
+            if header_columns is None
+            else [int(col) for col in header_columns]
+        )
+    except (TypeError, ValueError) as exc:
+        raise UsageError("header_columns는 열 번호 목록이어야 합니다.") from exc
+    if any(col < 0 or col >= cols for col in header_cols):
+        raise UsageError("header_columns에 표 범위를 벗어난 열이 있습니다.")
     widths: list[float] | None = None
     if column_widths_mm is not None:
         widths = [float(width) for width in column_widths_mm]
@@ -525,13 +537,13 @@ def create_table_and_fill(
                 setter = getattr(table, "set_cell_border_fill", None)
                 if not callable(setter):
                     raise HwpxError("표 객체에 set_cell_border_fill 이 없습니다.")
-                for col_idx in range(cols):
+                for col_idx in header_cols:
                     setter(0, col_idx, header_border_fill)
             else:
                 shader = getattr(table, "set_cell_shading", None)
                 if not callable(shader):
                     raise HwpxError("표 객체에 set_cell_shading 이 없습니다.")
-                for col_idx in range(cols):
+                for col_idx in header_cols:
                     shader(0, col_idx, fill)
         except HwpxError:
             raise
