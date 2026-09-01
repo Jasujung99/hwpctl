@@ -23,6 +23,7 @@ from hwpctl.hwpx.write import (
     append_run,
     create_table_and_fill,
     insert_paragraph,
+    set_page_setup,
     set_paragraph_runs,
     set_run_props,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "open_document",
     "require_hwpx",
     "save_document",
+    "set_page_setup",
     "set_paragraph_runs",
     "set_run_props",
 ]
