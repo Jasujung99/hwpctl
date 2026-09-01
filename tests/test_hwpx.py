@@ -347,6 +347,38 @@ def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: P
 
 
 @pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_page_setup_writes_hangul_portrait_orientation_token(tmp_path: Path) -> None:
+    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.write import HWPX_PORTRAIT, set_page_setup
+
+    doc = new_document()
+    try:
+        set_page_setup(
+            doc,
+            paper_size="A4",
+            orientation="PORTRAIT",
+            margin_left_mm=20,
+            margin_right_mm=20,
+        )
+        out = tmp_path / "a4-portrait.hwpx"
+        save_document(doc, out)
+    finally:
+        close_document(doc)
+
+    inspected = inspect_hwpx(out)
+    section = inspected["section_page_properties"][0]
+    assert section["sec_pr_count"] == 1
+    assert section["page_pr_count"] == 1
+    page = section["pages"][0]
+    # Hangul's OWPML flag is WIDELY for 세로; PORTRAIT is not a legal
+    # `pagePr/@landscape` value even though it looks more intuitive.
+    assert page["landscape_attr"] == HWPX_PORTRAIT == "WIDELY"
+    assert page["width_hwpunit"] == 59528
+    assert page["height_hwpunit"] == 84189
+    assert page["width_hwpunit"] < page["height_hwpunit"]
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
 def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> None:
     from hwpctl.hwpx.gongo import rebuild_gongo_page1
 
@@ -355,6 +387,12 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
 
     assert out.is_file()
     assert inspected["table_count"] == 1
+    section = inspected["section_page_properties"][0]
+    assert section["sec_pr_count"] == 1
+    page = section["pages"][0]
+    assert page["landscape_attr"] == "WIDELY"
+    assert page["width_hwpunit"] == 59528
+    assert page["height_hwpunit"] == 84189
     assert set(("휴먼명조", "HY헤드라인M")).issubset(
         set(inspected["definitions"]["fonts"].values())
     )

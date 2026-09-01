@@ -238,6 +238,40 @@ def _table_summary(table: ET.Element) -> dict[str, Any]:
     }
 
 
+def _section_page_summary(section: ET.Element, section_index: int) -> dict[str, Any]:
+    """Expose raw pagePr values rather than interpreting its inverted token."""
+
+    sec_prs = _walk(section, "secPr")
+    pages: list[dict[str, Any]] = []
+    for sec_pr in sec_prs:
+        for page_pr in _children(sec_pr, "pagePr"):
+            width = _int_or_none(_attr(page_pr, "width"))
+            height = _int_or_none(_attr(page_pr, "height"))
+            margin = _first_child(page_pr, "margin")
+            pages.append(
+                {
+                    "landscape_attr": _attr(page_pr, "landscape"),
+                    "width_hwpunit": width,
+                    "height_hwpunit": height,
+                    "width_mm": _hwpunit_to_mm(str(width)) if width is not None else None,
+                    "height_mm": _hwpunit_to_mm(str(height)) if height is not None else None,
+                    "gutter_type": _attr(page_pr, "gutterType"),
+                    "margins_hwpunit": {
+                        side: _int_or_none(_attr(margin, side))
+                        if margin is not None
+                        else None
+                        for side in ("left", "right", "top", "bottom", "header", "footer")
+                    },
+                }
+            )
+    return {
+        "section_index": section_index,
+        "sec_pr_count": len(sec_prs),
+        "page_pr_count": len(pages),
+        "pages": pages,
+    }
+
+
 def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, Any]:
     """header.xml + section*.xml 문자열에서 서식 그룹을 만든다."""
 
@@ -262,14 +296,16 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
     paragraph_count = 0
     table_count = 0
     tables: list[dict[str, Any]] = []
+    section_page_properties: list[dict[str, Any]] = []
 
-    for raw in section_xmls:
+    for section_index, raw in enumerate(section_xmls):
         if not raw.strip():
             continue
         try:
             section = ET.fromstring(raw)
         except ET.ParseError as exc:
             raise HwpxError(f"HWPX section XML 을 해석할 수 없습니다: {exc}") from exc
+        section_page_properties.append(_section_page_summary(section, section_index))
         section_tables = _walk(section, "tbl")
         table_count += len(section_tables)
         tables.extend(_table_summary(table) for table in section_tables)
@@ -359,6 +395,7 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
         "paragraph_count": paragraph_count,
         "table_count": table_count,
         "tables": tables,
+        "section_page_properties": section_page_properties,
         "runs": runs,
         "paragraph_groups": para_groups,
         "run_groups": run_groups,

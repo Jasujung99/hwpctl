@@ -40,6 +40,14 @@ def insert_paragraph(
 
 HWPUNIT_PER_MM = 7200 / 25.4
 
+# ``hp:pagePr/@landscape`` does not use the common PORTRAIT/LANDSCAPE
+# vocabulary. Hangul's OWPML values describe the page's short/long side:
+# WIDELY is A4 세로 and NARROWLY is A4 가로. Keep these exact tokens at the
+# hwpctl boundary; python-hwpx 6.3 currently serializes "PORTRAIT" instead,
+# which Hangul 2022 does not honor.
+HWPX_PORTRAIT = "WIDELY"
+HWPX_LANDSCAPE = "NARROWLY"
+
 _RUN_SPEC_KEYS = frozenset(
     {
         "text",
@@ -54,6 +62,90 @@ _RUN_SPEC_KEYS = frozenset(
         "underline_color",
     }
 )
+
+
+def _hangul_page_orientation(orientation: str | None) -> str | None:
+    """Map ergonomic orientation names to the two OWPML tokens Hangul reads."""
+
+    if orientation is None:
+        return None
+    aliases = {
+        "PORTRAIT": HWPX_PORTRAIT,
+        "VERTICAL": HWPX_PORTRAIT,
+        "세로": HWPX_PORTRAIT,
+        "WIDELY": HWPX_PORTRAIT,
+        "LANDSCAPE": HWPX_LANDSCAPE,
+        "HORIZONTAL": HWPX_LANDSCAPE,
+        "가로": HWPX_LANDSCAPE,
+        "NARROWLY": HWPX_LANDSCAPE,
+    }
+    normalized = str(orientation).strip()
+    token = aliases.get(normalized.upper()) or aliases.get(normalized)
+    if token is None:
+        raise UsageError(
+            "쪽 방향은 portrait/landscape(또는 세로/가로) 중 하나여야 합니다."
+        )
+    return token
+
+
+def set_page_setup(
+    document: Any,
+    *,
+    paper_size: str | None = None,
+    width_mm: float | None = None,
+    height_mm: float | None = None,
+    orientation: str | None = None,
+    margins_mm: Mapping[str, float] | None = None,
+    margin_left_mm: float | None = None,
+    margin_right_mm: float | None = None,
+    margin_top_mm: float | None = None,
+    margin_bottom_mm: float | None = None,
+    header_margin_mm: float | None = None,
+    footer_margin_mm: float | None = None,
+    gutter_mm: float | None = None,
+    columns: int | None = None,
+    column_gap_mm: float | None = None,
+) -> Any:
+    """Set page dimensions without python-hwpx's invalid orientation mapping.
+
+    The upstream convenience method swaps dimensions for ``WIDELY`` and
+    serializes ``PORTRAIT`` for a portrait request. Both conflict with the
+    OWPML values Hangul 2022 uses. First apply physical dimensions/margins
+    with no orientation, then set the exact `pagePr/@landscape` token through
+    the public ``page.set_size`` API.
+    """
+
+    require_hwpx()
+    page = getattr(document, "page", None)
+    setup = getattr(page, "setup", None)
+    set_size = getattr(page, "set_size", None)
+    if not callable(setup) or not callable(set_size):
+        raise HwpxError("python-hwpx 페이지 설정 API를 쓸 수 없습니다.")
+
+    hangul_orientation = _hangul_page_orientation(orientation)
+    try:
+        result = setup(
+            paper_size=paper_size,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            # Do not route through python-hwpx's orientation normalizer.
+            orientation=None,
+            margins_mm=margins_mm,
+            margin_left_mm=margin_left_mm,
+            margin_right_mm=margin_right_mm,
+            margin_top_mm=margin_top_mm,
+            margin_bottom_mm=margin_bottom_mm,
+            header_margin_mm=header_margin_mm,
+            footer_margin_mm=footer_margin_mm,
+            gutter_mm=gutter_mm,
+            columns=columns,
+            column_gap_mm=column_gap_mm,
+        )
+        if hangul_orientation is not None:
+            set_size(orientation=hangul_orientation)
+    except Exception as exc:
+        raise HwpxError(f"HWPX 쪽 설정을 적용할 수 없습니다: {exc}") from exc
+    return result
 
 
 def _resolve_paragraph(

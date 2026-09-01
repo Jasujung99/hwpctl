@@ -16,6 +16,7 @@ from hwpctl.hwpx.write import (
     apply_paragraph_format,
     create_table_and_fill,
     insert_paragraph,
+    set_page_setup,
     set_paragraph_runs,
     set_run_props,
 )
@@ -138,7 +139,8 @@ def _body(text: str) -> list[dict[str, Any]]:
 def build_gongo_page1(document: Any) -> None:
     """Fill *document* with just the styled first page of the notice."""
 
-    document.page.setup(
+    set_page_setup(
+        document,
         paper_size="A4",
         orientation="PORTRAIT",
         margin_left_mm=20,
