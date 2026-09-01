@@ -110,10 +110,13 @@ def _parse_para_pr(header: ET.Element) -> dict[str, dict[str, Any]]:
         if not pr_id:
             continue
         align = _first_child(node, "align")
+        line = _first_child(node, "lineSpacing")
         out[pr_id] = {
             "id": pr_id,
             "align": _attr(align, "horizontal") if align is not None else "",
             "valign": _attr(align, "vertical") if align is not None else "",
+            "line_spacing_type": _attr(line, "type") if line is not None else "",
+            "line_spacing_value": _attr(line, "value") if line is not None else "",
         }
     return out
 
@@ -128,6 +131,13 @@ def _parse_char_pr(header: ET.Element, fonts: dict[str, str]) -> dict[str, dict[
         font_id = _attr(font_ref, "hangul") if font_ref is not None else ""
         bold = _first_child(node, "bold") is not None
         italic = _first_child(node, "italic") is not None
+        underline_el = _first_child(node, "underline")
+        underline = False
+        underline_color = ""
+        if underline_el is not None:
+            utype = (_attr(underline_el, "type") or "").upper()
+            underline = utype != "NONE"
+            underline_color = _attr(underline_el, "color") or ""
         out[pr_id] = {
             "id": pr_id,
             "font": fonts.get(font_id, ""),
@@ -135,6 +145,8 @@ def _parse_char_pr(header: ET.Element, fonts: dict[str, str]) -> dict[str, dict[
             "size_pt": _height_to_pt(_attr(node, "height")),
             "bold": bold,
             "italic": italic,
+            "underline": underline,
+            "underline_color": underline_color,
             "color": _attr(node, "textColor") or "",
         }
     return out
@@ -229,6 +241,8 @@ def inspect_owpml_parts(header_xml: str, section_xmls: list[str]) -> dict[str, A
                 "size_pt": definition.get("size_pt"),
                 "bold": bool(definition.get("bold")),
                 "italic": bool(definition.get("italic")),
+                "underline": bool(definition.get("underline")),
+                "underline_color": definition.get("underline_color") or "",
                 "color": definition.get("color") or "",
                 "count": count,
                 "sample_text": run_samples.get(char_pr, ""),

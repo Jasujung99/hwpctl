@@ -58,21 +58,25 @@ hwpctl status
 한/글(한글 오피스)을 찾을 수 없습니다. 이 컴퓨터에 한글 2022가 설치되어 있고 Windows에서 실행 중인지 확인하세요. ...
 ```
 
-### 선택: 한글 없이 `.hwpx` 준비
+### 선택: 한글 없이 `.hwpx` 조립
 
-복잡한 공고문을 COM 으로 처음부터 재현하지 않고, `.hwpx` XML 을 조립하는
-준비 계층입니다. **재현 자체는 다음 단계**입니다.
+복잡한 공고문을 COM 으로 처음부터 재현하지 않고, `.hwpx` XML 을 조립합니다.
+쪽 이미지 비교까지 Linux 에서 하고, 한글 창 확인은 나중에 사용자 PC 에서만 합니다.
 계획: [docs/hwpx-upgrade-plan.md](docs/hwpx-upgrade-plan.md) ·
 조사: [docs/research-hwp-without-hangul.md](docs/research-hwp-without-hangul.md)
 
 ```bash
 pip install -e ".[hwpx]"
-hwpctl hwpx_status
-hwpctl hwpx_inspect 샘플.hwpx
+hwpctl --backend auto hwpx_status
+python scripts/recreate_gongo.py --out artifacts/gongo
+hwpctl hwpx_inspect artifacts/gongo/rebuild_p1_10.hwpx
+hwpctl hwpx_compare artifacts/gongo/rebuild_p1_10.hwpx \
+  --orig-dir fixtures/gongo --out-dir artifacts/gongo
 ```
 
-한/글·COM·작성 잠금은 필요 없습니다. 기존 `status` / `insert_title` 등 COM
-명령은 그대로입니다.
+`--backend auto|hwpx|hancom` — `auto` 는 Windows 가 아니면 `hwpx` 입니다.
+한/글·COM·작성 잠금은 HWPX 경로에 필요 없습니다. 기존 `status` / `insert_title`
+등 COM 명령은 `hangul.py` 그대로입니다.
 
 ---
 
@@ -161,6 +165,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `close` | 닫기. **`--force` 필수** |
 | `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
 | `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
+| `hwpx_compare` | inspect JSON·레이아웃 HTML·원본 PNG 비교 시트. **한글 불필요** |
 
 도구 목록만 (한/글 불필요):
 
@@ -365,7 +370,7 @@ tests/            파서·잠금·한/글 없음·HWPX XML
 
 ## 공개 문서와 프로젝트 범위
 
-- [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md): 한글 없이 조립하는 단계 (준비만 완료)
+- [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md): 한글 없이 조립·쪽 비교 (1–3쪽 충실)
 - [한글 없이 HWP 조사](docs/research-hwp-without-hangul.md): `python-hwpx` 1순위 근거
 - [알려진 한계](KNOWN_LIMITATIONS.md): 열린 창, Undo, 표·차트와 실기 검증 상태
 - [보안 정책](SECURITY.md): 로컬 MCP의 신뢰 경계와 비공개 취약점 신고

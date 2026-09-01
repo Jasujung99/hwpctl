@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SEC",
         help="작성 잠금 대기 시간(초)",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "hwpx", "hancom"],
+        default="auto",
+        help="문서 백엔드. auto 는 Windows 가 아니면 hwpx (한글 불필요)",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
@@ -44,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         # SUPPRESS 기본값이라 미지정 시 루트 파서의 값이 유지된다.
         sp.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
         sp.add_argument("--lock-timeout", type=float, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        sp.add_argument(
+            "--backend",
+            choices=["auto", "hwpx", "hancom"],
+            default=argparse.SUPPRESS,
+            help=argparse.SUPPRESS,
+        )
         return sp
 
     add_common(sub.add_parser("status", help="열린 한/글 창 상태"))
@@ -255,6 +267,25 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     p_hwpx_inspect.add_argument("path", help=".hwpx 경로")
+
+    p_hwpx_compare = add_common(
+        sub.add_parser(
+            "hwpx_compare",
+            help=".hwpx 쪽 비교(inspect JSON + 원본 PNG 시트, 한글 불필요)",
+        )
+    )
+    p_hwpx_compare.add_argument("path", help="재현 .hwpx 경로")
+    p_hwpx_compare.add_argument(
+        "--orig-dir",
+        default="",
+        help="원본 PNG 디렉터리 (orig_p1.png …)",
+    )
+    p_hwpx_compare.add_argument(
+        "--out-dir",
+        dest="output_dir",
+        default="",
+        help="비교 산출물 디렉터리",
+    )
 
     p_mcp = add_common(sub.add_parser("mcp", help="MCP 서버 (stdio 또는 localhost HTTP)"))
     p_mcp.add_argument("--http", action="store_true", help="streamable HTTP 를 localhost 에 바인드")

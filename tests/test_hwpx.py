@@ -17,6 +17,8 @@ from hwpctl.hwpx.inspect import inspect_hwpx, inspect_owpml_parts
 from hwpctl.parser import parse_args
 from hwpctl.tools import tool_names
 
+REPO = Path(__file__).resolve().parents[1]
+
 HEADER_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head"
          xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">
@@ -77,6 +79,7 @@ def test_hwpx_tools_are_catalogued() -> None:
     names = tool_names()
     assert "hwpx_status" in names
     assert "hwpx_inspect" in names
+    assert "hwpx_compare" in names
 
 
 def test_hwpx_parser() -> None:
@@ -86,6 +89,9 @@ def test_hwpx_parser() -> None:
     inspect = parse_args(["hwpx_inspect", "sample.hwpx"])
     assert inspect.command == "hwpx_inspect"
     assert inspect.path.endswith("sample.hwpx")
+    compare = parse_args(["hwpx_compare", "sample.hwpx", "--out-dir", "out"])
+    assert compare.command == "hwpx_compare"
+    assert compare.output_dir == "out"
 
 
 def test_inspect_owpml_groups_from_mock_xml() -> None:
@@ -104,6 +110,7 @@ def test_inspect_owpml_groups_from_mock_xml() -> None:
     assert run["font"] == "함초롬돋움"
     assert run["size_pt"] == 20.0
     assert run["bold"] is True
+    assert run["underline"] is False
     assert run["color"] == "#333333"
 
     cell = groups["cell_fill_groups"][0]
@@ -136,10 +143,10 @@ def test_inspect_hwp_rejected_korean(tmp_path: Path) -> None:
     assert ".hwpx" in exc.value.message
 
 
-def test_compare_page_images_is_stub() -> None:
-    with pytest.raises(NotImplementedError) as exc:
-        compare_page_images("a.hwpx", "b.hwpx")
-    assert "쪽 이미지" in str(exc.value)
+def test_compare_page_images_missing_file_korean() -> None:
+    with pytest.raises(HwpxError) as exc:
+        compare_page_images("/tmp/hwpctl-no-such-compare-356c.hwpx")
+    assert "찾을 수 없습니다" in exc.value.message
 
 
 def test_cli_hwpx_status_without_hangul() -> None:
@@ -256,3 +263,102 @@ def test_require_hwpx_message_when_missing(monkeypatch: pytest.MonkeyPatch) -> N
         require_hwpx()
     assert "python-hwpx" in exc.value.message
     assert MISSING_KO == exc.value.message
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_write_partial_runs_underline_cream_table(tmp_path: Path) -> None:
+    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.write import (
+        CREAM_FILL,
+        apply_paragraph_format,
+        cream_section_header,
+        create_table_and_fill,
+        insert_runs,
+        set_page_setup,
+    )
+
+    doc = new_document()
+    try:
+        set_page_setup(doc)
+        insert_runs(
+            doc,
+            [
+                {"text": "기간은 ", "font": "함초롬바탕", "size": 11},
+                {
+                    "text": "7. 3(금) 16시까지",
+                    "font": "함초롬돋움",
+                    "size": 11,
+                    "bold": True,
+                    "underline": True,
+                    "underline_color": "#FF0000",
+                    "color": "#FF0000",
+                },
+                {"text": " 이며 URL 은 ", "font": "함초롬바탕", "size": 11},
+                {
+                    "text": "www.sbiz24.kr",
+                    "font": "함초롬돋움",
+                    "size": 11,
+                    "underline": True,
+                    "underline_color": "#0000FF",
+                    "color": "#0000FF",
+                },
+            ],
+            align="JUSTIFY",
+            line_spacing_percent=160,
+        )
+        apply_paragraph_format(doc, alignment="JUSTIFY")
+        cream_section_header(doc, "2", "지원대상")
+        create_table_and_fill(
+            doc,
+            2,
+            2,
+            [["단계", "내용"], ["STEP 1", "구축"]],
+            header_fill="#C5D8EA",
+            col_widths=[1, 2],
+        )
+        out = tmp_path / "styled.hwpx"
+        save_document(doc, out)
+    finally:
+        close_document(doc)
+
+    inspected = inspect_hwpx(out)
+    assert any(g.get("underline") and g.get("color") == "#FF0000" for g in inspected["run_groups"])
+    assert any(g.get("underline") and g.get("color") == "#0000FF" for g in inspected["run_groups"])
+    assert any(g.get("fill") == CREAM_FILL for g in inspected["cell_fill_groups"])
+    assert inspected["table_count"] >= 2
+
+    compared = compare_page_images(out, output_dir=tmp_path / "cmp")
+    assert compared["ok"] is True
+    assert compared["hangul_required"] is False
+    assert Path(compared["inspect"]).is_file()
+    assert any(item["id"] == "red_underline" and item["ok"] for item in compared["checklist"])
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_recreate_gongo_pages_1_3(tmp_path: Path) -> None:
+    from hwpctl.hwpx.gongo import recreate_gongo
+
+    fixtures = REPO / "fixtures" / "gongo"
+    if not (fixtures / "gongo_pages.json").is_file():
+        pytest.skip("gongo fixtures 없음")
+    out = tmp_path / "rebuild.hwpx"
+    built = recreate_gongo(output=out, fixtures=fixtures, pages=(1, 2, 3))
+    assert built["ok"] is True
+    assert out.is_file()
+    inspected = inspect_hwpx(out)
+    blob = json.dumps(inspected, ensure_ascii=False)
+    assert "간단소개" in blob
+    assert "7. 3(금) 16시까지" in blob
+    assert "www.sbiz24.kr" in blob
+    assert "신청제외" in blob
+    assert any(g.get("underline") and g.get("color") == "#FF0000" for g in inspected["run_groups"])
+    assert any(g.get("fill") == "#F5E6C8" for g in inspected["cell_fill_groups"])
+    compared = compare_page_images(
+        out,
+        orig_dir=fixtures,
+        output_dir=tmp_path / "cmp",
+        pages=(1, 2, 3),
+    )
+    assert compared["ok"] is True
+    assert compared["checklist"]
+    assert (tmp_path / "cmp" / "report.json").is_file()

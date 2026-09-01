@@ -11,7 +11,8 @@
 python -m pip install -e ".[dev]"
 pytest
 hwpctl mcp --list-tools
-hwpctl hwpx_status
+hwpctl --backend auto hwpx_status
+python scripts/recreate_gongo.py --out artifacts/gongo
 ```
 
 `.hwpx` 준비 계층만 쓰려면 `pip install -e ".[hwpx]"` 로도 충분합니다. 한/글은

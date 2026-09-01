@@ -32,7 +32,8 @@ INSTRUCTIONS = (
     "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
     "insert_title, create_table(rows=8, cols=4, header_fill=gray). "
-    "hwpx_status/hwpx_inspect 는 한글·COM·잠금 없이 .hwpx XML 을 읽는다."
+    "hwpx_status/hwpx_inspect/hwpx_compare 는 한글·COM·잠금 없이 .hwpx 를 읽고 비교한다. "
+    "공고문 재현은 scripts/recreate_gongo.py (HWPX 조립) 를 쓰고, 한글 확인은 나중에 hwpctl open 한다."
 )
 
 
@@ -406,14 +407,29 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "close", force=force)
 
     @mcp.tool()
-    async def hwpx_status(path: str = "") -> dict[str, Any]:
-        """python-hwpx 설치 여부와 선택적 .hwpx 요약. 한글·COM·잠금 불필요."""
-        return await _call_hwpx("hwpx_status", path=path or None)
+    async def hwpx_status(path: str = "", backend: str = "auto") -> dict[str, Any]:
+        """python-hwpx 설치 여부와 선택적 .hwpx 요약. 한글·COM·잠금 불필요.
+        backend 는 auto|hwpx|hancom. auto 는 Windows 가 아니면 hwpx."""
+        return await _call_hwpx("hwpx_status", path=path or None, backend=backend)
 
     @mcp.tool()
     async def hwpx_inspect(path: str) -> dict[str, Any]:
         """.hwpx 문단·런·셀 서식 그룹을 읽는다(쓰기 전 상속용). 한글·COM·잠금 불필요."""
         return await _call_hwpx("hwpx_inspect", path=path)
+
+    @mcp.tool()
+    async def hwpx_compare(
+        path: str,
+        orig_dir: str = "",
+        output_dir: str = "",
+    ) -> dict[str, Any]:
+        """.hwpx 를 inspect JSON·레이아웃 HTML·원본 PNG 비교 시트로 대조한다. 한글 불필요."""
+        return await _call_hwpx(
+            "hwpx_compare",
+            path=path,
+            orig_dir=orig_dir or None,
+            output_dir=output_dir or None,
+        )
 
     @mcp.tool()
     async def list_tools() -> dict[str, Any]:
