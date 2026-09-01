@@ -1,7 +1,7 @@
 """한글 없이 ``.hwpx`` 를 다루는 준비 계층.
 
 COM/``hangul.py`` 와 분리한다. 읽기(``hwpx_status`` / ``hwpx_inspect``)는
-작성 잠금이 필요 없다. 쓰기 래퍼는 다음 단계에서 공고문 재현에 쓰인다.
+작성 잠금이 필요 없다. 쓰기 래퍼는 공고 1쪽 품질 고정물 생성에 쓴다.
 """
 
 from __future__ import annotations

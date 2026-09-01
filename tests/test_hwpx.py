@@ -259,6 +259,22 @@ def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: P
             underline_shape="SOLID",
             underline_color="#FF0000",
         )
+        base = insert_paragraph(doc, "원본 서식", inherit_style=False)
+        base_style = set_run_props(
+            doc,
+            paragraph=base,
+            font="휴먼명조",
+            size=11.5,
+            bold=True,
+            underline=True,
+        )
+        inherited = insert_paragraph(doc, "상속 런", inherit_style=False)
+        set_run_props(
+            doc,
+            paragraph=inherited,
+            base_char_pr_id=base_style["char_pr_id"],
+            color="#002060",
+        )
         apply_paragraph_format(
             doc,
             paragraph=paragraph,
@@ -307,6 +323,14 @@ def test_writer_round_trip_keeps_rich_run_paragraph_and_table_styles(tmp_path: P
     assert deadline_group["color"] == "#FF0000"
     assert deadline_group["underline"] is True
     assert deadline_group["underline_color"] == "#FF0000"
+    inherited_run = next(
+        run for run in inspected["runs"] if run["text"] == "상속 런"
+    )
+    assert inherited_run["font"] == "휴먼명조"
+    assert inherited_run["size_pt"] == 11.5
+    assert inherited_run["bold"] is True
+    assert inherited_run["color"] == "#002060"
+    assert inherited_run["underline"] is True
 
     cream_cells = next(
         group
