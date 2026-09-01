@@ -5,39 +5,17 @@
   "lock_required": false,
   "backend": "owpml-xml+pillow",
   "rasterizer": "hwpctl XML preview (not Hangul, not LibreOffice hwpfilter)",
-  "rebuilt": "artifacts/gongo/rebuild_p1_10.hwpx",
+  "rebuilt": "artifacts/gongo/rebuild_p1.hwpx",
   "inspect": "artifacts/gongo/inspect.json",
   "layout_preview_html": "artifacts/gongo/layout_preview.html",
   "rebuild_pngs": [
-    "artifacts/gongo/rebuild_pages/rebuild_p1.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p2.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p3.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p4.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p5.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p6.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p7.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p8.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p9.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p10.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p11.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p12.png",
-    "artifacts/gongo/rebuild_pages/rebuild_p13.png"
+    "artifacts/gongo/rebuild_pages/rebuild_p1.png"
   ],
   "compare_sheets": [
     {
       "page": 1,
       "path": "artifacts/gongo/compare_p1.png",
       "orig": "/workspace/fixtures/gongo/orig_p1.png"
-    },
-    {
-      "page": 2,
-      "path": "artifacts/gongo/compare_p2.png",
-      "orig": "/workspace/fixtures/gongo/orig_p2.png"
-    },
-    {
-      "page": 3,
-      "path": "artifacts/gongo/compare_p3.png",
-      "orig": "/workspace/fixtures/gongo/orig_p3.png"
     }
   ],
   "checklist": [
@@ -67,9 +45,9 @@
       "label": "굵은 런"
     },
     {
-      "id": "gothic_or_myeongjo",
+      "id": "official_faces",
       "ok": true,
-      "label": "함초롬 글꼴"
+      "label": "휴먼명조/HY헤드라인M"
     }
   ],
   "gaps": [],

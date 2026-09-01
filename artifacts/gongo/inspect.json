@@ -1,48 +1,27 @@
 {
   "ok": true,
   "command": "hwpx_inspect",
-  "path": "artifacts/gongo/rebuild_p1_10.hwpx",
+  "path": "artifacts/gongo/rebuild_p1.hwpx",
   "backend": "owpml-xml",
   "hangul_required": false,
   "lock_required": false,
   "python_hwpx_version": "6.3.0",
-  "paragraph_count": 369,
-  "table_count": 15,
+  "paragraph_count": 19,
+  "table_count": 1,
   "paragraph_groups": [
     {
-      "para_pr_id": "39",
+      "para_pr_id": "27",
       "style_id": "0",
       "align": "JUSTIFY",
-      "count": 245,
-      "sample_text": "3"
+      "count": 12,
+      "sample_text": "❶ 무엇을 지원해주나요?"
     },
     {
       "para_pr_id": "0",
       "style_id": "0",
       "align": "JUSTIFY",
-      "count": 80,
+      "count": 1,
       "sample_text": "「혁신 소상공인 AI 활용지원 사업」 간단소개❶ 무엇을 지원해주나요?☞ …"
-    },
-    {
-      "para_pr_id": "26",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 12,
-      "sample_text": ""
-    },
-    {
-      "para_pr_id": "38",
-      "style_id": "0",
-      "align": "LEFT",
-      "count": 10,
-      "sample_text": "[재현 골격] 원본 4쪽. 1–3쪽과 같은 크림 헤더·본문 서식을 상속한…"
-    },
-    {
-      "para_pr_id": "27",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 7,
-      "sample_text": "□ (목적) 인력·자금 등이 부족한 소상공인에게 AI 도입·활용을 지원하…"
     },
     {
       "para_pr_id": "21",
@@ -80,77 +59,50 @@
       "sample_text": "소상공인시장진흥공단 이사장"
     },
     {
-      "para_pr_id": "28",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "◦ (활용모델 구축) AI 멘토기업과 함께 역량 진단, 원포인트 지원부터…"
-    },
-    {
-      "para_pr_id": "29",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "* (예시) ① 사업별 워크플로우, KPI 정립 → ② 목적별 로드맵 수…"
-    },
-    {
-      "para_pr_id": "30",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "◦ (BM 구현) 사업장 내 AI 시스템을 구축하고, AI를 활용해 상용…"
-    },
-    {
-      "para_pr_id": "31",
+      "para_pr_id": "26",
       "style_id": "0",
       "align": "LEFT",
       "count": 1,
-      "sample_text": "□ 신청자격"
-    },
-    {
-      "para_pr_id": "32",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "◦ 「소상공인기본법」제2조에 따른 소상공인으로 신청일 현재 정상적으로 영…"
-    },
-    {
-      "para_pr_id": "33",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "- 공동대표가 운영하는 사업체의 경우, 주대표 1인만 신청 가능"
-    },
-    {
-      "para_pr_id": "34",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "* 선정 후 프로그램 활동 시 공동대표 교차 참석 가능하며, 프로그램은 …"
-    },
-    {
-      "para_pr_id": "35",
-      "style_id": "0",
-      "align": "JUSTIFY",
-      "count": 1,
-      "sample_text": "** 단, 발표평가 시 주대표자 참석 필수 ※ 공동대표 대참 불가"
-    },
-    {
-      "para_pr_id": "36",
-      "style_id": "0",
-      "align": "LEFT",
-      "count": 1,
-      "sample_text": "□ 신청제외 대상"
-    },
-    {
-      "para_pr_id": "37",
-      "style_id": "0",
-      "align": "LEFT",
-      "count": 1,
-      "sample_text": "* 평가·선정 과정에서 신청제외 대상으로 확인될 경우, 탈락 또는 선정취…"
+      "sample_text": "「혁신 소상공인 AI 활용지원 사업」 간단소개"
     }
   ],
   "run_groups": [
+    {
+      "char_pr_id": "9",
+      "font": "휴먼명조",
+      "size_pt": 11.0,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "underline_color": "#000000",
+      "color": "#000000",
+      "count": 11,
+      "sample_text": "중소벤처기업부와 소상공인시장진흥공단은 AI를 활용한 제품개발 및 서비스 …"
+    },
+    {
+      "char_pr_id": "12",
+      "font": "HY헤드라인M",
+      "size_pt": 12.0,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "underline_color": "#000000",
+      "color": "#000000",
+      "count": 6,
+      "sample_text": "❶ 무엇을 지원해주나요?"
+    },
+    {
+      "char_pr_id": "13",
+      "font": "휴먼명조",
+      "size_pt": 11.0,
+      "bold": false,
+      "italic": false,
+      "underline": true,
+      "underline_color": "#0000FF",
+      "color": "#0000FF",
+      "count": 2,
+      "sample_text": "sbiz24.kr"
+    },
     {
       "char_pr_id": "0",
       "font": "함초롬바탕",
@@ -160,156 +112,12 @@
       "underline": false,
       "underline_color": "#000000",
       "color": "#000000",
-      "count": 283,
+      "count": 1,
       "sample_text": "「혁신 소상공인 AI 활용지원 사업」 간단소개❶ 무엇을 지원해주나요?☞ …"
     },
     {
-      "char_pr_id": "9",
-      "font": "함초롬바탕",
-      "size_pt": 11.0,
-      "bold": false,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 22,
-      "sample_text": "중소벤처기업부와 소상공인시장진흥공단은 AI를 활용한 제품개발 및 서비스 …"
-    },
-    {
-      "char_pr_id": "8",
-      "font": "함초롬돋움",
-      "size_pt": 16.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 13,
-      "sample_text": "참여 소상공인 모집 공고"
-    },
-    {
-      "char_pr_id": "15",
-      "font": "함초롬바탕",
-      "size_pt": 1.0,
-      "bold": false,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 12,
-      "sample_text": ""
-    },
-    {
-      "char_pr_id": "16",
-      "font": "함초롬돋움",
-      "size_pt": 14.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 12,
-      "sample_text": "1"
-    },
-    {
-      "char_pr_id": "24",
-      "font": "함초롬돋움",
-      "size_pt": 9.0,
-      "bold": false,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#666666",
-      "count": 10,
-      "sample_text": "[재현 골격] 원본 4쪽. 1–3쪽과 같은 크림 헤더·본문 서식을 상속한…"
-    },
-    {
-      "char_pr_id": "17",
-      "font": "함초롬돋움",
-      "size_pt": 11.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 9,
-      "sample_text": "□ (목적)"
-    },
-    {
-      "char_pr_id": "12",
-      "font": "함초롬돋움",
-      "size_pt": 12.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 8,
-      "sample_text": "❶ 무엇을 지원해주나요?"
-    },
-    {
-      "char_pr_id": "3",
-      "font": "함초롬바탕",
-      "size_pt": 9.0,
-      "bold": false,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 8,
-      "sample_text": "* (예시) ① 사업별 워크플로우, KPI 정립 → ② 목적별 로드맵 수…"
-    },
-    {
-      "char_pr_id": "13",
-      "font": "함초롬돋움",
-      "size_pt": 11.0,
-      "bold": true,
-      "italic": false,
-      "underline": true,
-      "underline_color": "#FF0000",
-      "color": "#FF0000",
-      "count": 2,
-      "sample_text": "7. 3(금) 16시까지"
-    },
-    {
-      "char_pr_id": "19",
-      "font": "함초롬돋움",
-      "size_pt": 10.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 2,
-      "sample_text": "■ 활용모델 구축"
-    },
-    {
-      "char_pr_id": "20",
-      "font": "함초롬돋움",
-      "size_pt": 10.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#0000FF",
-      "count": 2,
-      "sample_text": "[1개월]"
-    },
-    {
-      "char_pr_id": "21",
-      "font": "함초롬바탕",
-      "size_pt": 9.0,
-      "bold": true,
-      "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 2,
-      "sample_text": "주대표자 참석 필수"
-    },
-    {
       "char_pr_id": "10",
-      "font": "함초롬바탕",
+      "font": "휴먼명조",
       "size_pt": 11.0,
       "bold": true,
       "italic": false,
@@ -321,7 +129,7 @@
     },
     {
       "char_pr_id": "11",
-      "font": "함초롬돋움",
+      "font": "HY헤드라인M",
       "size_pt": 13.0,
       "bold": true,
       "italic": false,
@@ -333,55 +141,19 @@
     },
     {
       "char_pr_id": "14",
-      "font": "함초롬바탕",
+      "font": "휴먼명조",
       "size_pt": 11.0,
-      "bold": false,
-      "italic": false,
-      "underline": true,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 1,
-      "sample_text": "모집공고를 먼저 확인해주시고"
-    },
-    {
-      "char_pr_id": "18",
-      "font": "함초롬돋움",
-      "size_pt": 11.0,
-      "bold": false,
-      "italic": false,
-      "underline": true,
-      "underline_color": "#0000FF",
-      "color": "#0000FF",
-      "count": 1,
-      "sample_text": "www.sbiz24.kr"
-    },
-    {
-      "char_pr_id": "22",
-      "font": "함초롬바탕",
-      "size_pt": 10.0,
       "bold": true,
       "italic": false,
-      "underline": false,
-      "underline_color": "#000000",
-      "color": "#000000",
-      "count": 1,
-      "sample_text": "지원제외 업종"
-    },
-    {
-      "char_pr_id": "23",
-      "font": "함초롬바탕",
-      "size_pt": 10.0,
-      "bold": false,
-      "italic": false,
       "underline": true,
-      "underline_color": "#000000",
-      "color": "#000000",
+      "underline_color": "#FF0000",
+      "color": "#FF0000",
       "count": 1,
-      "sample_text": "** 단, 추후 사업비 신청 시 지급보증보험증권 발급이 불가능한 경우 사…"
+      "sample_text": "7. 3(금) 16시까지"
     },
     {
       "char_pr_id": "7",
-      "font": "함초롬돋움",
+      "font": "HY헤드라인M",
       "size_pt": 18.0,
       "bold": true,
       "italic": false,
@@ -390,34 +162,38 @@
       "color": "#000000",
       "count": 1,
       "sample_text": "「2026년 혁신 소상공인 AI 활용지원 사업」"
+    },
+    {
+      "char_pr_id": "8",
+      "font": "HY헤드라인M",
+      "size_pt": 16.0,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "underline_color": "#000000",
+      "color": "#000000",
+      "count": 1,
+      "sample_text": "참여 소상공인 모집 공고"
     }
   ],
   "cell_fill_groups": [
     {
-      "border_fill_id": "5",
-      "fill": "#F5E6C8",
-      "count": 25
-    },
-    {
       "border_fill_id": "4",
       "fill": "",
-      "count": 8
+      "count": 1
     },
     {
-      "border_fill_id": "7",
-      "fill": "#D6E3F0",
-      "count": 4
-    },
-    {
-      "border_fill_id": "8",
-      "fill": "#C5D8EA",
-      "count": 2
+      "border_fill_id": "5",
+      "fill": "#FCF5E7",
+      "count": 1
     }
   ],
   "definitions": {
     "fonts": {
       "0": "함초롬돋움",
-      "1": "함초롬바탕"
+      "1": "함초롬바탕",
+      "2": "HY헤드라인M",
+      "3": "휴먼명조"
     },
     "paragraph_properties": {
       "0": {
@@ -604,97 +380,13 @@
       },
       "26": {
         "id": "26",
-        "align": "JUSTIFY",
+        "align": "LEFT",
         "valign": "BASELINE",
         "line_spacing_type": "",
         "line_spacing_value": ""
       },
       "27": {
         "id": "27",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "28": {
-        "id": "28",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "29": {
-        "id": "29",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "30": {
-        "id": "30",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "31": {
-        "id": "31",
-        "align": "LEFT",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "32": {
-        "id": "32",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "33": {
-        "id": "33",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "34": {
-        "id": "34",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "35": {
-        "id": "35",
-        "align": "JUSTIFY",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "36": {
-        "id": "36",
-        "align": "LEFT",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "37": {
-        "id": "37",
-        "align": "LEFT",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "38": {
-        "id": "38",
-        "align": "LEFT",
-        "valign": "BASELINE",
-        "line_spacing_type": "",
-        "line_spacing_value": ""
-      },
-      "39": {
-        "id": "39",
         "align": "JUSTIFY",
         "valign": "BASELINE",
         "line_spacing_type": "",
@@ -781,8 +473,8 @@
       },
       "7": {
         "id": "7",
-        "font": "함초롬돋움",
-        "font_id": "0",
+        "font": "HY헤드라인M",
+        "font_id": "2",
         "size_pt": 18.0,
         "bold": true,
         "italic": false,
@@ -792,8 +484,8 @@
       },
       "8": {
         "id": "8",
-        "font": "함초롬돋움",
-        "font_id": "0",
+        "font": "HY헤드라인M",
+        "font_id": "2",
         "size_pt": 16.0,
         "bold": true,
         "italic": false,
@@ -803,8 +495,8 @@
       },
       "9": {
         "id": "9",
-        "font": "함초롬바탕",
-        "font_id": "1",
+        "font": "휴먼명조",
+        "font_id": "3",
         "size_pt": 11.0,
         "bold": false,
         "italic": false,
@@ -814,8 +506,8 @@
       },
       "10": {
         "id": "10",
-        "font": "함초롬바탕",
-        "font_id": "1",
+        "font": "휴먼명조",
+        "font_id": "3",
         "size_pt": 11.0,
         "bold": true,
         "italic": false,
@@ -825,8 +517,8 @@
       },
       "11": {
         "id": "11",
-        "font": "함초롬돋움",
-        "font_id": "0",
+        "font": "HY헤드라인M",
+        "font_id": "2",
         "size_pt": 13.0,
         "bold": true,
         "italic": false,
@@ -836,8 +528,8 @@
       },
       "12": {
         "id": "12",
-        "font": "함초롬돋움",
-        "font_id": "0",
+        "font": "HY헤드라인M",
+        "font_id": "2",
         "size_pt": 12.0,
         "bold": true,
         "italic": false,
@@ -847,63 +539,8 @@
       },
       "13": {
         "id": "13",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 11.0,
-        "bold": true,
-        "italic": false,
-        "underline": true,
-        "underline_color": "#FF0000",
-        "color": "#FF0000"
-      },
-      "14": {
-        "id": "14",
-        "font": "함초롬바탕",
-        "font_id": "1",
-        "size_pt": 11.0,
-        "bold": false,
-        "italic": false,
-        "underline": true,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "15": {
-        "id": "15",
-        "font": "함초롬바탕",
-        "font_id": "1",
-        "size_pt": 1.0,
-        "bold": false,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "16": {
-        "id": "16",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 14.0,
-        "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "17": {
-        "id": "17",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 11.0,
-        "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "18": {
-        "id": "18",
-        "font": "함초롬돋움",
-        "font_id": "0",
+        "font": "휴먼명조",
+        "font_id": "3",
         "size_pt": 11.0,
         "bold": false,
         "italic": false,
@@ -911,71 +548,16 @@
         "underline_color": "#0000FF",
         "color": "#0000FF"
       },
-      "19": {
-        "id": "19",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 10.0,
+      "14": {
+        "id": "14",
+        "font": "휴먼명조",
+        "font_id": "3",
+        "size_pt": 11.0,
         "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "20": {
-        "id": "20",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 10.0,
-        "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#0000FF"
-      },
-      "21": {
-        "id": "21",
-        "font": "함초롬바탕",
-        "font_id": "1",
-        "size_pt": 9.0,
-        "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "22": {
-        "id": "22",
-        "font": "함초롬바탕",
-        "font_id": "1",
-        "size_pt": 10.0,
-        "bold": true,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "23": {
-        "id": "23",
-        "font": "함초롬바탕",
-        "font_id": "1",
-        "size_pt": 10.0,
-        "bold": false,
         "italic": false,
         "underline": true,
-        "underline_color": "#000000",
-        "color": "#000000"
-      },
-      "24": {
-        "id": "24",
-        "font": "함초롬돋움",
-        "font_id": "0",
-        "size_pt": 9.0,
-        "bold": false,
-        "italic": false,
-        "underline": false,
-        "underline_color": "#000000",
-        "color": "#666666"
+        "underline_color": "#FF0000",
+        "color": "#FF0000"
       }
     },
     "border_fills": {
@@ -997,19 +579,7 @@
       },
       "5": {
         "id": "5",
-        "fill": "#F5E6C8"
-      },
-      "6": {
-        "id": "6",
-        "fill": ""
-      },
-      "7": {
-        "id": "7",
-        "fill": "#D6E3F0"
-      },
-      "8": {
-        "id": "8",
-        "fill": "#C5D8EA"
+        "fill": "#FCF5E7"
       }
     }
   }
