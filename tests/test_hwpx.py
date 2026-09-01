@@ -391,6 +391,28 @@ def test_page_setup_writes_hangul_portrait_orientation_token(tmp_path: Path) -> 
 
 
 @pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
+def test_page_setup_writes_hangul_landscape_orientation_token(tmp_path: Path) -> None:
+    from hwpctl.hwpx.document import close_document, new_document, save_document
+    from hwpctl.hwpx.write import HWPX_LANDSCAPE, set_page_setup
+
+    doc = new_document()
+    try:
+        set_page_setup(doc, paper_size="A4", orientation="LANDSCAPE")
+        out = tmp_path / "a4-landscape.hwpx"
+        save_document(doc, out)
+    finally:
+        close_document(doc)
+
+    page = inspect_hwpx(out)["section_page_properties"][0]["pages"][0]
+    # HWPX keeps A4's physical dimensions; Hangul rotates it from this
+    # NARROWLY token rather than from a width/height swap.
+    assert page["landscape_attr"] == HWPX_LANDSCAPE == "NARROWLY"
+    assert page["width_hwpunit"] == 59528
+    assert page["height_hwpunit"] == 84189
+    assert page["width_hwpunit"] < page["height_hwpunit"]
+
+
+@pytest.mark.skipif(not hwpx_available(), reason="python-hwpx extra 필요")
 def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> None:
     from hwpctl.hwpx.gongo import rebuild_gongo_page1
 
