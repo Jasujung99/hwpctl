@@ -358,9 +358,7 @@ def test_gongo_page1_rebuild_has_hangul_openable_style_truth(tmp_path: Path) -> 
     assert application_text["underline"] is False
     assert application_text["bold"] is False
     question_label = next(
-        group
-        for group in inspected["run_groups"]
-        if "❶ 무엇을 지원해주나요?" in group["sample_text"]
+        run for run in inspected["runs"] if run["text"] == "❶ 무엇을 지원해주나요?"
     )
     assert question_label["font"] == "HY헤드라인M"
     assert question_label["bold"] is True
