@@ -1,7 +1,6 @@
-"""한글 없이 ``.hwpx`` 를 다루는 준비 계층.
+"""한글 없이 ``.hwpx`` 를 다루는 계층.
 
-COM/``hangul.py`` 와 분리한다. 읽기(``hwpx_status`` / ``hwpx_inspect``)는
-작성 잠금이 필요 없다. 쓰기 래퍼는 다음 단계에서 공고문 재현에 쓰인다.
+COM/``hangul.py`` 와 분리한다. 읽기·쓰기·쪽 비교는 작성 잠금이 필요 없다.
 """
 
 from __future__ import annotations
@@ -16,26 +15,36 @@ from hwpctl.hwpx.document import (
     require_hwpx,
     save_document,
 )
+from hwpctl.hwpx.gongo import recreate_gongo
 from hwpctl.hwpx.inspect import inspect_hwpx, inspect_owpml_parts
 from hwpctl.hwpx.write import (
     apply_paragraph_align,
+    apply_paragraph_format,
+    boxed_block,
+    cream_section_header,
     create_table_and_fill,
     insert_paragraph,
+    insert_runs,
     set_run_props,
 )
 
 __all__ = [
     "apply_paragraph_align",
+    "apply_paragraph_format",
+    "boxed_block",
     "close_document",
     "compare_page_images",
+    "cream_section_header",
     "create_table_and_fill",
     "hwpx_available",
     "hwpx_version",
     "insert_paragraph",
+    "insert_runs",
     "inspect_hwpx",
     "inspect_owpml_parts",
     "new_document",
     "open_document",
+    "recreate_gongo",
     "require_hwpx",
     "save_document",
     "set_run_props",

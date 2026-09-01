@@ -17,6 +17,7 @@ def test_mcp_registers_engine_tools() -> None:
     assert "insert_chart" in names
     assert "hwpx_status" in names
     assert "hwpx_inspect" in names
+    assert "hwpx_compare" in names
     assert "list_tools" in names
 
 

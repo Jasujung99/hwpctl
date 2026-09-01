@@ -80,3 +80,4 @@ def test_cli_mcp_list_tools_without_hangul() -> None:
     assert "save_as" in names
     assert "hwpx_status" in names
     assert "hwpx_inspect" in names
+    assert "hwpx_compare" in names

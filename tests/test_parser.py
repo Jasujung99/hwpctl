@@ -41,6 +41,7 @@ def test_required_commands_exist() -> None:
         "save_as",
         "hwpx_status",
         "hwpx_inspect",
+        "hwpx_compare",
     ):
         assert required in names
     assert "mcp" in known_commands()
@@ -280,3 +281,5 @@ def test_tool_catalog_marks_destructive() -> None:
     assert by_name["hwpx_status"]["write"] is False
     assert by_name["hwpx_inspect"]["write"] is False
     assert by_name["hwpx_inspect"]["destructive"] is False
+    assert by_name["hwpx_compare"]["write"] is False
+    assert by_name["hwpx_compare"]["destructive"] is False

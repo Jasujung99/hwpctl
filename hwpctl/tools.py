@@ -62,6 +62,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         False,
     ),
+    ToolSpec(
+        "hwpx_compare",
+        ".hwpx 쪽 비교(inspect JSON·레이아웃 HTML·원본 PNG 시트). 한글 불필요",
+        False,
+        False,
+    ),
 )
 
 

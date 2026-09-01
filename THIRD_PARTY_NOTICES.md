@@ -8,6 +8,7 @@
 | 한글 오피스 | 대상 문서 편집기와 자동화 인터페이스 | <https://www.hancom.com/> |
 | pyhwpx | 한글 자동화 Python 래퍼 | <https://github.com/martiniifun/pyhwpx> |
 | python-hwpx | 한글 없이 HWPX(OWPML)를 읽고 쓰는 순수 파이썬 라이브러리 (선택 extra `hwpx`) | <https://github.com/airmang/python-hwpx> |
+| Pillow | HWPX 쪽 PNG 근사 렌더와 원본 비교 시트 (선택 extra `hwpx`) | <https://python-pillow.org/> |
 | pywin32 | Windows COM 접근 | <https://github.com/mhammond/pywin32> |
 | MCP Python SDK | MCP 서버 | <https://github.com/modelcontextprotocol/python-sdk> |
 | AnyIO | 비동기 작업과 워커 | <https://github.com/agronholm/anyio> |

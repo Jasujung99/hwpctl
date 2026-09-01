@@ -13,7 +13,7 @@ from hwpctl.errors import HwpctlError, UsageError
 from hwpctl.parser import parse_args, parse_cell_assignments, parse_cells_json
 from hwpctl.tools import tool_catalog
 
-HWPX_COMMANDS = frozenset({"hwpx_status", "hwpx_inspect"})
+HWPX_COMMANDS = frozenset({"hwpx_status", "hwpx_inspect", "hwpx_compare"})
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -54,7 +54,15 @@ def _run_hwpx(args: Any) -> dict[str, Any]:
 
     from hwpctl.hwpx.commands import dispatch_hwpx
 
-    return dispatch_hwpx(args.command, path=getattr(args, "path", None))
+    orig_dir = getattr(args, "orig_dir", None) or None
+    output_dir = getattr(args, "output_dir", None) or None
+    return dispatch_hwpx(
+        args.command,
+        path=getattr(args, "path", None),
+        backend=getattr(args, "backend", None),
+        orig_dir=orig_dir,
+        output_dir=output_dir,
+    )
 
 
 def _run_engine(args: Any) -> dict[str, Any]:

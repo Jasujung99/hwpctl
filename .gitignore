@@ -26,6 +26,8 @@ profiles/
 .grok/
 *.hwpx
 *.hwp
+!fixtures/gongo/*.hwp
+!artifacts/gongo/*.hwpx
 .mypy_cache/
 .ruff_cache/
 agent-tools/

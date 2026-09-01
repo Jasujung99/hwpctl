@@ -36,10 +36,12 @@ windows = [
 ]
 hwpx = [
     "python-hwpx>=6.3,<7",
+    "pillow>=10",
 ]
 dev = [
     "pytest>=8",
     "python-hwpx>=6.3,<7",
+    "pillow>=10",
 ]
 
 [project.scripts]
