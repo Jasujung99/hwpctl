@@ -105,6 +105,10 @@ class HangulCanvas:
         except ImportError:
             last_error = None
         except Exception as exc:  # COM 실패
+            # Hwp(new=True)가 일부 문서를 만든 뒤 실패했을 수 있다. 여기서
+            # win32com fallback을 이어가면 빈 문서를 추가 생성할 수 있으므로 중단한다.
+            if new:
+                raise HangulMissingError(CONNECT_KO) from exc
             last_error = exc
         try:
             import win32com.client  # type: ignore
@@ -121,12 +125,11 @@ class HangulCanvas:
                 com.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
             except Exception:
                 pass
-            _make_window_current(com, 0)
+            # EnsureDispatch가 만든 한/글은 보통 빈 문서 하나를 이미 가진다.
+            # 그것을 그대로 쓰고, 문서가 전혀 없을 때만 하나 만든다.
             if new:
-                try:
-                    com.XHwpDocuments.Add(False)
-                except Exception:
-                    com.HAction.Run("FileNew")
+                _ensure_document_if_empty(com)
+            _make_window_current(com, 0)
             return cls(px=None, com=com, backend="win32com")
         except HangulMissingError:
             raise
@@ -310,7 +313,7 @@ class HangulCanvas:
                 line_count, measured = self._cell_line_count(text)
                 margins = self._get_cell_margin_mm()
                 height = self._get_row_height_mm()
-                font_size, line_spacing = self._get_cell_typography()
+                font_size, line_spacing = self._get_cell_typography(text)
                 row_height = max(row_height, height)
                 cells.append(
                     {
@@ -382,12 +385,14 @@ class HangulCanvas:
     def set_col_width_current(self, width_mm: float) -> None:
         """현재 셀이 속한 열을 선택해 너비(mm)를 설정한다."""
         self.assert_no_dialog()
-        if not (
-            self.run("TableColPageUp")
-            and self.run("TableCellBlock")
-            and self.run("TableCellBlockExtend")
-            and self.run("TableColPageDown")
-        ):
+        if not self.run("TableColPageUp"):
+            raise HangulCommandError("현재 열 선택에 실패했습니다 (열 첫 행 이동 실패).")
+        top = self.current_cell_addr()
+        if top:
+            self.begin_cell_block(top)
+        elif not self.run("TableCellBlock"):
+            raise HangulCommandError("현재 열 선택에 실패했습니다.")
+        if not (self.run("TableCellBlockExtend") and self.run("TableColPageDown")):
             raise HangulCommandError("현재 열 선택에 실패했습니다.")
         try:
             pset = self.com.HParameterSet.HShapeObject
@@ -396,10 +401,18 @@ class HangulCanvas:
             pset.HSet.SetItem("ShapeCellSize", 1)
             pset.ShapeTableCell.Width = self._mm_to_hwpunit(width_mm)
             ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+            if not ok:
+                raise HangulCommandError("현재 열 너비 조절 액션이 실패했습니다.")
+        except HangulCommandError:
+            raise
         except Exception as exc:
             raise HangulCommandError(f"현재 열 너비 조절에 실패했습니다: {exc}") from exc
-        if not ok:
-            raise HangulCommandError("현재 열 너비 조절 액션이 실패했습니다.")
+        finally:
+            # 열 전체 셀블록 선택이 다음 병합/이동으로 새지 않게 항상 해제한다.
+            try:
+                self.run("Cancel")
+            except HangulCommandError:
+                pass
         self.assert_no_dialog()
 
     def get_col_width(self) -> float:
@@ -685,7 +698,7 @@ class HangulCanvas:
             return
         # COM 폴백: 이동 액션의 반환값을 전부 검사하고, KeyIndicator 로 결과 주소를 검증한다.
         # (이전 구현은 실패를 무시해 캐럿이 본문에 남은 채 SelectAll → 문서 전체 교체 사고 가능)
-        row, col = _parse_a1(addr)
+        _parse_a1(addr)  # 형식 검증
         if not self.is_cell():
             raise HangulCommandError(
                 f"캐럿이 표 안에 있지 않아 셀 {addr} 로 이동할 수 없습니다."
@@ -693,21 +706,27 @@ class HangulCanvas:
         # A1 로: TableColBegin(행의 첫 칸) + TableColPageUp(열의 첫 행)
         if not self.run("TableColBegin") or not self.run("TableColPageUp"):
             raise HangulCommandError(f"셀 {addr} 로 이동하지 못했습니다 (표 시작 이동 실패).")
-        for _ in range(col):
-            if not self.run("TableRightCell"):
-                raise HangulCommandError(f"셀 {addr} 로 이동하지 못했습니다 (열 이동 실패).")
-        for _ in range(row):
-            if not self.run("TableLowerCell"):
-                raise HangulCommandError(f"셀 {addr} 로 이동하지 못했습니다 (행 이동 실패).")
-        if not self.is_cell():
-            raise HangulCommandError(f"셀 {addr} 이동 후 캐럿이 표 밖에 있습니다.")
-        current = self.current_cell_addr()
+        # A1:B1처럼 병합된 셀이 있으면 A1에서 C1까지는 실제로 한 번만
+        # TableRightCell을 실행해야 한다. 원래 좌표의 열/행 수를 세면 C1을
+        # D1로 넘기므로, 한/글이 보고하는 실제 셀 주소를 순회한다.
         want = addr.strip().upper()
-        if current and current != want:
-            raise HangulCommandError(
-                f"셀 이동 결과가 다릅니다 (요청 {want}, 현재 {current}). "
-                "표 크기를 벗어난 주소일 수 있습니다."
-            )
+        seen: set[str] = set()
+        for _ in range(5000):
+            if not self.is_cell():
+                raise HangulCommandError(f"셀 {addr} 이동 후 캐럿이 표 밖에 있습니다.")
+            current = self.current_cell_addr()
+            if current == want:
+                return
+            if not current or current in seen:
+                break
+            seen.add(current)
+            if not self.run("TableRightCell"):
+                break
+        current = self.current_cell_addr()
+        raise HangulCommandError(
+            f"셀 이동 결과가 다릅니다 (요청 {want}, 현재 {current or '알 수 없음'}). "
+            "표 크기를 벗어난 주소이거나 병합으로 사라진 셀일 수 있습니다."
+        )
 
     def current_cell_addr(self) -> str:
         """상태 바(KeyIndicator)의 컨트롤 이름에서 현재 셀 주소를 읽는다. 실패 시 ""."""
@@ -753,6 +772,36 @@ class HangulCanvas:
             return int(self.com.RGBColor(*rgb))
         except Exception:
             return rgb_to_bgr_int(rgb)
+
+    def insert_picture(
+        self,
+        path: str,
+        size_option: int = 3,
+        width_mm: float = 0.0,
+        height_mm: float = 0.0,
+        embedded: bool = True,
+    ) -> None:
+        """캐럿 위치에 그림 파일을 넣는다 (한/글 ``InsertPicture``).
+
+        ``size_option`` 0=원본 크기, 1=width/height 지정, 2=셀 크기에 맞춤,
+        3=셀 크기에 맞추되 비율 유지. 2/3 은 캐럿이 표 셀 안일 때만 뜻이 있다.
+        ``embedded=True`` 면 문서에 포함되므로 원본 파일이 사라져도 그림이 남는다.
+        """
+        self.assert_no_dialog()
+        width = self._mm_to_hwpunit(width_mm) if width_mm else 0
+        height = self._mm_to_hwpunit(height_mm) if height_mm else 0
+        try:
+            ctrl = self.com.InsertPicture(
+                path, bool(embedded), int(size_option), False, False, 0, width, height
+            )
+        except Exception as exc:
+            raise HangulCommandError(f"그림 삽입에 실패했습니다: {exc}") from exc
+        if ctrl is None:
+            raise HangulCommandError(
+                "그림 삽입에 실패했습니다 (한/글이 그림 개체를 만들지 못했습니다). "
+                "파일 형식이 한/글에서 열리는 그림인지 확인하세요."
+            )
+        self.assert_no_dialog()
 
     def _mm_to_hwpunit(self, mm: float) -> int:
         try:
@@ -852,6 +901,24 @@ class HangulCanvas:
         if not (self.run("TableCellBlockExtendAbs") and self.run("TableCellBlockExtend")):
             raise HangulCommandError("표 전체 셀 선택에 실패했습니다.")
 
+    def begin_cell_block(self, addr: str, tries: int = 3) -> None:
+        """``addr`` 에서 셀블록(F5)을 시작한다.
+
+        한글 2022 의 ``TableCellBlock`` 은 캐럿이 셀에 막 들어온 직후에 False 를
+        돌려주는 일이 있다. 셀을 한 번이라도 순회한 뒤에는 항상 성공하므로,
+        Cancel 로 선택 상태를 지우고 같은 칸으로 다시 이동해 재시도한다.
+        (실측: 재시도 없이는 표 생성 직후 병합·열 선택이 실패한다.)
+        """
+        for _ in range(max(1, tries)):
+            if self.run("TableCellBlock"):
+                return
+            self.run("Cancel")
+            self.goto_addr(addr)
+        raise HangulCommandError(
+            "셀블록 시작(TableCellBlock)에 실패했습니다. "
+            "캐럿이 표 안에 있는지, 대화상자가 떠 있지 않은지 확인하세요."
+        )
+
     def select_cell_range(self, start: str, end: str) -> None:
         """start~end 셀을 셀블록으로 선택. (F5 셀블록 후 이동 액션이 블록을 확장)"""
         r0, c0 = _parse_a1(start)
@@ -860,9 +927,10 @@ class HangulCanvas:
             r0, r1 = r1, r0
         if c1 < c0:
             c0, c1 = c1, c0
+        # 이전 셀블록이 Extend 상태일 수 있으므로, 이동 전에 반드시 해제한다.
+        self.run("Cancel")
         self.goto_addr(_a1(r0, c0))
-        if not self.run("TableCellBlock"):
-            raise HangulCommandError("셀블록 시작(TableCellBlock)에 실패했습니다.")
+        self.begin_cell_block(_a1(r0, c0))
         for _ in range(c1 - c0):
             if not self.run("TableRightCell"):
                 raise HangulCommandError("셀블록 확장(열)에 실패했습니다.")
@@ -880,23 +948,31 @@ class HangulCanvas:
             c0, c1 = c1, c0
         if r0 == r1 and c0 == c1:
             raise UsageError("두 칸 이상을 지정해야 셀을 합칠 수 있습니다.")
-        self.goto_addr(_a1(r0, c0))
-        self.assert_no_dialog()
-        if not self.run("TableCellBlock"):
-            raise HangulCommandError("셀 합치기 선택 시작(TableCellBlock)에 실패했습니다.")
-        if not self.run("TableCellBlockExtend"):
-            raise HangulCommandError("셀 합치기 선택 확장(TableCellBlockExtend)에 실패했습니다.")
-        for _ in range(c1 - c0):
-            if not self.run("TableRightCell"):
-                raise HangulCommandError("셀 합치기 범위의 열 이동에 실패했습니다.")
-        for _ in range(r1 - r0):
-            if not self.run("TableLowerCell"):
-                raise HangulCommandError("셀 합치기 범위의 행 이동에 실패했습니다.")
-        if not self.run("TableMergeCell"):
-            raise HangulCommandError(
-                "셀 합치기(TableMergeCell)에 실패했습니다. "
-                "TableMergeCell은 셀블록 선택 없이 단독으로 실행할 수 없습니다."
-            )
+        # 이전 셀블록이 남은 채 goto_addr를 실행하면 이동 자체가 이전 범위를 확장해
+        # 의도보다 큰 표 영역이 합쳐질 수 있다. 이동 전·후 모두 상태를 정리한다.
+        self.run("Cancel")
+        try:
+            self.goto_addr(_a1(r0, c0))
+            self.assert_no_dialog()
+            self.begin_cell_block(_a1(r0, c0))
+            if not self.run("TableCellBlockExtend"):
+                raise HangulCommandError("셀 합치기 선택 확장(TableCellBlockExtend)에 실패했습니다.")
+            for _ in range(c1 - c0):
+                if not self.run("TableRightCell"):
+                    raise HangulCommandError("셀 합치기 범위의 열 이동에 실패했습니다.")
+            for _ in range(r1 - r0):
+                if not self.run("TableLowerCell"):
+                    raise HangulCommandError("셀 합치기 범위의 행 이동에 실패했습니다.")
+            if not self.run("TableMergeCell"):
+                raise HangulCommandError(
+                    "셀 합치기(TableMergeCell)에 실패했습니다. "
+                    "TableMergeCell은 셀블록 선택 없이 단독으로 실행할 수 없습니다."
+                )
+        finally:
+            try:
+                self.run("Cancel")
+            except HangulCommandError:
+                pass
         self.assert_no_dialog()
 
     def set_valign_current(self, align: str) -> int:
@@ -1173,14 +1249,25 @@ class HangulCanvas:
         if page_index_1 < 1:
             raise UsageError("쪽 번호는 1부터입니다.")
         if self.px:
-            self.px.goto_page(page_index=page_index_1)
-            return
-        try:
-            self.com.GotoPage(page_index_1)
-        except Exception:
-            self.run("MovePageBegin")
-            for _ in range(page_index_1 - 1):
-                self.run("MovePageDown")
+            try:
+                if self.px.goto_page(page_index=page_index_1):
+                    return
+            except Exception:
+                pass
+        # 한/글 2022 COM의 GotoPage는 예외 없이 현재 쪽에 머무는 경우가 있다.
+        # 문서 처음에서 MovePageDown을 반복하는 편이 실제 커서 위치를 옮긴다.
+        if not self.run("MoveDocBegin"):
+            raise HangulCommandError("문서 처음으로 이동하지 못해 쪽 이동에 실패했습니다.")
+        previous = self.get_pos()
+        for _ in range(page_index_1 - 1):
+            if not self.run("MovePageDown"):
+                raise HangulCommandError(f"{page_index_1}쪽으로 이동하지 못했습니다.")
+            current = self.get_pos()
+            if previous and current == previous:
+                raise HangulCommandError(
+                    f"{page_index_1}쪽으로 이동하지 못했습니다 (쪽 이동 후 위치가 바뀌지 않았습니다)."
+                )
+            previous = current
 
     def move_doc_end(self) -> None:
         self.run("MoveDocEnd")
@@ -1381,24 +1468,45 @@ class HangulCanvas:
         except Exception:
             return 160.0
 
-    def _get_cell_typography(self) -> tuple[float, float]:
+    def _get_cell_typography(self, text: str = "") -> tuple[float, float]:
         """셀 전체를 순회해 가장 큰 글자와 줄간격을 읽는다.
 
         한 지점만 표본으로 삼으면 혼합 서식 셀의 큰 글자를 놓쳐 행을 너무 낮출 수
-        있다. MoveNextChar는 현재 셀 리스트 안에서만 움직이며 편집 액션이 아니다.
+        있다. MoveNextChar는 한/글 2022에서 셀 끝에서도 True를 반환하거나 위치를
+        바꾸지 않는 경우가 있어, 끝 위치·위치 진행·셀 주소를 모두 확인한다.
         매우 긴 셀은 5000자까지만 확인하고, 이 경우에도 시작점 표본보다 안전하다.
         """
         saved = self.get_pos()
         max_font = 10.0
         max_spacing = 160.0
         try:
+            cell_addr = self.current_cell_addr()
+            if not self.run("MoveListEnd"):
+                return self._get_font_size_pt(), self._get_line_spacing_percent()
+            end_pos = self.get_pos()
+            if not end_pos:
+                return self._get_font_size_pt(), self._get_line_spacing_percent()
             if not self.run("MoveListBegin"):
                 return self._get_font_size_pt(), self._get_line_spacing_percent()
-            for _ in range(5000):
+            current_pos = self.get_pos()
+            if not current_pos:
+                return self._get_font_size_pt(), self._get_line_spacing_percent()
+            # 과거에는 짧은 셀도 5000회 순회했다. 실제 텍스트 길이를 우선 상한으로
+            # 써서 한/글의 MoveNextChar가 셀 끝에서 진행하지 않아도 즉시 멈춘다.
+            max_steps = max(1, min(len(text), 5000))
+            for _ in range(max_steps):
                 max_font = max(max_font, self._get_font_size_pt())
                 max_spacing = max(max_spacing, self._get_line_spacing_percent())
+                if current_pos == end_pos:
+                    break
                 if not self.run("MoveNextChar"):
                     break
+                next_pos = self.get_pos()
+                if not next_pos or next_pos == current_pos:
+                    break
+                if cell_addr and self.current_cell_addr() != cell_addr:
+                    break
+                current_pos = next_pos
         except Exception:
             pass
         finally:
@@ -1488,12 +1596,10 @@ class HangulCanvas:
 
     def _key_page(self) -> int:
         try:
-            if self.px:
-                info = self.px.key_indicator()
-                return int(info[3])
+            info = self.px.key_indicator() if self.px else self.com.KeyIndicator()
+            return int(info[3])
         except Exception:
-            pass
-        return 1
+            return 1
 
     def _version(self) -> list[int]:
         try:
@@ -1784,6 +1890,32 @@ def _attach_running_com(hwnd: int | None = None) -> Any | None:
         return picked
     except Exception:
         return None
+
+
+def _ensure_document_if_empty(com: Any) -> bool:
+    """문서가 전혀 없는 새 한/글 객체에만 빈 문서를 한 번 만든다.
+
+    ``EnsureDispatch``가 이미 제공한 초기 빈 문서에 Add/FileNew를 다시 실행하면
+    ``open --new`` 한 번에 빈 문서가 여러 장 생긴다. 문서 수를 읽지 못한 경우도
+    중복 생성보다 안전하게 아무 작업도 하지 않는다.
+    """
+    try:
+        docs = com.XHwpDocuments
+        count = int(getattr(docs, "Count", 0) or 0)
+    except Exception:
+        return False
+    if count > 0:
+        return False
+    try:
+        docs.Add(False)
+    except Exception:
+        try:
+            result = com.HAction.Run("FileNew")
+        except Exception as exc:
+            raise HangulCommandError("새 빈 문서를 만들지 못했습니다.") from exc
+        if result is False:
+            raise HangulCommandError("새 빈 문서를 만들지 못했습니다.")
+    return True
 
 
 def _infer_format(path: str, fmt: str) -> str:

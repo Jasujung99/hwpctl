@@ -41,6 +41,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("set_valign", "셀 세로 정렬(top/center/bottom). Undo 1단위", False, True),
     ToolSpec("set_cell_border", "셀 테두리(CellBorderFill). TypeHorz 미지원", False, True),
     ToolSpec("insert_chart", "선택한 표 데이터로 한/글 네이티브 차트 삽입 (PNG 아님)", False, True),
+    ToolSpec("insert_image", "그림 파일(PNG/JPG 등)을 본문·표 칸에 삽입. Undo 1단위", False, True),
     ToolSpec("set_format", "선택/문단/행 서식 (글꼴, 크기, 굵게, 정렬, 셀 색)", False, True),
     ToolSpec("set_style", "현재 문단에 문서 스타일 적용. Undo 1단위", False, True),
     ToolSpec("replace_selection", "선택 영역을 텍스트로 교체", False, True),

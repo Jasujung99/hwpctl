@@ -13,6 +13,7 @@ import functools
 import hmac
 import os
 import sys
+import threading
 from typing import Any
 
 import anyio
@@ -20,8 +21,30 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from hwpctl.errors import HwpctlError
+from hwpctl.errors import HwpctlError, LockBusyError
 from hwpctl.tools import tool_catalog
+
+READ_COMMANDS = frozenset({"status", "snapshot"})
+DEFAULT_READ_TIMEOUT_SEC = 15.0
+
+
+class _DispatchGate:
+    """MCP 프로세스 안에서 COM 명령을 한 번에 하나만 실행한다.
+
+    OS 파일 잠금은 서로 다른 CLI/MCP 프로세스 사이의 안전장치다. 이 게이트는
+    응답을 잃은 COM 워커가 있을 때 같은 stdio 서버가 워커를 계속 늘리는 것을
+    막는다. 락은 워커 스레드가 실제로 끝날 때만 반환한다.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        return self._lock.acquire(blocking=False)
+
+    def release(self) -> None:
+        self._lock.release()
+
 
 INSTRUCTIONS = (
     "한/글 2022 창을 직접 고친다. 키 입력은 쓰지 말고 이 도구만 호출하라. "
@@ -62,11 +85,51 @@ def _dispatch_in_thread(engine: Any, name: str, kwargs: dict[str, Any]) -> dict[
             pythoncom.CoUninitialize()
 
 
-async def _call(engine: Any, name: str, **kwargs: Any) -> dict[str, Any]:
-    try:
-        return await anyio.to_thread.run_sync(
-            functools.partial(_dispatch_in_thread, engine, name, kwargs)
+def _dispatch_with_gate(
+    gate: _DispatchGate | None,
+    engine: Any,
+    name: str,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """게이트는 워커가 끝날 때만 반환해 취소된 COM 작업을 격리한다."""
+    if gate is None:
+        return _dispatch_in_thread(engine, name, kwargs)
+    if not gate.acquire():
+        raise LockBusyError(
+            "이 hwpctl MCP 서버에서 이전 한/글 명령이 아직 처리 중입니다. "
+            "완료될 때까지 기다리고 잠금을 강제 해제하거나 프로세스 이름으로 일괄 종료하지 마세요."
         )
+    try:
+        return _dispatch_in_thread(engine, name, kwargs)
+    finally:
+        gate.release()
+
+
+async def _call(engine: Any, name: str, **kwargs: Any) -> dict[str, Any]:
+    gate = getattr(engine, "_mcp_dispatch_gate", None)
+    read_timeout = float(
+        getattr(engine, "_mcp_read_timeout_sec", DEFAULT_READ_TIMEOUT_SEC)
+    )
+    dispatch = functools.partial(_dispatch_with_gate, gate, engine, name, kwargs)
+    try:
+        if name in READ_COMMANDS and read_timeout > 0:
+            with anyio.move_on_after(read_timeout) as scope:
+                result = await anyio.to_thread.run_sync(
+                    dispatch,
+                    abandon_on_cancel=True,
+                )
+            if scope.cancel_called:
+                return {
+                    "ok": False,
+                    "command": name,
+                    "error": (
+                        f"한/글 읽기 명령이 {read_timeout:g}초 안에 응답하지 않았습니다. "
+                        "이전 COM 작업은 안전하게 계속 실행 중이며 잠금을 보유할 수 있습니다. "
+                        "재시도·강제 잠금 해제·프로세스 이름 일괄 종료를 하지 마세요."
+                    ),
+                }
+            return result
+        return await anyio.to_thread.run_sync(dispatch)
     except HwpctlError as exc:
         return {"ok": False, "command": name, "error": exc.message}
     except Exception as exc:  # com_error 등 — 스택 대신 한국어 한 줄 (#14)
@@ -100,6 +163,14 @@ def build_mcp(lock_timeout: float = 8.0):
     from mcp.server.fastmcp import FastMCP
 
     engine = _engine(lock_timeout)
+    engine._mcp_dispatch_gate = _DispatchGate()
+    try:
+        engine._mcp_read_timeout_sec = max(
+            0.0,
+            float(os.environ.get("HWPCTL_READ_TIMEOUT_SEC", DEFAULT_READ_TIMEOUT_SEC)),
+        )
+    except ValueError:
+        engine._mcp_read_timeout_sec = DEFAULT_READ_TIMEOUT_SEC
     mcp = FastMCP("hwpctl", instructions=INSTRUCTIONS)
 
     @mcp.tool()
@@ -285,6 +356,29 @@ def build_mcp(lock_timeout: float = 8.0):
         """표 편집 뒤 항상 호출한다. 셀 줄바꿈·행 높이·본문 폭·쪽 수를 읽고 고친다.
         table이 없으면 모든 표. 기본은 수정하며 dry_run=true면 계획만 반환한다."""
         return await _call(engine, "layout_review", table=table, dry_run=dry_run)
+
+    @mcp.tool()
+    async def insert_image(
+        path: str,
+        table: int | None = None,
+        cell: str = "",
+        size_option: int = 3,
+        width_mm: float = 0.0,
+        height_mm: float = 0.0,
+    ) -> dict[str, Any]:
+        """그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 넣는다. 문서에 포함(embedded)된다.
+        size_option: 0=원본, 1=width_mm/height_mm 지정, 2=셀 맞춤, 3=셀 맞춤·비율 유지(기본).
+        2/3 은 table 과 cell 로 칸을 지정해야 한다. 원본 그림 파일은 수정하지 않는다."""
+        return await _call(
+            engine,
+            "insert_image",
+            path=path,
+            table=table,
+            cell=cell,
+            size_option=size_option,
+            width_mm=width_mm,
+            height_mm=height_mm,
+        )
 
     @mcp.tool()
     async def insert_chart(

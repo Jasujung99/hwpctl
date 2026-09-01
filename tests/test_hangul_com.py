@@ -12,6 +12,7 @@ from hwpctl.errors import HangulCommandError
 from hwpctl.hangul import (
     HangulCanvas,
     _com_has_hwnd,
+    _ensure_document_if_empty,
     _iter_window_handles,
     _make_window_current,
     _pick_com_by_hwnd,
@@ -203,6 +204,30 @@ class StubComWindows:
         self.XHwpDocuments = StubDocuments(len(handles))
 
 
+def test_new_document_is_added_only_when_dispatch_has_none() -> None:
+    class Docs:
+        def __init__(self, count: int) -> None:
+            self.Count = count
+            self.add_calls: list[bool] = []
+
+        def Add(self, visible: bool) -> None:
+            self.add_calls.append(visible)
+            self.Count += 1
+
+    class Com:
+        def __init__(self, count: int) -> None:
+            self.XHwpDocuments = Docs(count)
+
+    existing = Com(1)
+    assert _ensure_document_if_empty(existing) is False
+    assert existing.XHwpDocuments.add_calls == []
+
+    empty = Com(0)
+    assert _ensure_document_if_empty(empty) is True
+    assert empty.XHwpDocuments.add_calls == [False]
+    assert empty.XHwpDocuments.Count == 1
+
+
 def test_goto_addr_raises_when_nav_action_fails() -> None:
     """이동 액션이 False 를 리턴하면 예외. (과거: 무시하고 진행 → 본문에서 SelectAll)"""
     com = StubCom(fail={"TableColBegin"}, cell_addr="B2")
@@ -239,8 +264,38 @@ def test_goto_addr_success_path_uses_verified_actions() -> None:
     assert "TableColBegin" in calls
     assert "TableColPageUp" in calls  # 과거의 미확인 액션 "TableRowBegin" 금지
     assert "TableRowBegin" not in calls
-    assert calls.count("TableRightCell") == 1
-    assert calls.count("TableLowerCell") == 1
+
+
+def test_goto_addr_steps_through_actual_cells_after_merge() -> None:
+    class WalkingAction(StubHAction):
+        def __init__(self, owner) -> None:
+            super().__init__()
+            self.owner = owner
+
+        def Run(self, act_id: str) -> bool:
+            ok = super().Run(act_id)
+            if not ok:
+                return False
+            if act_id in {"TableColBegin", "TableColPageUp"}:
+                self.owner.index = 0
+            elif act_id == "TableRightCell":
+                self.owner.index = min(self.owner.index + 1, len(self.owner.addresses) - 1)
+            return True
+
+    class MergedWalkCom(StubCom):
+        def __init__(self) -> None:
+            super().__init__(cell_addr="A1")
+            self.addresses = ["A1", "C1", "D1", "A2"]
+            self.index = 0
+            self.HAction = WalkingAction(self)
+
+        def KeyIndicator(self):
+            addr = self.addresses[self.index]
+            return (1, 1, 1, 1, 1, 1, 1, 0, f"({addr})")
+
+    com = MergedWalkCom()
+    make_canvas(com).goto_addr("C1")
+    assert com.HAction.calls.count("TableRightCell") == 1
 
 
 def test_select_cell_text_refuses_outside_cell() -> None:
@@ -391,6 +446,7 @@ def test_col_width_uses_table_property_dialog_and_not_getcellwidth() -> None:
     assert pset.HSet.items["ShapeCellSize"] == 1
     assert pset.ShapeTableCell.items["Width"] == com.MiliToHwpUnit(30)
     assert "TablePropertyDialog" in com.HAction.executed
+    assert com.HAction.calls[-1] == "Cancel"
 
 
 def test_row_height_uses_shape_cell_size_and_reads_default() -> None:
@@ -403,7 +459,7 @@ def test_row_height_uses_shape_cell_size_and_reads_default() -> None:
     assert pset.ShapeTableCell.items["Height"] == com.MiliToHwpUnit(12)
 
 
-def test_merge_cells_uses_verified_block_sequence() -> None:
+def test_merge_cells_normalizes_block_state_before_and_after() -> None:
     com = StubCom(cell_addr="A1")
     make_canvas(com).merge_cells("A1", "B2")
     calls = com.HAction.calls
@@ -412,12 +468,21 @@ def test_merge_cells_uses_verified_block_sequence() -> None:
     right = calls.index("TableRightCell")
     lower = calls.index("TableLowerCell")
     merge = calls.index("TableMergeCell")
+    assert calls[0] == "Cancel"
     assert block < extend < right < lower < merge
+    assert calls[merge + 1] == "Cancel"
 
-    bad = StubCom(cell_addr="A1", fail={"TableCellBlockExtend"})
+    # 실패해도 다음 명령이 이전 선택 범위를 이어받지 않도록 끝에서 해제한다.
+    bad = StubCom(cell_addr="A1", fail={"TableMergeCell"})
     with pytest.raises(HangulCommandError):
         make_canvas(bad).merge_cells("A1", "B2")
-    assert "TableMergeCell" not in bad.HAction.calls
+    assert bad.HAction.calls[-1] == "Cancel"
+
+
+def test_select_cell_range_clears_previous_block_before_moving() -> None:
+    com = StubCom(cell_addr="A1")
+    make_canvas(com).select_cell_range("A1", "B3")
+    assert com.HAction.calls[0] == "Cancel"
 
 
 @pytest.mark.parametrize(
@@ -578,3 +643,96 @@ def test_make_window_current_uses_visible_and_set_active_doc() -> None:
     assert com.XHwpWindows.Item(1).Visible is True
     assert com.XHwpDocuments.Item(1).activated is True
     assert com.XHwpDocuments.Item(0).activated is False
+
+
+def test_cell_typography_stops_when_character_move_does_not_progress() -> None:
+    """셀 끝에서 MoveNextChar가 True여도 위치가 고정되면 한 번에 멈춘다."""
+    canvas = make_canvas(StubCom(cell_addr="A1"))
+    positions = {"start": (0, 0, 0), "end": (0, 0, 2)}
+    state = {"phase": "start"}
+    calls: list[str] = []
+    restored: list[tuple] = []
+
+    def get_pos() -> tuple:
+        return positions[state["phase"]]
+
+    def run(action: str) -> bool:
+        calls.append(action)
+        if action == "MoveListEnd":
+            state["phase"] = "end"
+        elif action == "MoveListBegin":
+            state["phase"] = "start"
+        return True
+
+    canvas.get_pos = get_pos  # type: ignore[method-assign]
+    canvas.set_pos = lambda pos: restored.append(pos) or True  # type: ignore[method-assign]
+    canvas.current_cell_addr = lambda: "A1"  # type: ignore[method-assign]
+    canvas._get_font_size_pt = lambda: 16.0  # type: ignore[method-assign]
+    canvas._get_line_spacing_percent = lambda: 200.0  # type: ignore[method-assign]
+    canvas.run = run  # type: ignore[method-assign]
+
+    assert canvas._get_cell_typography("x" * 5000) == (16.0, 200.0)
+    assert calls.count("MoveNextChar") == 1
+    assert restored == [(0, 0, 0)]
+
+
+def test_cell_typography_keeps_largest_measurement_until_cell_end() -> None:
+    canvas = make_canvas(StubCom(cell_addr="A1"))
+    state = {"index": 0}
+    positions = [(0, 0, 0), (0, 0, 1), (0, 0, 2)]
+    fonts = [11.0, 18.0, 12.0]
+    spacings = [160.0, 210.0, 180.0]
+    calls: list[str] = []
+    restored: list[tuple] = []
+
+    def get_pos() -> tuple:
+        return positions[state["index"]]
+
+    def run(action: str) -> bool:
+        calls.append(action)
+        if action == "MoveListEnd":
+            state["index"] = 2
+        elif action == "MoveListBegin":
+            state["index"] = 0
+        elif action == "MoveNextChar":
+            state["index"] = min(2, state["index"] + 1)
+        return True
+
+    canvas.get_pos = get_pos  # type: ignore[method-assign]
+    canvas.set_pos = lambda pos: restored.append(pos) or True  # type: ignore[method-assign]
+    canvas.current_cell_addr = lambda: "A1"  # type: ignore[method-assign]
+    canvas._get_font_size_pt = lambda: fonts[state["index"]]  # type: ignore[method-assign]
+    canvas._get_line_spacing_percent = lambda: spacings[state["index"]]  # type: ignore[method-assign]
+    canvas.run = run  # type: ignore[method-assign]
+
+    assert canvas._get_cell_typography("abc") == (18.0, 210.0)
+    assert calls.count("MoveNextChar") == 2
+    assert restored == [(0, 0, 0)]
+
+
+def test_goto_page_uses_verified_move_actions_instead_of_com_gotopage() -> None:
+    """COM GotoPage는 성공처럼 돌아와도 현재 쪽에 남을 수 있다."""
+
+    class SilentGotoCom(StubCom):
+        def __init__(self) -> None:
+            super().__init__()
+            self.goto_calls: list[int] = []
+
+        def GotoPage(self, page: int) -> None:
+            self.goto_calls.append(page)
+
+    com = SilentGotoCom()
+    canvas = make_canvas(com)
+
+    canvas.goto_page(2)
+
+    assert com.goto_calls == []
+    assert com.HAction.calls == ["MoveDocBegin", "MovePageDown"]
+
+
+def test_doc_info_reads_page_number_from_com_key_indicator() -> None:
+    class PageTwoCom(StubCom):
+        def KeyIndicator(self):
+            return (1, 1, 1, 2, 1, 1, 1, 0, "")
+
+    assert make_canvas(PageTwoCom()).doc_info().page == 2

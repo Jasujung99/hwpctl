@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import threading
+
 import anyio
 
 from hwpctl.errors import UsageError
-from hwpctl.mcp_server import _call, _call_hwpx, build_mcp
+from hwpctl.mcp_server import _DispatchGate, _call, _call_hwpx, build_mcp
 from hwpctl.tools import tool_names
 
 
@@ -71,3 +73,58 @@ def test_call_hwpx_wraps_unexpected_exception(monkeypatch) -> None:
     assert out["ok"] is False
     assert "오류" in out["error"]
     assert "Traceback" not in out["error"]
+
+
+def test_read_timeout_keeps_gate_until_background_worker_finishes() -> None:
+    release = threading.Event()
+    started = threading.Event()
+    finished = threading.Event()
+
+    class SlowEngine:
+        def __init__(self) -> None:
+            self._mcp_dispatch_gate = _DispatchGate()
+            self._mcp_read_timeout_sec = 0.1
+
+        def dispatch(self, name, **kwargs):
+            started.set()
+            try:
+                release.wait(1)
+            finally:
+                finished.set()
+            return {"ok": True, "command": name}
+
+    engine = SlowEngine()
+
+    async def first_and_second():
+        outcomes = {}
+
+        async def first() -> None:
+            outcomes["first"] = await _call(engine, "status")
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(first)
+            with anyio.fail_after(0.5):
+                while not started.is_set():
+                    await anyio.sleep(0.001)
+            outcomes["second"] = await _call(engine, "snapshot")
+        return outcomes["first"], outcomes["second"]
+
+    first, second = anyio.run(first_and_second)
+    assert first["ok"] is False
+    assert "응답하지" in first["error"]
+    assert second["ok"] is False
+    assert "이전 한/글 명령" in second["error"]
+
+    release.set()
+    assert finished.wait(1)
+
+    async def retry_after_release():
+        outcome = {}
+        for _ in range(20):
+            outcome = await _call(engine, "status")
+            if outcome["ok"]:
+                return outcome
+            await anyio.sleep(0.01)
+        return outcome
+
+    assert anyio.run(retry_after_release)["ok"] is True

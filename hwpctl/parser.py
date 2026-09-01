@@ -126,6 +126,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_border.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
     p_border.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
 
+    p_image = add_common(
+        sub.add_parser("insert_image", help="그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입")
+    )
+    p_image.add_argument("path", help="넣을 그림 파일 경로")
+    p_image.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_image.add_argument("--cell", default="", help="넣을 칸. 예: A2")
+    p_image.add_argument(
+        "--size-option",
+        dest="size_option",
+        type=int,
+        default=3,
+        choices=[0, 1, 2, 3],
+        help="0=원본, 1=크기 지정, 2=셀 맞춤, 3=셀 맞춤·비율 유지(기본)",
+    )
+    p_image.add_argument("--width", dest="width_mm", type=float, default=0.0, help="너비(mm)")
+    p_image.add_argument("--height", dest="height_mm", type=float, default=0.0, help="높이(mm)")
+
     p_chart = add_common(
         sub.add_parser("insert_chart", help="표 데이터로 한/글 네이티브 차트 삽입 (그림 아님)")
     )

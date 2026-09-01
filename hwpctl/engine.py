@@ -59,8 +59,8 @@ class Engine:
             return canvas  # 핸들을 못 읽는 백엔드에서는 고정 기능을 끈다
         state = load_state()
         if new:
-            # FileNew/Add 는 open() 이 이어서 호출한다. 여기서 고정하면
-            # 아직 이전 창(Item(0)) 핸들이 남는다. Add 뒤에 다시 고정한다.
+            # connect(new=True)가 새 문서를 정확히 한 번 만든다. open()은
+            # 그 활성 창을 확인한 뒤 아래에서 고정만 한다.
             return canvas
         if pin:
             if state.target_hwnd != hwnd:
@@ -98,6 +98,7 @@ class Engine:
             "set_cell_border": self.set_cell_border,
             "layout_review": self.layout_review,
             "insert_chart": self.insert_chart,
+            "insert_image": self.insert_image,
             "set_format": self.set_format,
             "set_style": self.set_style,
             "replace_selection": self.replace_selection,
@@ -184,7 +185,8 @@ class Engine:
                 )
             if path:
                 canvas.open_path(str(Path(path).expanduser()))
-            else:
+            elif not new:
+                # open --new 의 새 문서는 connect(new=True)가 이미 만들었다.
                 canvas.new_document()
             after = canvas.doc_info()
             # 새 창/다른 문서를 연 뒤에는 고정을 그 창의 WindowHandle 로 옮긴다.
@@ -647,6 +649,62 @@ class Engine:
                 "color": color,
                 "undo_units": 1,
                 "hangul_actions": actions,
+            }
+
+    def insert_image(
+        self,
+        path: str = "",
+        table: int | None = None,
+        cell: str = "",
+        size_option: int = 3,
+        width_mm: float = 0.0,
+        height_mm: float = 0.0,
+    ) -> dict[str, Any]:
+        """그림 파일을 본문이나 표 칸에 넣는다. 원본 그림 파일은 건드리지 않는다."""
+        src = (path or "").strip().strip('"')
+        if not src:
+            raise UsageError("그림 파일 경로를 지정하세요.")
+        target = Path(src).expanduser()
+        if not target.is_file():
+            raise UsageError(f"그림 파일을 찾을 수 없습니다: {target}")
+        if size_option not in (0, 1, 2, 3):
+            raise UsageError(
+                "size_option 은 0(원본)/1(크기 지정)/2(셀 맞춤)/3(셀 맞춤·비율 유지) 중 하나입니다."
+            )
+        if size_option == 1 and not (width_mm > 0 and height_mm > 0):
+            raise UsageError("size_option=1 이면 width_mm 과 height_mm 을 모두 지정해야 합니다.")
+        full = str(target.resolve())
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            if table is not None:
+                canvas.get_into_nth_table(table)
+            if cell:
+                canvas.goto_addr(cell)
+            in_cell = canvas.is_cell()
+            if size_option in (2, 3) and not in_cell:
+                raise UsageError(
+                    "size_option 2/3 은 표 칸 안에서만 쓸 수 있습니다. "
+                    "--table 과 --cell 로 칸을 지정하거나 size_option 0/1 을 쓰세요."
+                )
+            canvas.insert_picture(
+                full,
+                size_option=size_option,
+                width_mm=width_mm,
+                height_mm=height_mm,
+            )
+            self._record_undo("insert_image", 1)
+            return {
+                "ok": True,
+                "command": "insert_image",
+                "path": full,
+                "table": table,
+                "cell": cell.strip().upper(),
+                "in_cell": in_cell,
+                "size_option": size_option,
+                "width_mm": width_mm,
+                "height_mm": height_mm,
+                "embedded": True,
+                "undo_units": 1,
             }
 
     def insert_chart(

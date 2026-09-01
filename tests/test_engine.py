@@ -605,6 +605,7 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
     assert out["window_title"] == "빈 문서 2 - 한글"
     assert load_state().target_hwnd == 855126
     assert any(c["new"] is True and c["hwnd"] == 0 for c in calls)
+    assert not any(name == "new_document" for name, _ in created.calls)
 
     before = len(calls)
     st2 = eng.status()
@@ -619,37 +620,25 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
     assert not any(c[0] == "insert_text" for c in rot_first.calls)
 
 
-def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """_connect(new=True) 는 Add 전에 고정하지 않는다.
-
-    라이브: 그 시점의 window_handle() 은 아직 Item(0)=이전 창.
-    new_document()/Add 뒤에 활성 창 핸들로 고정해야 한다.
-    """
+def test_open_new_uses_connector_document_and_pins_active_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """open --new는 연결 단계가 만든 문서를 그대로 쓰며 두 번째 FileNew를 하지 않는다."""
     monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
     monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
 
     canvas = FakeCanvas()
     canvas.hwnd = 855126
     canvas.title = "보고서.hwp - 한글"
-    pin_at_add: list[int] = []
-
-    def after_add() -> None:
-        pin_at_add.append(load_state().target_hwnd)
-        canvas.hwnd = 3738628
-        canvas.title = "빈 문서 2 - 한글"
-        canvas.path = ""
-        canvas.calls.append(("new_document", None))
-
-    canvas.new_document = after_add  # type: ignore[method-assign]
+    factory_calls: list[dict[str, int | bool]] = []
 
     def factory(new=False, allow_launch=False, hwnd=0):
+        factory_calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
         if new:
-            # Add 전: COM 이 아직 Item(0) 이전 창을 돌려주는 상황
-            canvas.hwnd = 855126
-            return canvas
-        if hwnd == 3738628:
+            # Connector가 새 문서를 이미 만들고 활성 창 핸들을 돌려준다.
             canvas.hwnd = 3738628
-            return canvas
+            canvas.title = "빈 문서 2 - 한글"
+            canvas.path = ""
         return canvas
 
     eng = Engine(lock_timeout=1, canvas_factory=factory)
@@ -657,9 +646,17 @@ def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: p
     assert load_state().target_hwnd == 855126
 
     out = eng.open(new=True)
-    assert pin_at_add == [855126]  # Add 직전 pin 은 아직 이전 창 (새 Item(0) 으로 덮지 않음)
+    assert not any(name == "new_document" for name, _ in canvas.calls)
+    assert factory_calls[-1] == {"new": True, "allow_launch": True, "hwnd": 0}
     assert load_state().target_hwnd == 3738628
     assert out["window_title"] == "빈 문서 2 - 한글"
+
+
+def test_open_without_new_still_creates_one_document(engine) -> None:
+    eng, fake = engine
+    out = eng.open()
+    assert out["new"] is False
+    assert [call for call in fake.calls if call[0] == "new_document"] == [("new_document", None)]
 
 
 def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:

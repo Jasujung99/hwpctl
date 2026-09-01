@@ -127,6 +127,15 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "table": args.table,
             "cell_range": args.cell_range,
         }
+    if cmd == "insert_image":
+        return {
+            "path": args.path,
+            "table": args.table,
+            "cell": args.cell,
+            "size_option": args.size_option,
+            "width_mm": args.width_mm,
+            "height_mm": args.height_mm,
+        }
     if cmd == "insert_chart":
         return {
             "table": args.table,
