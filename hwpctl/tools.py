@@ -126,7 +126,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         True,
     ),
     ToolSpec("set_pagedef", "용지 크기·여백·가로/세로 지정. Undo 1단위", False, True),
-    ToolSpec("save_as", "새 경로로 저장. 원본은 덮어쓰지 않음", False, True),
+    ToolSpec("save_as", "새 경로로 저장. 기존 대상은 --overwrite 필수, 원본은 거부", True, True),
     ToolSpec("save", "원본 경로에 저장. --overwrite 필수. 자동저장 없음", True, True),
     ToolSpec("close", "문서 닫기. --force 필수", True, True),
     ToolSpec("close_all", "열려 있는 모든 한/글 문서 닫기. --force 필수", True, True),

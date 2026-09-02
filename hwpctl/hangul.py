@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -38,6 +39,49 @@ NO_WINDOW_KO = (
 def require_windows() -> None:
     if sys.platform != "win32":
         raise HangulMissingError(MISSING_KO)
+
+
+def _xml_local_name(value: object) -> str:
+    """XML namespace와 무관하게 요소/속성의 이름만 비교한다."""
+    return str(value).rsplit("}", 1)[-1].upper()
+
+
+def _style_id_from_hwpml(hwpml: str, name: str) -> int:
+    """읽기 전용 HWPML에서 정확히 하나인 문서 스타일의 ID를 찾는다.
+
+    ``Style`` 액션은 숫자 ID만 받지만, 일반 사용자는 문서에 보이는 이름으로
+    스타일을 고른다. HWPML을 문서에 다시 넣거나 파일로 저장하지 않고 메모리의
+    스타일 목록만 읽어 두 표현을 연결한다. 이름/ID가 모호하면 임의의 첫 항목을
+    선택하지 않는 것이 안전하다.
+    """
+    try:
+        root = ET.fromstring(hwpml)
+    except (ET.ParseError, TypeError, ValueError) as exc:
+        raise HangulCommandError("스타일 목록(HWPML)을 읽을 수 없습니다.") from exc
+
+    ids: list[int] = []
+    malformed = False
+    for element in root.iter():
+        if _xml_local_name(element.tag) != "STYLE":
+            continue
+        attrs = {_xml_local_name(key): value for key, value in element.attrib.items()}
+        if attrs.get("NAME") != name:
+            continue
+        raw_id = attrs.get("ID")
+        try:
+            if raw_id is None:
+                raise ValueError("missing Id")
+            ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            malformed = True
+
+    if not ids and not malformed:
+        raise HangulCommandError(f"문서에서 스타일 '{name}'을 찾지 못했습니다.")
+    if malformed or len(ids) != 1:
+        raise HangulCommandError(
+            f"문서의 스타일 '{name}' ID가 없거나 중복되어 안전하게 적용할 수 없습니다."
+        )
+    return ids[0]
 
 
 @dataclass
@@ -1015,20 +1059,18 @@ class HangulCanvas:
 
     def set_style(self, style: str | int) -> None:
         """현재 문단 스타일을 적용한다. HwpOutlineType/Style 변환 API는 쓰지 않는다."""
+        if isinstance(style, bool) or not isinstance(style, (str, int)):
+            raise UsageError("스타일은 문서의 이름 문자열 또는 숫자 ID여야 합니다.")
         self.assert_no_dialog()
         try:
             if self.px:
                 ok = bool(self.px.set_style(style))
-            elif isinstance(style, int):
+            else:
+                style_id = style if isinstance(style, int) else self._style_id_for_name(style)
                 pset = self.com.HParameterSet.HStyle
                 self.com.HAction.GetDefault("Style", pset.HSet)
-                pset.Apply = style
+                pset.Apply = style_id
                 ok = bool(self.com.HAction.Execute("Style", pset.HSet))
-            else:
-                raise HangulCommandError(
-                    "스타일 이름 적용은 pyhwpx 1.7.2가 필요합니다. "
-                    "HwpOutlineType/HwpOutlineStyle 직접 호출은 한글 2022에서 실패하므로 사용하지 않습니다."
-                )
         except HangulCommandError:
             raise
         except (KeyError, ValueError) as exc:
@@ -1038,6 +1080,28 @@ class HangulCanvas:
         if not ok:
             raise HangulCommandError(f"스타일 '{style}' 적용 액션이 실패했습니다.")
         self.assert_no_dialog()
+
+    def _style_id_for_name(self, name: str) -> int:
+        """COM 경로에서 문서를 건드리지 않고 스타일 이름을 ID로 해석한다."""
+        saved_pos = self.get_pos()
+        saved_selection = self.selection_range()
+        try:
+            # GetTextFile은 메모리 읽기 전용 호출이다. SaveAs/SetTextFile/클립보드나
+            # HWPML 주입은 사용하지 않는다.
+            hwpml = str(self.com.GetTextFile("HWPML2X", "") or "")
+            return _style_id_from_hwpml(hwpml, name)
+        except HangulCommandError:
+            raise
+        except Exception as exc:
+            raise HangulCommandError(
+                f"스타일 '{name}'을 찾기 위한 문서 구조를 읽지 못했습니다: {exc}"
+            ) from exc
+        finally:
+            # HWPML 내보내기가 일부 한글 빌드에서 캐럿/블록 선택을 바꾸더라도,
+            # 스타일 액션 전에 사용자의 위치와 선택을 원래대로 되돌린다.
+            self.set_pos(saved_pos)
+            if saved_selection:
+                self.restore_selection(saved_selection)
 
     def create_table(self, rows: int, cols: int, header: bool = True) -> None:
         if rows < 1 or cols < 1:

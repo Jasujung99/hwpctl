@@ -29,13 +29,29 @@
 - Codex, Claude Code, Cursor, Gemini CLI, Grok Build용 로컬 MCP 설정 예제
 - 공개용 보안 정책, 알려진 한계, 기여 안내와 릴리스 체크리스트
 - 표 너비·높이, 셀 병합·정렬·테두리, 쪽 설정, 스타일과 레이아웃 검토 문서
+- Windows COM extra 없이 Python 3.10·3.12에서 HWPX·MCP 도구 목록·오류 종료 코드·
+  공개 파일을 검증하는 Linux CI 계약
 
 ### Changed
 
 - `open --new` 이후의 후속 명령이 고정된 한글 창을 계속 사용하도록 창 핀을 갱신
+- 인자 없는 `open`을 비파괴 활성 창 재고정으로 바꾸어, 닫혔거나 재시작된 창 핀을
+  복구하고 새 문서 생성은 명시적인 `open --new`로 한정
 - 로컬 클라이언트는 stdio를 기본으로 사용하고 HTTP는 선택 연결로 구분
+
+### Fixed
+
+- `insert_title`, `fill_cells`, `set_format`가 중간 실패한 경우에도 이미 실행된
+  한/글 편집 액션을 Undo 이력에 남겨 반쯤 적용된 변경을 안전하게 되돌릴 수 있도록 수정
+- 창 핀 때문에 win32com으로 연결된 경우에도 문서 스타일 이름을 적용할 수 있도록,
+  읽기 전용 메모리 HWPML에서 스타일 ID를 해석해 기존 네이티브 `Style` 액션으로 연결
+- README 도구 표를 실제 공개 도구와 맞추고, `insert_image`·오류 종료 코드·예제 성격·
+  HWPX PPM 비교 라이브러리의 현재 범위를 정확히 문서화
+- 신년 카드 예제 배경 이미지의 GPT 계열 생성 출처와 배포 시 권리 확인 범위를 고지
 
 ### Security
 
 - 원본 덮어쓰기·닫기·수정본 폐기에 명시 플래그 요구
+- `save_as`도 기존 대상 파일에는 `overwrite=true` / `--overwrite`를 요구하고,
+  원본과 같은 경로는 계속 `save --overwrite`로만 저장
 - MCP HTTP 연결을 loopback과 토큰으로 제한

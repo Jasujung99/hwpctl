@@ -6,14 +6,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from hwpctl import cli
 from hwpctl.errors import HangulMissingError
 from hwpctl.hangul import MISSING_KO, HangulCanvas, require_windows
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux/비-Windows 오류 계약 전용")
 def test_require_windows_korean_on_linux() -> None:
-    if sys.platform == "win32":
-        return
     try:
         require_windows()
     except HangulMissingError as exc:
@@ -23,9 +24,8 @@ def test_require_windows_korean_on_linux() -> None:
     raise AssertionError("Linux 에서는 HangulMissingError 가 나야 합니다.")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux/비-Windows 오류 계약 전용")
 def test_connect_fails_korean_off_windows() -> None:
-    if sys.platform == "win32":
-        return
     try:
         HangulCanvas.connect()
     except HangulMissingError as exc:
@@ -34,6 +34,7 @@ def test_connect_fails_korean_off_windows() -> None:
     raise AssertionError("expected HangulMissingError")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux/비-Windows 오류 계약 전용")
 def test_cli_status_no_stack_dump() -> None:
     repo = Path(__file__).resolve().parents[1]
     proc = subprocess.run(
@@ -44,12 +45,24 @@ def test_cli_status_no_stack_dump() -> None:
         encoding="utf-8",
         check=False,
     )
-    if sys.platform == "win32":
-        return
     assert proc.returncode == 3  # argparse 사용 오류(2)와 구분되는 코드 (#15)
     assert "한/글" in proc.stderr
     assert "Traceback" not in proc.stderr
     assert "Traceback" not in proc.stdout
+
+
+def test_cli_missing_hangul_uses_exit_code_3_on_every_platform(monkeypatch, capsys) -> None:
+    """OS와 무관하게 도메인 오류는 argparse 오류(2)가 아닌 exit 3이어야 한다."""
+
+    def fail_engine(_args):
+        raise HangulMissingError("한/글 연결을 찾지 못했습니다.")
+
+    monkeypatch.setattr(cli, "_run_engine", fail_engine)
+
+    assert cli.main(["status"]) == 3
+    captured = capsys.readouterr()
+    assert "한/글" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_cli_save_without_overwrite_korean() -> None:

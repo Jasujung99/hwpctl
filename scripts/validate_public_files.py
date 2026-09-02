@@ -25,6 +25,12 @@ PRIVATE_PATTERNS = {
     "GitHub 형식 토큰": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b"),
 }
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+TOOL_TABLE_START = "<!-- hwpctl-tool-catalog:start -->"
+TOOL_TABLE_END = "<!-- hwpctl-tool-catalog:end -->"
+TOOL_TABLE_NAME = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
+ASSET_PROVENANCE_MARKERS = {
+    "assets/new-year-card/new-year-minhwa-background.png": "GPT 계열 이미지 생성 모델",
+}
 
 
 def public_text_files() -> list[Path]:
@@ -87,12 +93,66 @@ def validate_markdown(files: list[Path], errors: list[str]) -> int:
     return len(markdown_files)
 
 
+def documented_tool_names(readme_text: str) -> list[str]:
+    """README의 명시적 도구 표 구간에서만 도구명을 읽는다.
+
+    다른 코드 예시나 일반 표의 backtick을 전부 긁으면 오탐이 생긴다. 표의 시작과
+    끝 marker는 사람이 읽는 문서에는 영향을 주지 않고, 이 검증의 범위를 고정한다.
+    """
+    start = readme_text.find(TOOL_TABLE_START)
+    end = readme_text.find(TOOL_TABLE_END)
+    if start < 0 or end < 0 or end <= start:
+        raise ValueError("README 도구 표 marker를 찾을 수 없습니다.")
+    table = readme_text[start + len(TOOL_TABLE_START) : end]
+    return TOOL_TABLE_NAME.findall(table)
+
+
+def validate_readme_tool_catalog(errors: list[str]) -> None:
+    # hwpctl.tools는 순수 메타데이터라 한/글·COM을 시작하지 않는다.
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from hwpctl.tools import tool_names
+
+    try:
+        documented = documented_tool_names((ROOT / "README.md").read_text(encoding="utf-8"))
+    except ValueError as exc:
+        errors.append(str(exc))
+        return
+    expected = tool_names()
+    if documented != expected:
+        missing = [name for name in expected if name not in documented]
+        extra = [name for name in documented if name not in expected]
+        duplicate = sorted({name for name in documented if documented.count(name) > 1})
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ", ".join(missing))
+        if extra:
+            details.append("extra=" + ", ".join(extra))
+        if duplicate:
+            details.append("duplicate=" + ", ".join(duplicate))
+        if not details:
+            details.append("order differs")
+        errors.append("README 도구 표와 hwpctl.tools 불일치: " + "; ".join(details))
+
+
+def validate_asset_provenance(errors: list[str]) -> None:
+    """추적된 예제 이미지는 출처 고지가 빠지지 않게 한다."""
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    for relative, marker in ASSET_PROVENANCE_MARKERS.items():
+        if not (ROOT / relative).is_file():
+            continue
+        if relative not in notices or marker not in notices:
+            errors.append(f"missing asset provenance notice: {relative}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = public_text_files()
     json_count, toml_count = validate_configs(errors)
     validate_private_literals(files, errors)
     markdown_count = validate_markdown(files, errors)
+    validate_readme_tool_catalog(errors)
+    validate_asset_provenance(errors)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)

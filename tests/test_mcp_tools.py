@@ -94,6 +94,11 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
     text_format = tools["set_format"].inputSchema
     assert "text_shadow" in text_format["properties"]
 
+    save_as = tools["save_as"].inputSchema
+    assert set(save_as["required"]) == {"path"}
+    assert set(save_as["properties"]) == {"path", "format", "overwrite"}
+    assert save_as["properties"]["overwrite"]["default"] is False
+
     page_number = tools["set_page_number"].inputSchema
     assert page_number["properties"]["position"]["default"] == "bottom_center"
     assert page_number["properties"]["separator"]["default"] == "-"

@@ -54,8 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
-    p_open = add_common(sub.add_parser("open", help="새 문서 또는 파일 열기"))
-    p_open.add_argument("path", nargs="?", help="열 파일 경로. 없으면 빈 문서")
+    p_open = add_common(
+        sub.add_parser("open", help="활성 창 재고정, 파일 열기 또는 새 문서 만들기")
+    )
+    p_open.add_argument("path", nargs="?", help="열 파일 경로. 없으면 활성 창을 재고정")
     p_open.add_argument("--new", action="store_true", help="기존 창에 붙지 않고 새 한/글 인스턴스")
     p_open.add_argument(
         "--discard",
@@ -517,9 +519,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="현재 구역, 모든 구역, 새 구역 적용",
     )
 
-    p_save_as = add_common(sub.add_parser("save_as", help="새 경로로 저장 (원본 유지)"))
+    p_save_as = add_common(
+        sub.add_parser("save_as", help="새 경로로 저장 (기존 파일은 --overwrite 필수)")
+    )
     p_save_as.add_argument("path")
     p_save_as.add_argument("--format", default="", help="HWP, HWPX, PDF 등. 확장자로 추정")
+    p_save_as.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="원본이 아닌 기존 대상 파일을 덮어씁니다. 없으면 거부합니다.",
+    )
 
     p_save = add_common(sub.add_parser("save", help="원본에 저장 — --overwrite 필수"))
     p_save.add_argument(

@@ -133,11 +133,12 @@ hwpctl mcp --http --host 127.0.0.1 --port 18765 --token %HWPCTL_TOKEN%
 
 CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 stderr 한국어.
 
+<!-- hwpctl-tool-catalog:start -->
 | 이름 | 하는 일 |
 |---|---|
 | `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
 | `list_documents` | 실행 중인 모든 한/글 문서의 창·경로·수정 여부·쪽 수를 **활성화 없이** 읽기 전용으로 열거. 경로 없는 초안은 `unsaved: true` |
-| `open` | 새 문서 또는 경로로 열기. 수정본이 있으면 `--discard` |
+| `open` | 인자 없이는 활성 창 재고정, 경로는 파일 열기, `--new`는 새 문서. 파일 교체 전 수정본은 `--discard` |
 | `snapshot` | 제목·본문·표·선택 영역 읽기. 캐럿·선택은 원래대로 복원 |
 | `format_paragraph_by_text` | 정확히 일치하는 일반 본문 문단의 글자·문단 서식 적용 |
 | `recreate_inline_table_before_paragraph` | 검증한 1×1 질문 표를 답변 앞에 재생성. Cut/Paste·클립보드·HWPML 미사용 |
@@ -152,12 +153,15 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `exit_table` | 현재 표의 마지막 셀에서 일반 본문으로 이동. 이동 뒤 셀 밖인지 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
-| `set_col_width` / `get_col_width` | 열 너비를 mm·비율로 설정 / mm로 조회 |
-| `set_row_height` / `get_row_height` | 행 높이를 mm로 설정 / 조회 |
+| `set_col_width` | 열 너비를 mm·비율로 설정 |
+| `get_col_width` | 현재 열 또는 지정 표의 열 너비(mm) 조회 |
+| `set_row_height` | 현재 행 또는 지정 행 높이(mm) 설정 |
+| `get_row_height` | 현재 행 또는 지정 행 높이(mm) 조회 |
 | `merge_cells` | `TableCellBlock` 선택 범위의 셀 합치기 |
 | `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
 | `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
+| `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입 |
 | `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
 | `set_cell_fill` | 표 셀 범위의 단색/선형 그라데이션 채우기 |
 | `set_format` | 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
@@ -169,12 +173,13 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_page_visibility` | 현재 쪽의 머리말·꼬리말·바탕쪽·테두리·채우기·쪽 번호 숨김 |
 | `restart_page_number` | 현재 위치부터 네이티브 쪽 번호 다시 시작 |
 | `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
-| `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
+| `save_as` | **새 경로** 저장. 기존 대상은 **`--overwrite` 필수**, 원본 경로는 거부 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
 | `close_all` | 열려 있는 모든 한/글 문서 닫기. **`--force` 필수** |
 | `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
 | `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
+<!-- hwpctl-tool-catalog:end -->
 
 도구 목록만 (한/글 불필요):
 
@@ -294,9 +299,10 @@ list_documents()  # 문서 활성화·저장·닫기 없이 모든 열린 문서
   철자인 `BorderCorlorLeft`를 사용합니다. 내부 가로선 `TypeHorz`는 오류로
   거부합니다.
 - 쪽 나누기는 `BreakPage`, 쪽 수는 `PageCount`입니다.
-- `set_style("개요 1")`은 pyhwpx의 `set_style`을 사용합니다.
-  한글 2022에서 COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출은
-  하지 않습니다.
+- `set_style("개요 1")`은 pyhwpx가 있으면 해당 API를 쓰고, 창 고정 때문에 COM으로
+  연결된 경우에는 문서 HWPML을 **메모리에서 읽기만** 하여 스타일 이름을 ID로 해석한 뒤
+  네이티브 `Style` 액션을 실행합니다. HWPML을 저장·주입하지 않으며, 한글 2022에서
+  COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출도 하지 않습니다.
 - 편집 전후에 한/글 대화상자를 확인하며, 떠 있으면 대신 누르지 않고 한국어
   오류로 중단합니다. SendKeys와 자동저장은 사용하지 않습니다.
 
@@ -362,6 +368,7 @@ hwpctl insert_chart --table 0 --type column --range A1:B10
 | 작업 | 플래그 |
 |---|---|
 | 원본 덮어쓰기 (`save`) | `--overwrite` |
+| 다른 기존 파일을 `save_as` 로 덮어쓰기 | `--overwrite` |
 | 문서 닫기 (`close`) | `--force` |
 | 수정본을 버리고 다른 파일 열기 | `--discard` |
 | `save_as` 로 원본과 같은 경로 | 거부 → `save --overwrite` |
@@ -391,7 +398,7 @@ MCP 서버가 떠 있어도 잠금은 **명령 단위**입니다. 서버 프로�
 pip install -e ".[dev]"
 pytest
 hwpctl status
-# → 한국어 오류, 종료 코드 2
+# → 한국어 오류, 종료 코드 3
 ```
 
 레이아웃:
@@ -399,7 +406,7 @@ hwpctl status
 ```
 hwpctl/           엔진·CLI·MCP
 hwpctl/hwpx/      한글 없는 .hwpx 준비 (python-hwpx)
-examples/         클라이언트 설정만 (한/글 코드 없음)
+examples/         MCP 클라이언트 설정 + Engine 직접 호출 예제
 tests/            파서·잠금·한/글 없음·HWPX XML
 ```
 

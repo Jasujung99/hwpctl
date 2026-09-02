@@ -6,10 +6,10 @@ import pytest
 
 from hwpctl.colors import parse_color
 from hwpctl.engine import Engine, _normalize_cells, suggested_save_as_path
-from hwpctl.errors import DestructiveGuardError, HangulCommandError, UsageError
-from hwpctl.hangul import a1, expand_range, parse_a1
+from hwpctl.errors import DestructiveGuardError, HangulCommandError, HangulMissingError, UsageError
+from hwpctl.hangul import NO_WINDOW_KO, a1, expand_range, parse_a1
 from hwpctl.layout import plan_table_layout
-from hwpctl.lock import load_state
+from hwpctl.lock import load_state, save_state
 
 
 class FakeCanvas:
@@ -458,6 +458,24 @@ def test_insert_title_skips_restore_count_when_shape_unavailable(engine) -> None
     assert load_state().undo_stack == [3]
 
 
+def test_insert_title_records_completed_actions_when_later_step_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+
+    def fail_set_align(_align: str) -> None:
+        raise HangulCommandError("정렬 적용 실패")
+
+    monkeypatch.setattr(fake, "set_align", fail_set_align)
+    with pytest.raises(HangulCommandError, match="정렬 적용 실패"):
+        eng.insert_title("제목")
+
+    # set_font은 이미 실행됐으므로 hwpctl undo 대상이어야 한다.
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
+
+
 def test_insert_paragraph_writes_structured_runs_layout_and_page_break(engine) -> None:
     """빈 문서 재구현은 HWPML 주입 없이 문단·런 공개 사양만으로 조립한다."""
     eng, fake = engine
@@ -635,6 +653,26 @@ def test_fill_cells_grid(engine) -> None:
     assert load_state().undo_stack[-1] == 2
 
 
+def test_fill_cells_records_completed_cells_when_later_cell_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    real_goto_addr = fake.goto_addr
+
+    def fail_second_cell(addr: str) -> None:
+        if addr == "B1":
+            raise HangulCommandError("B1로 이동 실패")
+        real_goto_addr(addr)
+
+    monkeypatch.setattr(fake, "goto_addr", fail_second_cell)
+    with pytest.raises(HangulCommandError, match="B1로 이동 실패"):
+        eng.fill_cells(table=0, assignments={"A1": "첫 셀", "B1": "둘째 셀"})
+
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
+
+
 def test_exit_table_dispatches_without_creating_an_undo_entry(engine) -> None:
     eng, fake = engine
 
@@ -772,21 +810,56 @@ def test_close_all_requires_force_and_clears_target_after_document_level_closes(
     assert load_state().target_hwnd == 0
 
 
-def test_open_dirty_requires_discard(engine) -> None:
+def test_open_path_dirty_requires_discard(engine) -> None:
     eng, fake = engine
     fake.modified = True
     with pytest.raises(DestructiveGuardError) as exc:
-        eng.open(path=None)
+        eng.open(path=r"C:\docs\replacement.hwp")
     assert "--discard" in exc.value.message
 
 
 def test_save_as_refuses_same_path(engine, tmp_path: Path) -> None:
     eng, fake = engine
-    dest = tmp_path / "same.hwp"
-    dest.write_text("x", encoding="utf-8")
+    dest = tmp_path / "new-parent" / "same.hwp"
     fake.path = str(dest)
     with pytest.raises(DestructiveGuardError):
+        eng.save_as(str(dest), overwrite=True)
+    assert not dest.parent.exists()
+    assert not any(call[0] == "save_as" for call in fake.calls)
+
+
+def test_save_as_refuses_existing_different_path_without_overwrite(
+    engine, tmp_path: Path
+) -> None:
+    eng, fake = engine
+    source = tmp_path / "source.hwp"
+    source.write_text("source", encoding="utf-8")
+    dest = tmp_path / "existing-other.hwp"
+    dest.write_text("must-stay", encoding="utf-8")
+    fake.path = str(source)
+
+    with pytest.raises(DestructiveGuardError) as exc:
         eng.save_as(str(dest))
+
+    assert "--overwrite" in exc.value.message
+    assert dest.read_text(encoding="utf-8") == "must-stay"
+    assert not any(call[0] == "save_as" for call in fake.calls)
+
+
+def test_save_as_allows_existing_different_path_with_overwrite(
+    engine, tmp_path: Path
+) -> None:
+    eng, fake = engine
+    source = tmp_path / "source.hwp"
+    source.write_text("source", encoding="utf-8")
+    dest = tmp_path / "existing-other.hwp"
+    dest.write_text("replace", encoding="utf-8")
+    fake.path = str(source)
+
+    out = eng.save_as(str(dest), overwrite=True)
+
+    assert out["overwritten"] is True
+    assert ("save_as", (str(dest), "")) in fake.calls
 
 
 def test_replace_selection_requires_real_block(engine) -> None:
@@ -927,11 +1000,64 @@ def test_open_new_uses_connector_document_and_pins_active_window(
     assert out["window_title"] == "빈 문서 2 - 한글"
 
 
-def test_open_without_new_still_creates_one_document(engine) -> None:
+def test_open_without_path_rebinds_without_creating_a_document(engine) -> None:
     eng, fake = engine
     out = eng.open()
     assert out["new"] is False
-    assert [call for call in fake.calls if call[0] == "new_document"] == [("new_document", None)]
+    assert out["rebound"] is True
+    assert not any(call[0] == "new_document" for call in fake.calls)
+
+
+def test_open_recovers_stale_pin_without_launching_or_editing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+    stale_hwnd = 1111
+    fresh = FakeCanvas()
+    fresh.hwnd = 2222
+    calls: list[dict[str, int | bool]] = []
+
+    def factory(new=False, allow_launch=False, hwnd=0):
+        calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
+        if hwnd == stale_hwnd:
+            raise HangulCommandError("고정된 창을 찾지 못했습니다.")
+        assert hwnd == 0
+        return fresh
+
+    eng = Engine(lock_timeout=1, canvas_factory=factory)
+    state = load_state()
+    state.target_hwnd = stale_hwnd
+    save_state(state)
+
+    with pytest.raises(HangulCommandError):
+        eng.status()
+    assert calls[-1] == {"new": False, "allow_launch": False, "hwnd": stale_hwnd}
+
+    out = eng.open()
+    assert out["rebound"] is True
+    assert calls[-1] == {"new": False, "allow_launch": False, "hwnd": 0}
+    assert load_state().target_hwnd == fresh.hwnd
+    assert not any(call[0] == "new_document" for call in fresh.calls)
+
+
+def test_open_without_path_does_not_launch_when_no_hangul_is_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+    calls: list[dict[str, int | bool]] = []
+
+    def missing_factory(new=False, allow_launch=False, hwnd=0):
+        calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
+        raise HangulMissingError(NO_WINDOW_KO)
+
+    eng = Engine(lock_timeout=1, canvas_factory=missing_factory)
+    with pytest.raises(HangulMissingError) as exc:
+        eng.open()
+
+    assert exc.value.exit_code == 3
+    assert calls == [{"new": False, "allow_launch": False, "hwnd": 0}]
 
 
 def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:
@@ -1414,6 +1540,28 @@ def test_set_format_range_applies_only_requested_cells(engine) -> None:
     assert addrs == ["A1", "B1", "A2", "B2"]
     assert len([c for c in fake.calls if c[0] == "cell_fill"]) == 4
     assert not any(c[0] == "select_row" for c in fake.calls)
+
+
+def test_set_format_records_completed_range_actions_when_later_cell_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    fill_count = 0
+
+    def fail_second_fill(color: str) -> None:
+        nonlocal fill_count
+        fill_count += 1
+        if fill_count == 2:
+            raise HangulCommandError("두 번째 셀 채우기 실패")
+        fake.calls.append(("cell_fill", color))
+
+    monkeypatch.setattr(fake, "cell_fill", fail_second_fill)
+    with pytest.raises(HangulCommandError, match="두 번째 셀 채우기 실패"):
+        eng.set_format(fill="gray", table=0, cell_range="A1:B1")
+
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
 
 
 def test_insert_text_box_dispatches_normalized_visual_specs_and_undo(engine) -> None:

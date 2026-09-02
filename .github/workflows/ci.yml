@@ -50,3 +50,39 @@ jobs:
 
       - name: Build wheel and source distribution
         run: python -m build
+
+  linux-contract:
+    # Windows COM은 설치하지 않는다. 이 job은 비-Windows에서의 오류 계약,
+    # 순수 Python HWPX 계층, MCP 도구 목록과 공개 파일 검증을 릴리스마다 고정한다.
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies without Windows COM extras
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Run cross-platform tests
+        run: python -m pytest
+
+      - name: Validate public files and client configs
+        run: python scripts/validate_public_files.py
+
+      - name: List MCP tools without starting Hangul
+        run: python -m hwpctl mcp --list-tools
+
+      - name: Check HWPX capability without Hangul
+        run: python -m hwpctl hwpx_status
