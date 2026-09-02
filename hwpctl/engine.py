@@ -64,8 +64,9 @@ class Engine:
         """
         state = load_state()
         # 일반 명령은 고정된 WindowHandle 로 ROT 객체를 고른다 (라이브: 120.2).
-        # open --new 는 이전 핸들을 넘기지 않는다. 만든 뒤 활성 창을 다시 고정한다.
-        want_hwnd = 0 if new else int(state.target_hwnd or 0)
+        # open 은 사용자가 활성화한 창을 다시 고정하는 복구 경계이므로, 이전 핸들이
+        # stale일 수 있어도 넘기지 않는다. 만든 뒤/재연결 뒤 활성 창을 아래에서 고정한다.
+        want_hwnd = 0 if (new or pin) else int(state.target_hwnd or 0)
         canvas = self.canvas_factory(
             new=new, allow_launch=allow_launch, hwnd=want_hwnd
         )
@@ -573,9 +574,13 @@ class Engine:
         discard: bool = False,
     ) -> dict[str, Any]:
         with SingleWriterLock(timeout=self.lock_timeout):
-            canvas = self._connect(new=new, allow_launch=True, pin=True)
+            # 인자 없는 open은 활성 창을 다시 고정하는 비파괴 복구 명령이다. 새
+            # 문서는 --new, 파일 열기는 PATH가 명시한 경우에만 한/글 실행을 허용한다.
+            canvas = self._connect(
+                new=new, allow_launch=bool(new or path), pin=True
+            )
             info = canvas.doc_info()
-            if info.modified and not discard:
+            if path and info.modified and not discard:
                 raise DestructiveGuardError(
                     "저장하지 않은 수정본이 있습니다. "
                     "버리려면 --discard (MCP: discard=true) 를 주고, "
@@ -584,12 +589,10 @@ class Engine:
                 )
             if path:
                 canvas.open_path(str(Path(path).expanduser()))
-            elif not new:
-                # open --new 의 새 문서는 connect(new=True)가 이미 만들었다.
-                canvas.new_document()
             after = canvas.doc_info()
-            # 새 창/다른 문서를 연 뒤에는 고정을 그 창의 WindowHandle 로 옮긴다.
-            # (과거: Item(0) 이 이전 창을 가리켜 pin 이 낡고 다음 명령이 거부됨)
+            # 새 창/다른 문서를 열거나 인자 없이 재연결한 뒤에는 고정을 그 창의
+            # WindowHandle 로 옮긴다. (과거: Item(0) 이 이전 창을 가리켜 pin 이 낡고
+            # 다음 명령이 거부됨)
             state = load_state()
             state.original_path = after.path
             state.undo_stack = []
@@ -604,6 +607,7 @@ class Engine:
                 "path": after.path,
                 "window_title": after.window_title,
                 "new": new,
+                "rebound": not new and not bool(path),
             }
 
     def insert_title(self, text: str, size: float = 20.0) -> dict[str, Any]:

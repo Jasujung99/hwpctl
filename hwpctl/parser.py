@@ -54,8 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
-    p_open = add_common(sub.add_parser("open", help="새 문서 또는 파일 열기"))
-    p_open.add_argument("path", nargs="?", help="열 파일 경로. 없으면 빈 문서")
+    p_open = add_common(
+        sub.add_parser("open", help="활성 창 재고정, 파일 열기 또는 새 문서 만들기")
+    )
+    p_open.add_argument("path", nargs="?", help="열 파일 경로. 없으면 활성 창을 재고정")
     p_open.add_argument("--new", action="store_true", help="기존 창에 붙지 않고 새 한/글 인스턴스")
     p_open.add_argument(
         "--discard",

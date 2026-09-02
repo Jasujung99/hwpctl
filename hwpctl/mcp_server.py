@@ -191,7 +191,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def open(path: str = "", new: bool = False, discard: bool = False) -> dict[str, Any]:
-        """새 문서 또는 경로로 연다. 수정본이 있으면 discard=true 필요."""
+        """인자 없이 활성 창을 재고정한다. path는 파일을 열고 new=true는 새 문서를 만든다."""
         return await _call(engine, "open", path=path or None, new=new, discard=discard)
 
     @mcp.tool()

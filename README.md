@@ -137,7 +137,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 |---|---|
 | `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
 | `list_documents` | 실행 중인 모든 한/글 문서의 창·경로·수정 여부·쪽 수를 **활성화 없이** 읽기 전용으로 열거. 경로 없는 초안은 `unsaved: true` |
-| `open` | 새 문서 또는 경로로 열기. 수정본이 있으면 `--discard` |
+| `open` | 인자 없이는 활성 창 재고정, 경로는 파일 열기, `--new`는 새 문서. 파일 교체 전 수정본은 `--discard` |
 | `snapshot` | 제목·본문·표·선택 영역 읽기. 캐럿·선택은 원래대로 복원 |
 | `format_paragraph_by_text` | 정확히 일치하는 일반 본문 문단의 글자·문단 서식 적용 |
 | `recreate_inline_table_before_paragraph` | 검증한 1×1 질문 표를 답변 앞에 재생성. Cut/Paste·클립보드·HWPML 미사용 |
