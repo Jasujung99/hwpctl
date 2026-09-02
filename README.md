@@ -294,9 +294,10 @@ list_documents()  # 문서 활성화·저장·닫기 없이 모든 열린 문서
   철자인 `BorderCorlorLeft`를 사용합니다. 내부 가로선 `TypeHorz`는 오류로
   거부합니다.
 - 쪽 나누기는 `BreakPage`, 쪽 수는 `PageCount`입니다.
-- `set_style("개요 1")`은 pyhwpx의 `set_style`을 사용합니다.
-  한글 2022에서 COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출은
-  하지 않습니다.
+- `set_style("개요 1")`은 pyhwpx가 있으면 해당 API를 쓰고, 창 고정 때문에 COM으로
+  연결된 경우에는 문서 HWPML을 **메모리에서 읽기만** 하여 스타일 이름을 ID로 해석한 뒤
+  네이티브 `Style` 액션을 실행합니다. HWPML을 저장·주입하지 않으며, 한글 2022에서
+  COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출도 하지 않습니다.
 - 편집 전후에 한/글 대화상자를 확인하며, 떠 있으면 대신 누르지 않고 한국어
   오류로 중단합니다. SendKeys와 자동저장은 사용하지 않습니다.
 

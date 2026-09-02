@@ -1175,6 +1175,96 @@ def test_named_style_calls_pyhwpx_set_style_only() -> None:
     assert px.styles == ["개요 1"]
 
 
+class StyleCom(StubCom):
+    """이름 스타일의 COM 해석·복원 경로만 보이는 최소 문서 스텁."""
+
+    def __init__(self, hwpml: str) -> None:
+        super().__init__()
+        self.hwpml = hwpml
+        self.text_file_calls: list[tuple[str, str]] = []
+        self.positions: list[tuple[int, int, int]] = []
+        self.selection_calls: list[tuple[int, int, int, int]] = []
+
+    def GetTextFile(self, fmt: str, option: str) -> str:
+        self.text_file_calls.append((fmt, option))
+        return self.hwpml
+
+    def GetPos(self):
+        return (0, 2, 3)
+
+    def SetPos(self, list_id: int, para: int, pos: int) -> None:
+        self.positions.append((list_id, para, pos))
+
+    def GetSelectedPos(self):
+        return (True, 0, 2, 3, 0, 2, 9)
+
+    def SelectText(self, start_para: int, start_pos: int, end_para: int, end_pos: int) -> bool:
+        self.selection_calls.append((start_para, start_pos, end_para, end_pos))
+        return True
+
+
+def test_named_style_resolves_com_hwpml_without_mutating_document_structure() -> None:
+    com = StyleCom(
+        '<HWPML xmlns="http://www.hancom.co.kr/hwpml/2011/">'
+        '<STYLE Name="개요 1" Id="7"/>'
+        "</HWPML>"
+    )
+
+    make_canvas(com).set_style("개요 1")
+
+    assert com.text_file_calls == [("HWPML2X", "")]
+    assert com.HParameterSet.HStyle.items["Apply"] == 7
+    assert "GetDefault:Style" in com.HAction.calls
+    assert com.HAction.executed == ["Style"]
+    # HWPML을 다시 쓰지 않고, 읽는 도중 바뀔 수 있는 커서와 블록만 복원한다.
+    assert com.positions == [(0, 2, 3)]
+    assert com.selection_calls == [(2, 3, 2, 9)]
+
+
+@pytest.mark.parametrize(
+    "hwpml",
+    [
+        "<HWPML><STYLE Name='다른 스타일' Id='7'/></HWPML>",
+        "<HWPML><STYLE Name='개요 1' Id='7'/><STYLE Name='개요 1' Id='8'/></HWPML>",
+        "<HWPML><STYLE Name='개요 1' Id='not-a-number'/></HWPML>",
+        "<HWPML><STYLE Name='개요 1'/></HWPML>",
+        "<HWPML><STYLE",
+    ],
+)
+def test_named_style_com_rejects_ambiguous_or_invalid_hwpml_before_style_action(hwpml: str) -> None:
+    com = StyleCom(hwpml)
+
+    with pytest.raises(HangulCommandError):
+        make_canvas(com).set_style("개요 1")
+
+    assert com.HAction.executed == []
+    assert "GetDefault:Style" not in com.HAction.calls
+
+
+def test_numeric_style_com_does_not_export_hwpml() -> None:
+    com = StyleCom("<HWPML/>")
+
+    make_canvas(com).set_style(7)
+
+    assert com.text_file_calls == []
+    assert com.HParameterSet.HStyle.items["Apply"] == 7
+    assert com.HAction.executed == ["Style"]
+
+
+def test_named_style_com_does_not_start_style_action_when_hwpml_read_fails() -> None:
+    class BrokenStyleCom(StyleCom):
+        def GetTextFile(self, fmt: str, option: str) -> str:
+            self.text_file_calls.append((fmt, option))
+            raise RuntimeError("HWPML export failed")
+
+    com = BrokenStyleCom("<HWPML/>")
+    with pytest.raises(HangulCommandError, match="문서 구조"):
+        make_canvas(com).set_style("개요 1")
+
+    assert com.HAction.executed == []
+    assert "GetDefault:Style" not in com.HAction.calls
+
+
 def test_window_handle_uses_active_not_item0() -> None:
     """회귀: Item(0) 은 처음 연 창(이미 열린 파일). open --new 후 고정은 활성 창."""
     com = StubComWindows([855126, 3738628], active_index=1)
