@@ -620,16 +620,24 @@ class Engine:
             saved_char = canvas.get_charshape()
             saved_para = canvas.get_parashape()
             steps = 0
-            canvas.set_font(bold=True, height_pt=size)
-            steps += 1
-            canvas.set_align("center")
-            steps += 1
-            canvas.insert_text(_as_paragraph(text))
-            steps += 1
-            if canvas.set_charshape(saved_char):
+            try:
+                canvas.set_font(bold=True, height_pt=size)
                 steps += 1
-            if canvas.set_parashape(saved_para):
+                canvas.set_align("center")
                 steps += 1
+                canvas.insert_text(_as_paragraph(text))
+                steps += 1
+                if canvas.set_charshape(saved_char):
+                    steps += 1
+                if canvas.set_parashape(saved_para):
+                    steps += 1
+            except Exception:
+                # 중간 실패에서도 이미 반영된 제목 서식·텍스트를 hwpctl undo 한
+                # 단위로 남긴다. 기록하지 않으면 다음 undo가 사용자의 수동 편집을
+                # 되돌리거나, 반대로 반쯤 적용된 제목을 되돌릴 방법이 없어진다.
+                if steps:
+                    self._record_undo("insert_title", steps)
+                raise
             # 실제 실행된 한/글 액션 수를 그대로 기록해야 undo 가 한 덩어리로 돌아간다
             self._record_undo("insert_title", steps)
             return {
@@ -1408,12 +1416,17 @@ class Engine:
             # 선택 교체가 삭제+삽입 2단위로 기록되는지는 실기(한글 2022) 미측정 —
             # 과대 기록하면 undo 가 사용자 편집까지 삼키므로 보수적으로(적게) 기록한다.
             # 실제가 2단위라면 undo 후 일부 셀이 남을 수 있다(안전한 방향의 오차).
-            for addr, value in mapping.items():
-                parse_a1(addr)
-                canvas.goto_addr(addr)
-                canvas.select_cell_text()
-                canvas.insert_text(value)
-                written += 1
+            try:
+                for addr, value in mapping.items():
+                    parse_a1(addr)
+                    canvas.goto_addr(addr)
+                    canvas.select_cell_text()
+                    canvas.insert_text(value)
+                    written += 1
+            except Exception:
+                if written:
+                    self._record_undo("fill_cells", written)
+                raise
             self._record_undo("fill_cells", max(1, written))
             return {
                 "ok": True,
@@ -1678,45 +1691,50 @@ class Engine:
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
             steps = 0
-            if table is not None:
-                canvas.get_into_nth_table(table)
-            if cell_range:
-                # 요청한 칸에만 적용한다. (과거: 한 행 범위는 행 전체로 확대,
-                # 여러 행 범위는 첫 칸에만 조용히 적용되던 버그)
+            try:
+                if table is not None:
+                    canvas.get_into_nth_table(table)
+                if cell_range:
+                    # 요청한 칸에만 적용한다. (과거: 한 행 범위는 행 전체로 확대,
+                    # 여러 행 범위는 첫 칸에만 조용히 적용되던 버그)
+                    if row is not None:
+                        raise UsageError("--range 와 --row 는 함께 쓸 수 없습니다.")
+                    if not canvas.is_cell():
+                        raise UsageError(
+                            "--range 는 캐럿이 표 안에 있거나 --table 과 함께 써야 합니다."
+                        )
+                    for addr in expand_range(cell_range):
+                        canvas.goto_addr(addr)
+                        if has_fill:
+                            apply_fill()
+                            steps += 1
+                        if has_font:
+                            canvas.select_cell_text()
+                            apply_font()
+                            steps += 1
+                        if normalized_align:
+                            canvas.set_align(normalized_align)
+                            steps += 1
+                    self._record_undo("set_format", max(1, steps))
+                    return {"ok": True, "command": "set_format", "undo_units": 1}
                 if row is not None:
-                    raise UsageError("--range 와 --row 는 함께 쓸 수 없습니다.")
-                if not canvas.is_cell():
-                    raise UsageError(
-                        "--range 는 캐럿이 표 안에 있거나 --table 과 함께 써야 합니다."
-                    )
-                for addr in expand_range(cell_range):
-                    canvas.goto_addr(addr)
-                    if has_fill:
-                        apply_fill()
-                        steps += 1
-                    if has_font:
-                        canvas.select_cell_text()
-                        apply_font()
-                        steps += 1
-                    if normalized_align:
-                        canvas.set_align(normalized_align)
-                        steps += 1
-                self._record_undo("set_format", max(1, steps))
-                return {"ok": True, "command": "set_format", "undo_units": 1}
-            if row is not None:
-                if table is None:
-                    raise UsageError("--row 는 --table 과 함께 쓰세요.")
-                canvas.goto_addr(a1(row - 1, 0))
-                canvas.select_row()
-            if has_fill:
-                apply_fill()
-                steps += 1
-            if has_font:
-                apply_font()
-                steps += 1
-            if normalized_align:
-                canvas.set_align(normalized_align)
-                steps += 1
+                    if table is None:
+                        raise UsageError("--row 는 --table 과 함께 쓰세요.")
+                    canvas.goto_addr(a1(row - 1, 0))
+                    canvas.select_row()
+                if has_fill:
+                    apply_fill()
+                    steps += 1
+                if has_font:
+                    apply_font()
+                    steps += 1
+                if normalized_align:
+                    canvas.set_align(normalized_align)
+                    steps += 1
+            except Exception:
+                if steps:
+                    self._record_undo("set_format", steps)
+                raise
             self._record_undo("set_format", max(1, steps))
             return {"ok": True, "command": "set_format", "undo_units": 1}
 

@@ -458,6 +458,24 @@ def test_insert_title_skips_restore_count_when_shape_unavailable(engine) -> None
     assert load_state().undo_stack == [3]
 
 
+def test_insert_title_records_completed_actions_when_later_step_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+
+    def fail_set_align(_align: str) -> None:
+        raise HangulCommandError("정렬 적용 실패")
+
+    monkeypatch.setattr(fake, "set_align", fail_set_align)
+    with pytest.raises(HangulCommandError, match="정렬 적용 실패"):
+        eng.insert_title("제목")
+
+    # set_font은 이미 실행됐으므로 hwpctl undo 대상이어야 한다.
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
+
+
 def test_insert_paragraph_writes_structured_runs_layout_and_page_break(engine) -> None:
     """빈 문서 재구현은 HWPML 주입 없이 문단·런 공개 사양만으로 조립한다."""
     eng, fake = engine
@@ -633,6 +651,26 @@ def test_fill_cells_grid(engine) -> None:
     addrs = [c[1] for c in fake.calls if c[0] == "goto_addr"]
     assert "A1" in addrs and "B1" in addrs
     assert load_state().undo_stack[-1] == 2
+
+
+def test_fill_cells_records_completed_cells_when_later_cell_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    real_goto_addr = fake.goto_addr
+
+    def fail_second_cell(addr: str) -> None:
+        if addr == "B1":
+            raise HangulCommandError("B1로 이동 실패")
+        real_goto_addr(addr)
+
+    monkeypatch.setattr(fake, "goto_addr", fail_second_cell)
+    with pytest.raises(HangulCommandError, match="B1로 이동 실패"):
+        eng.fill_cells(table=0, assignments={"A1": "첫 셀", "B1": "둘째 셀"})
+
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
 
 
 def test_exit_table_dispatches_without_creating_an_undo_entry(engine) -> None:
@@ -1502,6 +1540,28 @@ def test_set_format_range_applies_only_requested_cells(engine) -> None:
     assert addrs == ["A1", "B1", "A2", "B2"]
     assert len([c for c in fake.calls if c[0] == "cell_fill"]) == 4
     assert not any(c[0] == "select_row" for c in fake.calls)
+
+
+def test_set_format_records_completed_range_actions_when_later_cell_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    fill_count = 0
+
+    def fail_second_fill(color: str) -> None:
+        nonlocal fill_count
+        fill_count += 1
+        if fill_count == 2:
+            raise HangulCommandError("두 번째 셀 채우기 실패")
+        fake.calls.append(("cell_fill", color))
+
+    monkeypatch.setattr(fake, "cell_fill", fail_second_fill)
+    with pytest.raises(HangulCommandError, match="두 번째 셀 채우기 실패"):
+        eng.set_format(fill="gray", table=0, cell_range="A1:B1")
+
+    assert load_state().undo_stack == [1]
+    assert eng.undo()["hangul_undo_steps"] == 1
+    assert fake.undone == 1
 
 
 def test_insert_text_box_dispatches_normalized_visual_specs_and_undo(engine) -> None:
