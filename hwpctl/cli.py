@@ -10,13 +10,21 @@ from typing import Any, Sequence
 from argparse import ArgumentTypeError
 
 from hwpctl.errors import HwpctlError, UsageError
-from hwpctl.parser import parse_args, parse_cell_assignments, parse_cells_json
+from hwpctl.parser import parse_args, parse_cell_assignments, parse_cells_json, parse_json_or_raw
 from hwpctl.tools import tool_catalog
 
 HWPX_COMMANDS = frozenset({"hwpx_status", "hwpx_inspect"})
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # JSON CLI/MCP 스트림은 운영체제 콘솔 코드페이지가 아니라 UTF-8 계약이다.
+    # 한/글 문서에는 CP949에 없는 U+25E6 같은 문자가 있으므로, locale 인코딩을
+    # 보존하면 JSON 전송 자체가 실패하거나 호출자마다 깨진 텍스트가 된다.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="strict")
+        except Exception:
+            pass
     try:
         args = parse_args(list(argv) if argv is not None else None)
     except SystemExit as exc:
@@ -74,12 +82,44 @@ def _kwargs_for(args: Any) -> dict[str, Any]:
 
 def _kwargs_for_inner(args: Any) -> dict[str, Any]:
     cmd = args.command
+    if cmd == "list_documents":
+        return {}
     if cmd == "open":
         return {"path": args.path, "new": args.new, "discard": args.discard}
+    if cmd == "format_paragraph_by_text":
+        return {
+            "text": args.text,
+            "font": args.font,
+            "size": args.size,
+            "bold": args.bold,
+            "italic": args.italic,
+            "color": args.color,
+            "letter_spacing_percent": args.letter_spacing_percent,
+            "width_scale_percent": args.width_scale_percent,
+            "paragraph": parse_json_or_raw(args.paragraph),
+            "occurrence": args.occurrence,
+            "dry_run": args.dry_run,
+        }
+    if cmd == "recreate_inline_table_before_paragraph":
+        return {
+            "old_table": args.old_table,
+            "expected_table_text": args.expected_table_text,
+            "before_text": args.before_text,
+            "table_spec": parse_json_or_raw(args.table_spec),
+            "blank_paragraph": parse_json_or_raw(args.blank_paragraph),
+            "dry_run": args.dry_run,
+        }
+    if cmd == "trim_blank_paragraphs_before_body":
+        return {"text": args.text, "keep": args.keep, "dry_run": args.dry_run}
     if cmd == "insert_title":
         return {"text": args.text, "size": args.size}
     if cmd == "insert_paragraph":
-        return {"text": args.text}
+        return {
+            "text": args.text,
+            "runs": parse_json_or_raw(args.runs),
+            "paragraph": parse_json_or_raw(args.paragraph),
+            "page_break_before": args.page_break_before,
+        }
     if cmd == "create_table":
         return {
             "rows": args.rows,
@@ -87,6 +127,18 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "header_fill": args.header_fill,
             "header": not args.no_header,
             "cell_margin": args.cell_padding,
+        }
+    if cmd == "set_table_properties":
+        return {
+            "table": args.table,
+            "page_break": args.page_break,
+            "repeat_header": args.repeat_header,
+            "cell_spacing_mm": args.cell_spacing_mm,
+        }
+    if cmd == "set_table_position":
+        return {
+            "table": args.table,
+            "position": parse_json_or_raw(args.position),
         }
     if cmd == "set_cell_margin":
         return {
@@ -136,6 +188,24 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "width_mm": args.width_mm,
             "height_mm": args.height_mm,
         }
+    if cmd == "insert_text_box":
+        return {
+            "text": args.text,
+            "width_mm": args.width_mm,
+            "height_mm": args.height_mm,
+            "fill": parse_json_or_raw(args.fill),
+            "line": parse_json_or_raw(args.line),
+            "shadow": parse_json_or_raw(args.shadow),
+            "text_shadow": parse_json_or_raw(args.text_shadow),
+            "margin": args.margin,
+            "position": parse_json_or_raw(args.position),
+            "bold": args.bold,
+            "italic": args.italic,
+            "font": args.font,
+            "size": args.size,
+            "align": args.align,
+            "color": args.color,
+        }
     if cmd == "insert_chart":
         return {
             "table": args.table,
@@ -150,6 +220,20 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "cells": parse_cells_json(args.cells),
             "assignments": parse_cell_assignments(args.cell),
         }
+    if cmd == "write_cell":
+        return {
+            "table": args.table,
+            "cell": args.cell,
+            "paragraphs": parse_json_or_raw(args.paragraphs),
+        }
+    if cmd == "exit_table":
+        return {}
+    if cmd == "set_cell_fill":
+        return {
+            "fill": parse_json_or_raw(args.fill),
+            "table": args.table,
+            "cell_range": args.cell_range,
+        }
     if cmd == "layout_review":
         return {"table": args.table, "dry_run": args.dry_run}
     if cmd == "set_format":
@@ -160,7 +244,8 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "size": args.size,
             "align": args.align,
             "color": args.color,
-            "fill": args.fill,
+            "fill": parse_json_or_raw(args.fill),
+            "text_shadow": parse_json_or_raw(args.text_shadow),
             "table": args.table,
             "row": args.row,
             "cell_range": args.cell_range,
@@ -171,6 +256,19 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {"style": args.style}
     if cmd == "page":
         return {"goto": args.goto, "break_page": args.break_page}
+    if cmd == "set_page_number":
+        return {"position": args.position, "separator": args.separator}
+    if cmd == "set_page_visibility":
+        return {
+            "hide_header": args.hide_header,
+            "hide_footer": args.hide_footer,
+            "hide_master_page": args.hide_master_page,
+            "hide_border": args.hide_border,
+            "hide_fill": args.hide_fill,
+            "hide_page_num": args.hide_page_num,
+        }
+    if cmd == "restart_page_number":
+        return {"number": args.number}
     if cmd == "set_pagedef":
         return {
             "paper_width": args.paper_width,
@@ -190,6 +288,8 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
     if cmd == "save":
         return {"overwrite": args.overwrite}
     if cmd == "close":
+        return {"force": args.force}
+    if cmd == "close_all":
         return {"force": args.force}
     return {}
 

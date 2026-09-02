@@ -136,12 +136,20 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | 이름 | 하는 일 |
 |---|---|
 | `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
+| `list_documents` | 실행 중인 모든 한/글 문서의 창·경로·수정 여부·쪽 수를 **활성화 없이** 읽기 전용으로 열거. 경로 없는 초안은 `unsaved: true` |
 | `open` | 새 문서 또는 경로로 열기. 수정본이 있으면 `--discard` |
 | `snapshot` | 제목·본문·표·선택 영역 읽기. 캐럿·선택은 원래대로 복원 |
+| `format_paragraph_by_text` | 정확히 일치하는 일반 본문 문단의 글자·문단 서식 적용 |
+| `recreate_inline_table_before_paragraph` | 검증한 1×1 질문 표를 답변 앞에 재생성. Cut/Paste·클립보드·HWPML 미사용 |
+| `trim_blank_paragraphs_before_body` | 정확한 답변 앞의 연속 빈 문단을 지정 개수만 남김 |
 | `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). 서식은 제목에만. Undo 1단위 |
-| `insert_paragraph` | 본문 문단. Undo 1단위 |
+| `insert_paragraph` | 본문 문단·글자 런·문단 레이아웃. Undo 1단위 |
 | `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
+| `set_table_properties` | 표의 쪽 나눔(`none`/`table`/`cell`)·제목 행 반복·셀 간격 |
+| `set_table_position` | 표의 글자처럼 취급/떠 있는 위치·바깥 여백 |
 | `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
+| `write_cell` | 표 셀을 구조화 문단·글자 런으로 원자적 교체. Undo 1단위 |
+| `exit_table` | 현재 표의 마지막 셀에서 일반 본문으로 이동. 이동 뒤 셀 밖인지 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
 | `set_col_width` / `get_col_width` | 열 너비를 mm·비율로 설정 / mm로 조회 |
@@ -150,15 +158,21 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
 | `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
-| `set_format` | 글꼴·크기·굵게·정렬·셀 색. `--range` 는 요청 칸에만 |
+| `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
+| `set_cell_fill` | 표 셀 범위의 단색/선형 그라데이션 채우기 |
+| `set_format` | 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
 | `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
 | `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
 | `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
 | `page` | 현재 쪽·`PageCount` 읽기 / `--goto N` 이동 / `--break` 쪽 나누기 |
+| `set_page_number` | 네이티브 쪽 번호의 위치·양쪽 구분 문자 설정 |
+| `set_page_visibility` | 현재 쪽의 머리말·꼬리말·바탕쪽·테두리·채우기·쪽 번호 숨김 |
+| `restart_page_number` | 현재 위치부터 네이티브 쪽 번호 다시 시작 |
 | `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
 | `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
+| `close_all` | 열려 있는 모든 한/글 문서 닫기. **`--force` 필수** |
 | `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
 | `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
 
@@ -174,8 +188,17 @@ hwpctl mcp --list-tools
 hwpctl insert_title 사업계획서
 hwpctl create_table --rows 8 --cols 4 --header-fill gray
 hwpctl fill_cells --table 0 --cells "[[\"항목\",\"내용\",\"담당\",\"기한\"]]"
+hwpctl exit_table
+hwpctl insert_paragraph "표 다음 본문"
 hwpctl layout_review
 hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
+```
+
+서식이 섞인 문단과 표 셀은 평면화하지 않고 구조화 값으로 작성할 수 있습니다.
+
+```bat
+hwpctl insert_paragraph --runs "[{\"text\":\"Q. \",\"bold\":true,\"underline\":true},{\"text\":\"문의 내용\",\"font\":\"함초롬돋움\"}]" --paragraph "{\"align\":\"justify\",\"first_line_indent_mm\":-8,\"line_spacing_percent\":150,\"break_latin_word\":\"keep_word\",\"break_non_latin_word\":\"keep_word\"}"
+hwpctl write_cell --table 0 --cell A1 --paragraphs "[{\"runs\":[{\"text\":\"항목\",\"bold\":true}],\"paragraph\":{\"align\":\"center\"}}]"
 ```
 
 서브커맨드 이름은 밑줄입니다 (`insert_title`, `fill_cells`).
@@ -233,6 +256,19 @@ set_row_height(height, table=None, row=None)               # mm, row는 1부터
 get_row_height(table=None, row=None)                       # 결과 단위: mm
 merge_cells(cell_range, table=None)
 set_valign(align, table=None, cell_range="")               # top | center | bottom
+insert_paragraph(text="", runs=None, paragraph=None, page_break_before=False)
+# paragraph: align, *_margin_mm, first_line_indent_mm, *_spacing_mm,
+#            line_spacing_percent, break_latin_word, break_non_latin_word
+# runs: text, bold, italic, superscript, subscript, kerning, font, size, color,
+#       underline/strikeout(bool 또는 {enabled,color,type,shape}), text_shadow,
+#       letter_spacing_percent, width_scale_percent
+write_cell(table, cell, paragraphs)                         # A1, 마지막 문단 뒤 빈 문단 없음
+set_table_properties(table, page_break="cell", repeat_header=True, cell_spacing_mm=0.0)
+set_table_position(table, position)                         # inline/floating JSON 객체
+insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None)
+set_cell_fill(fill, table=None, cell_range="")
+exit_table()  # 마지막 셀에서 일반 본문으로 이동; Undo 없음
+set_format(..., text_shadow=None)
 set_cell_border(sides="all", line_type="Solid", width="0.12mm",
                 color="#000000", table=None, cell_range="")
 set_style(style)                                           # 예: "개요 1"
@@ -240,6 +276,11 @@ set_pagedef(paper_width=None, paper_height=None, left=None, right=None,
             top=None, bottom=None, header=None, footer=None, gutter=None,
             landscape=None, apply="current")
 page(goto=None, break_page=False)
+set_page_number(position="bottom_center", separator="-") # 예: - 1 -
+set_page_visibility(hide_header=False, hide_footer=False, hide_master_page=False,
+                    hide_border=False, hide_fill=False, hide_page_num=False)
+restart_page_number(number=1)
+list_documents()  # 문서 활성화·저장·닫기 없이 모든 열린 문서 메타데이터 읽기
 ```
 
 - 열·행 치수는 `GetCellWidth` 없이 `TablePropertyDialog`의
@@ -268,9 +309,13 @@ hwpctl set_row_height --table 0 --row 2 --height 12
 hwpctl merge_cells --table 0 --range A1:B1
 hwpctl set_valign center --table 0 --range A1:C2
 hwpctl set_cell_border --table 0 --range A1:C2 --sides all --color #333333
+hwpctl set_table_properties --table 0 --page-break cell --repeat-header --cell-spacing-mm 0
+hwpctl set_table_position --table 0 --position "{\"mode\":\"inline\",\"outside_margin_mm\":[0.5,0.5,0.5,0.5]}"
 hwpctl set_style "개요 1"
 hwpctl set_pagedef --paper-width 210 --paper-height 297 --left 20 --right 20
 hwpctl page --break
+hwpctl set_page_visibility --hide-page-num
+hwpctl restart_page_number --number 1
 ```
 
 저장 없이 시험하려면 빈 문서에서 다음처럼 실행하고, 결과 확인 뒤 `undo`로

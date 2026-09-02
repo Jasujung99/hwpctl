@@ -47,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
         return sp
 
     add_common(sub.add_parser("status", help="열린 한/글 창 상태"))
+    add_common(
+        sub.add_parser(
+            "list_documents",
+            help="실행 중인 모든 한/글 문서를 활성화 없이 읽기 전용으로 열거",
+        )
+    )
 
     p_open = add_common(sub.add_parser("open", help="새 문서 또는 파일 열기"))
     p_open.add_argument("path", nargs="?", help="열 파일 경로. 없으면 빈 문서")
@@ -59,12 +65,92 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_common(sub.add_parser("snapshot", help="제목·본문·표·선택 영역 스냅샷"))
 
+    p_format_paragraph = add_common(
+        sub.add_parser(
+            "format_paragraph_by_text",
+            help="정확히 일치하는 일반 본문 한 문단의 글자·문단 서식 적용",
+        )
+    )
+    p_format_paragraph.add_argument("--text", required=True, help="정확히 일치해야 하는 한 문단")
+    p_format_paragraph.add_argument("--font", default="", help="글꼴 이름")
+    p_format_paragraph.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
+    p_format_paragraph.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
+    p_format_paragraph.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)
+    p_format_paragraph.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
+    p_format_paragraph.add_argument(
+        "--letter-spacing-percent", type=int, default=None, help="자간(%, -50~50)"
+    )
+    p_format_paragraph.add_argument(
+        "--width-scale-percent", type=int, default=None, help="장평(%, 50~200)"
+    )
+    p_format_paragraph.add_argument("--paragraph", default="", help="문단 서식 JSON 객체")
+    p_format_paragraph.add_argument("--occurrence", type=int, default=1, help="앞에서 몇 번째 일치")
+    p_format_paragraph.add_argument(
+        "--dry-run", action="store_true", help="찾기·전체 문단 검증만 하고 수정하지 않음"
+    )
+
+    p_recreate_inline = add_common(
+        sub.add_parser(
+            "recreate_inline_table_before_paragraph",
+            help="검증한 1×1 인라인 표를 본문 문단 앞으로 재생성하고 기존 표만 제거",
+        )
+    )
+    p_recreate_inline.add_argument("--old-table", type=int, required=True, help="교체할 기존 표 번호(0부터)")
+    p_recreate_inline.add_argument(
+        "--expected-table-text",
+        required=True,
+        help="기존 표 A1과 정확히 일치해야 하는 질문 문자열",
+    )
+    p_recreate_inline.add_argument(
+        "--before-text",
+        required=True,
+        help="새 질문 표 뒤에 와야 하는 정확한 일반 본문 답변 문단",
+    )
+    p_recreate_inline.add_argument(
+        "--table-spec",
+        required=True,
+        help="source 정규화 1×1 inline 표 JSON 객체",
+    )
+    p_recreate_inline.add_argument(
+        "--blank-paragraph",
+        required=True,
+        help="질문과 답변 사이 Enter 하나의 source 빈 문단 JSON 객체",
+    )
+    p_recreate_inline.add_argument(
+        "--dry-run", action="store_true", help="기존 표·답변 문단 검증만 하고 수정하지 않음"
+    )
+
+    p_trim_blank = add_common(
+        sub.add_parser(
+            "trim_blank_paragraphs_before_body",
+            help="본문 답변 앞의 연속 빈 문단을 지정 개수만 남김",
+        )
+    )
+    p_trim_blank.add_argument("--text", required=True, help="정확히 일치해야 하는 일반 본문 답변 문단")
+    p_trim_blank.add_argument("--keep", type=int, default=1, help="남길 빈 문단 수(기본 1)")
+    p_trim_blank.add_argument("--dry-run", action="store_true", help="빈 문단 수만 읽고 수정하지 않음")
+
     p_title = add_common(sub.add_parser("insert_title", help="제목 문단 삽입"))
     p_title.add_argument("text")
     p_title.add_argument("--size", type=float, default=20.0, help="글자 크기(pt)")
 
     p_para = add_common(sub.add_parser("insert_paragraph", help="본문 문단 삽입"))
-    p_para.add_argument("text")
+    p_para.add_argument("text", nargs="?", default="", help="단순 문단 텍스트")
+    p_para.add_argument(
+        "--runs",
+        default="",
+        help="문단 안 글자 런 JSON 배열. text와 함께 지정할 수 없음",
+    )
+    p_para.add_argument(
+        "--paragraph",
+        default="",
+        help="정렬·여백·들여쓰기·줄간격 JSON 객체",
+    )
+    p_para.add_argument(
+        "--page-break-before",
+        action="store_true",
+        help="이 문단 앞에서 네이티브 쪽 나누기",
+    )
 
     p_table = add_common(sub.add_parser("create_table", help="표 만들기 (기본 칸 안여백 3.5/2.0mm)"))
     p_table.add_argument("--rows", type=int, required=True)
@@ -76,6 +162,43 @@ def build_parser() -> argparse.ArgumentParser:
         default="3.5,2.0",
         metavar="MM",
         help="새 표 모든 칸의 안쪽 여백(mm). '좌우,상하' 또는 '좌,우,상,하'. none 이면 미적용",
+    )
+
+    p_table_properties = add_common(
+        sub.add_parser("set_table_properties", help="표의 쪽 나눔·제목 행 반복·셀 간격 지정")
+    )
+    p_table_properties.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_properties.add_argument(
+        "--page-break",
+        choices=["none", "table", "cell"],
+        default="cell",
+        help="쪽 경계에서 표 나눔 방식 (기본 cell)",
+    )
+    p_table_properties.add_argument(
+        "--repeat-header",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="쪽마다 첫 행을 제목 행으로 반복 (기본 true)",
+    )
+    p_table_properties.add_argument(
+        "--cell-spacing-mm",
+        type=float,
+        default=0.0,
+        help="셀 사이 간격(mm, 기본 0)",
+    )
+
+    p_table_position = add_common(
+        sub.add_parser("set_table_position", help="표의 inline/floating 위치와 바깥 여백 지정")
+    )
+    p_table_position.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_position.add_argument(
+        "--position",
+        required=True,
+        help=(
+            "표 위치 JSON 객체. 예: "
+            "'{\"mode\":\"inline\",\"outside_margin_mm\":[0.5,0.5,0.5,0.5]}' 또는 "
+            "'{\"mode\":\"floating\",\"x_mm\":10,\"y_mm\":20,\"wrap\":\"top_and_bottom\"}'"
+        ),
     )
 
     p_margin = add_common(sub.add_parser("set_cell_margin", help="표 칸 안쪽 여백(mm) 지정"))
@@ -143,6 +266,50 @@ def build_parser() -> argparse.ArgumentParser:
     p_image.add_argument("--width", dest="width_mm", type=float, default=0.0, help="너비(mm)")
     p_image.add_argument("--height", dest="height_mm", type=float, default=0.0, help="높이(mm)")
 
+    p_text_box = add_common(
+        sub.add_parser("insert_text_box", help="편집 가능한 글상자 삽입")
+    )
+    p_text_box.add_argument("text", help="글상자 안의 텍스트. 빈 글상자는 ''로 지정")
+    p_text_box.add_argument("--width", dest="width_mm", type=float, required=True, help="너비(mm)")
+    p_text_box.add_argument("--height", dest="height_mm", type=float, required=True, help="높이(mm)")
+    p_text_box.add_argument(
+        "--fill",
+        default="",
+        help="단색 색상 또는 JSON 채우기. 예: #D9EAF7 / '{\"type\":\"linear_gradient\",...}'",
+    )
+    p_text_box.add_argument(
+        "--line",
+        default="",
+        help="테두리 JSON. 예: '{\"color\":\"#336699\",\"width_mm\":0.3}'",
+    )
+    p_text_box.add_argument(
+        "--shadow",
+        default="",
+        help="도형 그림자 JSON. 예: '{\"color\":\"#000000\",\"alpha\":96,\"offset_x_mm\":1,\"offset_y_mm\":1}'",
+    )
+    p_text_box.add_argument(
+        "--text-shadow",
+        dest="text_shadow",
+        default="",
+        help="글자 그림자 JSON. 색·오프셋만 지원하며 alpha는 생략 또는 0",
+    )
+    p_text_box.add_argument(
+        "--margin",
+        default="none",
+        help="글상자 안쪽 여백(mm). 현재 한/글 설치본에서 지원되지 않으면 명확히 실패; 기본 none",
+    )
+    p_text_box.add_argument(
+        "--position",
+        default="inline",
+        help="inline 또는 floating 좌표 JSON. 예: '{\"mode\":\"floating\",\"x_mm\":10,\"y_mm\":20}'",
+    )
+    p_text_box.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
+    p_text_box.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)
+    p_text_box.add_argument("--font", default="", help="글꼴 이름")
+    p_text_box.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
+    p_text_box.add_argument("--align", default="center", choices=["left", "center", "right", "justify"])
+    p_text_box.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
+
     p_chart = add_common(
         sub.add_parser("insert_chart", help="표 데이터로 한/글 네이티브 차트 삽입 (그림 아님)")
     )
@@ -178,6 +345,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="개별 셀. 여러 번 지정 가능. 예: --cell A1=항목",
     )
 
+    p_write_cell = add_common(
+        sub.add_parser("write_cell", help="표 셀 내용을 구조화 문단·글자 런으로 교체")
+    )
+    p_write_cell.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_write_cell.add_argument("--cell", required=True, help="셀 주소. 예: A1")
+    p_write_cell.add_argument(
+        "--paragraphs",
+        required=True,
+        help="text/runs/paragraph 문단 객체의 JSON 배열",
+    )
+
+    add_common(
+        sub.add_parser(
+            "exit_table",
+            help="현재 표의 마지막 셀에서 일반 본문으로 이동 (MoveRight 후 셀 밖 검증)",
+        )
+    )
+
+    p_cell_fill = add_common(
+        sub.add_parser("set_cell_fill", help="표 셀 범위에 단색/선형 그라데이션 채우기")
+    )
+    p_cell_fill.add_argument(
+        "--fill",
+        required=True,
+        help="단색 색상 또는 JSON 채우기. 예: #D9D9D9 / '{\"type\":\"linear_gradient\",...}'",
+    )
+    p_cell_fill.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_cell_fill.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
+
     p_layout = add_common(
         sub.add_parser(
             "layout_review",
@@ -198,7 +394,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_fmt.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
     p_fmt.add_argument("--align", default="", choices=["", "left", "center", "right", "justify"])
     p_fmt.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
-    p_fmt.add_argument("--fill", default="", help="셀 배경색")
+    p_fmt.add_argument("--fill", default="", help="셀 배경색 또는 채우기 JSON")
+    p_fmt.add_argument(
+        "--text-shadow",
+        dest="text_shadow",
+        default="",
+        help="글자 그림자 JSON. 예: '{\"color\":\"#000000\",\"offset_x_mm\":1,\"offset_y_mm\":1}' (alpha 미지원)",
+    )
     p_fmt.add_argument("--table", type=int, default=None)
     p_fmt.add_argument("--row", type=int, default=None, help="1부터. 표의 해당 행")
     p_fmt.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D1")
@@ -218,6 +420,78 @@ def build_parser() -> argparse.ArgumentParser:
         dest="break_page",
         action="store_true",
         help="캐럿 위치에서 BreakPage로 쪽 나누기",
+    )
+
+    p_page_number = add_common(
+        sub.add_parser("set_page_number", help="네이티브 쪽 번호 위치와 구분 문자 설정")
+    )
+    p_page_number.add_argument(
+        "--position",
+        default="bottom_center",
+        choices=[
+            "top_left",
+            "top_center",
+            "top_right",
+            "bottom_left",
+            "bottom_center",
+            "bottom_right",
+        ],
+        help="쪽 번호 위치",
+    )
+    p_page_number.add_argument(
+        "--separator",
+        default="-",
+        help="숫자 양쪽에 넣을 한 글자 구분 문자. 빈 문자열이면 생략",
+    )
+
+    p_page_visibility = add_common(
+        sub.add_parser("set_page_visibility", help="현재 쪽의 머리말·꼬리말·쪽 번호 등 숨기기")
+    )
+    p_page_visibility.add_argument(
+        "--hide-header",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="머리말 숨기기",
+    )
+    p_page_visibility.add_argument(
+        "--hide-footer",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="꼬리말 숨기기",
+    )
+    p_page_visibility.add_argument(
+        "--hide-master-page",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="바탕쪽 숨기기",
+    )
+    p_page_visibility.add_argument(
+        "--hide-border",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="쪽 테두리 숨기기",
+    )
+    p_page_visibility.add_argument(
+        "--hide-fill",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="쪽 채우기 숨기기",
+    )
+    p_page_visibility.add_argument(
+        "--hide-page-num",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="쪽 번호 숨기기",
+    )
+
+    p_restart_page_number = add_common(
+        sub.add_parser("restart_page_number", help="현재 위치부터 네이티브 쪽 번호 다시 시작")
+    )
+    p_restart_page_number.add_argument(
+        "--number",
+        type=int,
+        default=1,
+        help="새 시작 번호(1~999999, 기본 1)",
     )
 
     p_pagedef = add_common(sub.add_parser("set_pagedef", help="용지 크기·여백·가로/세로 지정"))
@@ -256,6 +530,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_close = add_common(sub.add_parser("close", help="문서 닫기 — --force 필수"))
     p_close.add_argument("--force", action="store_true", help="저장하지 않고 닫기")
+
+    p_close_all = add_common(
+        sub.add_parser("close_all", help="열려 있는 모든 한/글 문서 닫기 — --force 필수")
+    )
+    p_close_all.add_argument("--force", action="store_true", help="저장하지 않고 모든 문서 닫기")
 
     p_hwpx_status = add_common(
         sub.add_parser(
@@ -308,6 +587,23 @@ def parse_cell_assignments(items: list[str]) -> dict[str, str]:
             raise argparse.ArgumentTypeError(f"--cell 주소가 비었습니다: {item}")
         out[addr] = text
     return out
+
+
+def parse_json_or_raw(raw: str | None) -> Any:
+    """구조화 서식 CLI 값은 JSON, 간단한 색/inline 값은 문자열로 보존한다.
+
+    ``--fill #D9D9D9`` 처럼 짧은 값은 모델이 자주 쓰므로 JSON만 강제하지 않는다.
+    실제 형식·범위 검증은 CLI와 MCP가 동일하게 Engine에서 수행한다.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
 
 
 def known_commands() -> list[str]:
