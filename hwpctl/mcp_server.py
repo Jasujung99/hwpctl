@@ -13,6 +13,7 @@ import functools
 import hmac
 import os
 import sys
+import threading
 from typing import Any
 
 import anyio
@@ -20,8 +21,30 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from hwpctl.errors import HwpctlError
+from hwpctl.errors import HwpctlError, LockBusyError
 from hwpctl.tools import tool_catalog
+
+READ_COMMANDS = frozenset({"status", "list_documents", "snapshot"})
+DEFAULT_READ_TIMEOUT_SEC = 15.0
+
+
+class _DispatchGate:
+    """MCP 프로세스 안에서 COM 명령을 한 번에 하나만 실행한다.
+
+    OS 파일 잠금은 서로 다른 CLI/MCP 프로세스 사이의 안전장치다. 이 게이트는
+    응답을 잃은 COM 워커가 있을 때 같은 stdio 서버가 워커를 계속 늘리는 것을
+    막는다. 락은 워커 스레드가 실제로 끝날 때만 반환한다.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        return self._lock.acquire(blocking=False)
+
+    def release(self) -> None:
+        self._lock.release()
+
 
 INSTRUCTIONS = (
     "한/글 2022 창을 직접 고친다. 키 입력은 쓰지 말고 이 도구만 호출하라. "
@@ -30,6 +53,7 @@ INSTRUCTIONS = (
     "새 표에는 기본 칸 안여백(좌우 3.5mm, 상하 2.0mm)이 적용된다. "
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
     "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
+    "표 뒤에 일반 본문을 넣을 때는 마지막 셀에서 exit_table을 호출해 표 밖인지 확인한다. "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
     "insert_title, create_table(rows=8, cols=4, header_fill=gray). "
     "hwpx_status/hwpx_inspect 는 한글·COM·잠금 없이 .hwpx XML 을 읽는다."
@@ -62,11 +86,51 @@ def _dispatch_in_thread(engine: Any, name: str, kwargs: dict[str, Any]) -> dict[
             pythoncom.CoUninitialize()
 
 
-async def _call(engine: Any, name: str, **kwargs: Any) -> dict[str, Any]:
-    try:
-        return await anyio.to_thread.run_sync(
-            functools.partial(_dispatch_in_thread, engine, name, kwargs)
+def _dispatch_with_gate(
+    gate: _DispatchGate | None,
+    engine: Any,
+    name: str,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """게이트는 워커가 끝날 때만 반환해 취소된 COM 작업을 격리한다."""
+    if gate is None:
+        return _dispatch_in_thread(engine, name, kwargs)
+    if not gate.acquire():
+        raise LockBusyError(
+            "이 hwpctl MCP 서버에서 이전 한/글 명령이 아직 처리 중입니다. "
+            "완료될 때까지 기다리고 잠금을 강제 해제하거나 프로세스 이름으로 일괄 종료하지 마세요."
         )
+    try:
+        return _dispatch_in_thread(engine, name, kwargs)
+    finally:
+        gate.release()
+
+
+async def _call(engine: Any, name: str, **kwargs: Any) -> dict[str, Any]:
+    gate = getattr(engine, "_mcp_dispatch_gate", None)
+    read_timeout = float(
+        getattr(engine, "_mcp_read_timeout_sec", DEFAULT_READ_TIMEOUT_SEC)
+    )
+    dispatch = functools.partial(_dispatch_with_gate, gate, engine, name, kwargs)
+    try:
+        if name in READ_COMMANDS and read_timeout > 0:
+            with anyio.move_on_after(read_timeout) as scope:
+                result = await anyio.to_thread.run_sync(
+                    dispatch,
+                    abandon_on_cancel=True,
+                )
+            if scope.cancel_called:
+                return {
+                    "ok": False,
+                    "command": name,
+                    "error": (
+                        f"한/글 읽기 명령이 {read_timeout:g}초 안에 응답하지 않았습니다. "
+                        "이전 COM 작업은 안전하게 계속 실행 중이며 잠금을 보유할 수 있습니다. "
+                        "재시도·강제 잠금 해제·프로세스 이름 일괄 종료를 하지 마세요."
+                    ),
+                }
+            return result
+        return await anyio.to_thread.run_sync(dispatch)
     except HwpctlError as exc:
         return {"ok": False, "command": name, "error": exc.message}
     except Exception as exc:  # com_error 등 — 스택 대신 한국어 한 줄 (#14)
@@ -100,12 +164,29 @@ def build_mcp(lock_timeout: float = 8.0):
     from mcp.server.fastmcp import FastMCP
 
     engine = _engine(lock_timeout)
+    engine._mcp_dispatch_gate = _DispatchGate()
+    try:
+        engine._mcp_read_timeout_sec = max(
+            0.0,
+            float(os.environ.get("HWPCTL_READ_TIMEOUT_SEC", DEFAULT_READ_TIMEOUT_SEC)),
+        )
+    except ValueError:
+        engine._mcp_read_timeout_sec = DEFAULT_READ_TIMEOUT_SEC
     mcp = FastMCP("hwpctl", instructions=INSTRUCTIONS)
 
     @mcp.tool()
     async def status() -> dict[str, Any]:
         """열린 한/글 창의 경로, 수정 여부, 쪽, 버전."""
         return await _call(engine, "status")
+
+    @mcp.tool()
+    async def list_documents() -> dict[str, Any]:
+        """모든 실행 중 한/글 문서의 창·경로·수정 여부를 활성화 없이 읽는다.
+
+        경로 없는 빈 초안은 unsaved=true로 표시한다. 여러 문서가 한 인스턴스에
+        있을 때 비활성 문서는 활성화하지 않으므로 쪽 수가 없을 수 있다.
+        """
+        return await _call(engine, "list_documents")
 
     @mcp.tool()
     async def open(path: str = "", new: bool = False, discard: bool = False) -> dict[str, Any]:
@@ -118,14 +199,111 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "snapshot")
 
     @mcp.tool()
+    async def format_paragraph_by_text(
+        text: str,
+        font: str = "",
+        size: float | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        color: str = "",
+        letter_spacing_percent: int | None = None,
+        width_scale_percent: int | None = None,
+        paragraph: dict[str, Any] | None = None,
+        occurrence: int = 1,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """정확히 일치하는 일반 본문 한 문단만 찾고 글자·문단 서식을 적용한다.
+
+        표 셀/필드·부분 일치면 거부한다. dry_run=true는 찾기·문단 경계 검증만 하며
+        캐럿·선택을 복원하고 문서를 수정하지 않는다. Undo 한 단위.
+        """
+        return await _call(
+            engine,
+            "format_paragraph_by_text",
+            text=text,
+            font=font,
+            size=size,
+            bold=bold,
+            italic=italic,
+            color=color,
+            letter_spacing_percent=letter_spacing_percent,
+            width_scale_percent=width_scale_percent,
+            paragraph=paragraph,
+            occurrence=occurrence,
+            dry_run=dry_run,
+        )
+
+    @mcp.tool()
+    async def recreate_inline_table_before_paragraph(
+        old_table: int,
+        expected_table_text: str,
+        before_text: str,
+        table_spec: dict[str, Any],
+        blank_paragraph: dict[str, Any],
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """같은 열린 문서에서 검증한 1×1 인라인 질문 표를 답변 문단 앞으로 재생성한다.
+
+        표 Cut/Paste·클립보드·HWPML을 쓰지 않는다. source table_spec과
+        blank_paragraph를 적용해 질문 표 뒤 Enter 하나를 보장하고, 새 표와 답변을
+        검증한 뒤에만 기존 표 컨트롤 하나를 제거한다. Undo 한 단위.
+        """
+        return await _call(
+            engine,
+            "recreate_inline_table_before_paragraph",
+            old_table=old_table,
+            expected_table_text=expected_table_text,
+            before_text=before_text,
+            table_spec=table_spec,
+            blank_paragraph=blank_paragraph,
+            dry_run=dry_run,
+        )
+
+    @mcp.tool()
+    async def trim_blank_paragraphs_before_body(
+        text: str,
+        keep: int = 1,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """정확한 일반 본문 답변 앞의 연속 빈 문단을 keep개만 남긴다.
+
+        표/답변 텍스트는 건드리지 않고 여분 Enter만 제거한다. dry_run은 현재
+        빈 문단 수와 제거 예정 수를 읽기 전용으로 반환한다.
+        """
+        return await _call(
+            engine,
+            "trim_blank_paragraphs_before_body",
+            text=text,
+            keep=keep,
+            dry_run=dry_run,
+        )
+
+    @mcp.tool()
     async def insert_title(text: str, size: float = 20.0) -> dict[str, Any]:
         """제목 문단을 가운데·굵게·큰 글씨로 삽입. 서식은 제목에만 적용. Undo 한 단위."""
         return await _call(engine, "insert_title", text=text, size=size)
 
     @mcp.tool()
-    async def insert_paragraph(text: str) -> dict[str, Any]:
-        """본문 문단을 삽입한다. Undo 한 단위."""
-        return await _call(engine, "insert_paragraph", text=text)
+    async def insert_paragraph(
+        text: str = "",
+        runs: list[dict[str, Any]] | None = None,
+        paragraph: dict[str, Any] | None = None,
+        page_break_before: bool = False,
+    ) -> dict[str, Any]:
+        """본문 문단을 삽입한다. runs는 문단 안의 글자 런 배열(굵게·기울임,
+        위/아래첨자·밑줄·취소선(색·type·shape 포함)·kerning, 글꼴·크기·색·자간·장평 포함),
+        paragraph는 align·여백(mm)·첫줄 들여쓰기(mm)·줄간격(%)·라틴/비라틴
+        단어 줄바꿈(keep_word/break_word) 객체다.
+        text와 runs는 함께 쓰지 않으며, page_break_before는 문단 앞에서
+        네이티브 쪽을 나눈다. Undo 한 단위."""
+        return await _call(
+            engine,
+            "insert_paragraph",
+            text=text,
+            runs=runs,
+            paragraph=paragraph,
+            page_break_before=page_break_before,
+        )
 
     @mcp.tool()
     async def create_table(
@@ -147,6 +325,35 @@ def build_mcp(lock_timeout: float = 8.0):
             header=header,
             cell_margin=cell_padding,
         )
+
+    @mcp.tool()
+    async def set_table_properties(
+        table: int,
+        page_break: str = "cell",
+        repeat_header: bool = True,
+        cell_spacing_mm: float = 0.0,
+    ) -> dict[str, Any]:
+        """표의 쪽 경계 나눔, 제목 행 반복, 셀 사이 간격을 한/글 네이티브 속성으로
+        설정한다. page_break는 none/table/cell, cell_spacing_mm 단위는 mm다.
+        Undo 한 단위."""
+        return await _call(
+            engine,
+            "set_table_properties",
+            table=table,
+            page_break=page_break,
+            repeat_header=repeat_header,
+            cell_spacing_mm=cell_spacing_mm,
+        )
+
+    @mcp.tool()
+    async def set_table_position(
+        table: int,
+        position: dict[str, Any],
+    ) -> dict[str, Any]:
+        """표 위치를 설정한다. position은 inline 또는 floating JSON 객체다.
+        inline은 outside_margin_mm/affect_line_spacing을 받고, floating은 x_mm,
+        y_mm, wrap 및 상대 기준·정렬·본문 흐름 옵션을 받는다. Undo 한 단위."""
+        return await _call(engine, "set_table_position", table=table, position=position)
 
     @mcp.tool()
     async def set_cell_margin(
@@ -278,6 +485,45 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "fill_cells", table=table, cells=cells, assignments=assignments)
 
     @mcp.tool()
+    async def write_cell(
+        table: int,
+        cell: str,
+        paragraphs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """표의 A1 형식 cell 내용을 원자적으로 교체한다. paragraphs의 각 원소는
+        insert_paragraph와 같은 text 또는 runs, paragraph 구조다. 표 셀에서는
+        page_break_before를 지원하지 않는다. Undo 한 단위."""
+        return await _call(
+            engine,
+            "write_cell",
+            table=table,
+            cell=cell,
+            paragraphs=paragraphs,
+        )
+
+    @mcp.tool()
+    async def exit_table() -> dict[str, Any]:
+        """현재 표의 마지막 셀에서 일반 본문으로 이동한다. MoveRight 뒤에도 셀 안이면 실패한다."""
+        return await _call(engine, "exit_table")
+
+    @mcp.tool()
+    async def set_cell_fill(
+        fill: Any,
+        table: int | None = None,
+        cell_range: str = "",
+    ) -> dict[str, Any]:
+        """표 셀 배경을 단색 또는 선형 그라데이션으로 채운다. fill은 색 문자열 또는
+        {type:'solid', color:'#RRGGBB'} / {type:'linear_gradient', angle:0,
+        stops:[{offset:0, color:'#...'}, {offset:1, color:'#...'}]} 구조다."""
+        return await _call(
+            engine,
+            "set_cell_fill",
+            fill=fill,
+            table=table,
+            cell_range=cell_range,
+        )
+
+    @mcp.tool()
     async def layout_review(
         table: int | None = None,
         dry_run: bool = False,
@@ -285,6 +531,71 @@ def build_mcp(lock_timeout: float = 8.0):
         """표 편집 뒤 항상 호출한다. 셀 줄바꿈·행 높이·본문 폭·쪽 수를 읽고 고친다.
         table이 없으면 모든 표. 기본은 수정하며 dry_run=true면 계획만 반환한다."""
         return await _call(engine, "layout_review", table=table, dry_run=dry_run)
+
+    @mcp.tool()
+    async def insert_image(
+        path: str,
+        table: int | None = None,
+        cell: str = "",
+        size_option: int = 3,
+        width_mm: float = 0.0,
+        height_mm: float = 0.0,
+    ) -> dict[str, Any]:
+        """그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 넣는다. 문서에 포함(embedded)된다.
+        size_option: 0=원본, 1=width_mm/height_mm 지정, 2=셀 맞춤, 3=셀 맞춤·비율 유지(기본).
+        2/3 은 table 과 cell 로 칸을 지정해야 한다. 원본 그림 파일은 수정하지 않는다."""
+        return await _call(
+            engine,
+            "insert_image",
+            path=path,
+            table=table,
+            cell=cell,
+            size_option=size_option,
+            width_mm=width_mm,
+            height_mm=height_mm,
+        )
+
+    @mcp.tool()
+    async def insert_text_box(
+        text: str,
+        width_mm: float,
+        height_mm: float,
+        fill: Any = None,
+        line: Any = None,
+        shadow: Any = None,
+        text_shadow: Any = None,
+        margin: Any = None,
+        align: str = "center",
+        position: Any = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        font: str = "",
+        size: float | None = None,
+        color: str = "",
+    ) -> dict[str, Any]:
+        """편집 가능한 글상자를 넣는다. fill은 단색 색상 또는 structured fill,
+        shadow는 {color, alpha(0~255), offset_x_mm, offset_y_mm}, text_shadow는
+        alpha 없이 색·오프셋을 받는다.
+        position은 inline 또는 {mode:'floating', x_mm, y_mm}; Undo 한 단위."""
+        return await _call(
+            engine,
+            "insert_text_box",
+            text=text,
+            width_mm=width_mm,
+            height_mm=height_mm,
+            fill=fill,
+            line=line,
+            shadow=shadow,
+            text_shadow=text_shadow,
+            margin=margin,
+            align=align,
+            position=position,
+            bold=bold,
+            italic=italic,
+            font=font,
+            size=size,
+            color=color,
+        )
 
     @mcp.tool()
     async def insert_chart(
@@ -315,12 +626,14 @@ def build_mcp(lock_timeout: float = 8.0):
         size: float | None = None,
         align: str = "",
         color: str = "",
-        fill: str = "",
+        fill: Any = None,
+        text_shadow: Any = None,
         table: int | None = None,
         row: int | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
-        """선택·문단·행·셀범위 서식. fill 은 셀 배경. cell_range 는 요청 칸에만 적용."""
+        """선택·문단·행·셀범위 서식. fill은 셀 배경(단색/그라데이션),
+        text_shadow는 글자 그림자 구조. cell_range는 요청 칸에만 적용."""
         return await _call(
             engine,
             "set_format",
@@ -331,6 +644,7 @@ def build_mcp(lock_timeout: float = 8.0):
             align=align,
             color=color,
             fill=fill,
+            text_shadow=text_shadow,
             table=table,
             row=row,
             cell_range=cell_range,
@@ -358,6 +672,49 @@ def build_mcp(lock_timeout: float = 8.0):
     ) -> dict[str, Any]:
         """현재 쪽/PageCount를 읽고, goto로 이동하거나 break_page로 쪽을 나눈다."""
         return await _call(engine, "page", goto=goto, break_page=break_page)
+
+    @mcp.tool()
+    async def set_page_number(
+        position: str = "bottom_center",
+        separator: str = "-",
+    ) -> dict[str, Any]:
+        """본문 텍스트가 아닌 한/글 네이티브 쪽 번호를 적용한다.
+        position은 top_left/top_center/top_right/bottom_left/bottom_center/
+        bottom_right, separator는 숫자 양쪽의 한 글자 구분 문자다. Undo 한 단위."""
+        return await _call(
+            engine,
+            "set_page_number",
+            position=position,
+            separator=separator,
+        )
+
+    @mcp.tool()
+    async def set_page_visibility(
+        hide_header: bool = False,
+        hide_footer: bool = False,
+        hide_master_page: bool = False,
+        hide_border: bool = False,
+        hide_fill: bool = False,
+        hide_page_num: bool = False,
+    ) -> dict[str, Any]:
+        """현재 쪽에서 선택한 표시 요소를 숨긴다. 표지의 쪽 번호만 감길 때는
+        hide_page_num=true를 쓴다. 생략한 항목은 숨기지 않는다. Undo 한 단위."""
+        return await _call(
+            engine,
+            "set_page_visibility",
+            hide_header=hide_header,
+            hide_footer=hide_footer,
+            hide_master_page=hide_master_page,
+            hide_border=hide_border,
+            hide_fill=hide_fill,
+            hide_page_num=hide_page_num,
+        )
+
+    @mcp.tool()
+    async def restart_page_number(number: int = 1) -> dict[str, Any]:
+        """현재 캐럿 위치부터 한/글 네이티브 쪽 번호를 number로 다시 시작한다.
+        number는 1~999999 정수다. Undo 한 단위."""
+        return await _call(engine, "restart_page_number", number=number)
 
     @mcp.tool()
     async def set_pagedef(
@@ -404,6 +761,15 @@ def build_mcp(lock_timeout: float = 8.0):
     async def close(force: bool = False) -> dict[str, Any]:
         """문서를 닫는다. force=true 필수."""
         return await _call(engine, "close", force=force)
+
+    @mcp.tool()
+    async def close_all(force: bool = False) -> dict[str, Any]:
+        """실행 중인 모든 한/글 문서를 닫는다. force=true 필수.
+
+        저장하지 않은 다른 문서도 버린다. 각 문서를 문서 단위로 닫고 남은 창을
+        결과로 돌려준다.
+        """
+        return await _call(engine, "close_all", force=force)
 
     @mcp.tool()
     async def hwpx_status(path: str = "") -> dict[str, Any]:

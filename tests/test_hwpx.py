@@ -73,6 +73,13 @@ SECTION_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+def _write_ppm(path: Path, width: int, height: int, rgb: list[int]) -> None:
+    assert len(rgb) == width * height * 3
+    path.write_bytes(
+        f"P6\n{width} {height}\n255\n".encode("ascii") + bytes(rgb)
+    )
+
+
 def test_hwpx_tools_are_catalogued() -> None:
     names = tool_names()
     assert "hwpx_status" in names
@@ -136,10 +143,77 @@ def test_inspect_hwp_rejected_korean(tmp_path: Path) -> None:
     assert ".hwpx" in exc.value.message
 
 
-def test_compare_page_images_is_stub() -> None:
-    with pytest.raises(NotImplementedError) as exc:
-        compare_page_images("a.hwpx", "b.hwpx")
-    assert "쪽 이미지" in str(exc.value)
+def test_compare_page_images_explicit_list_metrics_and_artifacts(tmp_path: Path) -> None:
+    reference_first = tmp_path / "reference-1.ppm"
+    reference_second = tmp_path / "reference-2.ppm"
+    candidate_first = tmp_path / "candidate-1.ppm"
+    candidate_second = tmp_path / "candidate-2.ppm"
+    _write_ppm(reference_first, 2, 1, [0, 0, 0, 20, 40, 60])
+    _write_ppm(reference_second, 1, 1, [1, 2, 3])
+    _write_ppm(candidate_first, 2, 1, [0, 0, 0, 25, 50, 65])
+    _write_ppm(candidate_second, 1, 1, [1, 2, 3])
+
+    payload = compare_page_images(
+        [reference_first, reference_second],
+        [candidate_first, candidate_second],
+        output_dir=tmp_path / "artifacts",
+        emit_diff=True,
+        emit_overlay=True,
+    )
+
+    assert payload["ok"] is False
+    assert payload["page_count_match"] is True
+    assert payload["dimensions_match"] is True
+    assert payload["comparable_page_count"] == 2
+    assert payload["changed_pixels"] == 1
+    assert payload["mean_absolute_error"] == pytest.approx(20 / 9)
+    assert payload["max_delta"] == 10
+
+    first = payload["pages"][0]
+    assert first["status"] == "different"
+    assert first["changed_pixels"] == 1
+    assert first["mean_absolute_error"] == pytest.approx(20 / 6)
+    assert first["max_delta"] == 10
+    assert Path(first["diff_path"]).read_bytes().endswith(bytes([0, 0, 0, 5, 10, 5]))
+    assert Path(first["overlay_path"]).read_bytes().endswith(bytes([0, 0, 0, 22, 45, 62]))
+    assert payload["pages"][1]["status"] == "identical"
+
+
+def test_compare_page_images_directories_report_count_and_dimension_mismatches(
+    tmp_path: Path,
+) -> None:
+    reference_dir = tmp_path / "reference"
+    candidate_dir = tmp_path / "candidate"
+    reference_dir.mkdir()
+    candidate_dir.mkdir()
+    _write_ppm(reference_dir / "page-2.ppm", 1, 1, [1, 2, 3])
+    _write_ppm(reference_dir / "page-10.ppm", 2, 1, [4, 5, 6, 7, 8, 9])
+    _write_ppm(candidate_dir / "page-2.ppm", 1, 1, [1, 2, 3])
+    _write_ppm(candidate_dir / "page-10.ppm", 1, 1, [4, 5, 6])
+    _write_ppm(candidate_dir / "page-11.ppm", 1, 1, [9, 9, 9])
+
+    payload = compare_page_images(reference_dir, candidate_dir)
+
+    assert payload["ok"] is False
+    assert payload["reference_page_count"] == 2
+    assert payload["candidate_page_count"] == 3
+    assert payload["page_count_match"] is False
+    assert payload["dimensions_match"] is False
+    assert payload["dimension_mismatch_pages"] == [2]
+    assert payload["pages"][0]["reference_path"].endswith("page-2.ppm")
+    assert payload["pages"][0]["status"] == "identical"
+    assert payload["pages"][1]["status"] == "dimension_mismatch"
+    assert payload["pages"][2]["status"] == "missing_reference"
+
+
+def test_compare_page_images_requires_output_directory_for_artifacts(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.ppm"
+    candidate = tmp_path / "candidate.ppm"
+    _write_ppm(reference, 1, 1, [0, 0, 0])
+    _write_ppm(candidate, 1, 1, [0, 0, 0])
+
+    with pytest.raises(ValueError, match="output_dir"):
+        compare_page_images(reference, candidate, emit_diff=True)
 
 
 def test_cli_hwpx_status_without_hangul() -> None:
@@ -149,6 +223,7 @@ def test_cli_hwpx_status_without_hangul() -> None:
         cwd=repo,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     assert proc.returncode == 0
@@ -166,6 +241,7 @@ def test_cli_hwpx_inspect_missing_korean() -> None:
         cwd=repo,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     assert proc.returncode == 9
@@ -241,6 +317,7 @@ def test_cli_hwpx_inspect_generated_file(tmp_path: Path) -> None:
         cwd=repo,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     assert proc.returncode == 0, proc.stderr

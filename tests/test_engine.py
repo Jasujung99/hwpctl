@@ -28,6 +28,14 @@ class FakeCanvas:
         self.page_count = 2
         self.page_counts: list[int] = []
         self.created_shape: tuple[int, int] | None = None
+        # 새 시각 서식 명령의 COM 액션 수. Engine이 실제 어댑터 반환값을
+        # Undo 스택에 그대로 기록하는지 검증할 때 쓴다.
+        self.text_box_actions = 3
+        self.cell_fill_actions = 1
+        self.blank_paragraph_creations: list[bool] = []
+        self._table_control = type("TableCtrl", (), {"CtrlID": "tbl"})()
+        self.create_enters_cell = False
+        self.blank_paragraph_count = 1
         self.layout = {
             "index": 0,
             "rows": 1,
@@ -74,6 +82,28 @@ class FakeCanvas:
 
     def table_count(self) -> int:
         return 1
+
+    def table_control(self, table: int):
+        self.calls.append(("table_control", table))
+        return self._table_control
+
+    def delete_table_control(self, ctrl) -> None:
+        assert ctrl is self._table_control
+        self.calls.append(("delete_table_control", None))
+
+    def ensure_blank_paragraph_before_body(self, text: str) -> bool:
+        self.calls.append(("ensure_blank_paragraph_before_body", text))
+        self.in_cell = False
+        self.blank_paragraph_creations.append(True)
+        return True
+
+    def count_blank_paragraphs_before_body(self, text: str) -> int:
+        self.calls.append(("count_blank_paragraphs_before_body", text))
+        return self.blank_paragraph_count
+
+    def remove_empty_paragraph_immediately_before_body(self, text: str) -> None:
+        self.calls.append(("remove_empty_paragraph_immediately_before_body", text))
+        self.blank_paragraph_count -= 1
 
     def assert_no_dialog(self) -> None:
         return None
@@ -228,6 +258,10 @@ class FakeCanvas:
     def get_selected_text(self) -> str:
         return self.selected
 
+    def select_exact_body_paragraph(self, text: str, occurrence: int = 1):
+        self.calls.append(("select_exact_body_paragraph", (text, occurrence)))
+        return {"text": text, "position": (0, 4, 1), "in_cell": False}
+
     def get_page_text(self, page_index_1: int) -> str:
         return f"page-{page_index_1}"
 
@@ -240,11 +274,16 @@ class FakeCanvas:
     def set_align(self, align: str) -> None:
         self.calls.append(("set_align", align))
 
+    def set_paragraph_format(self, **kwargs) -> None:
+        self.calls.append(("set_paragraph_format", kwargs))
+
     def insert_text(self, text: str) -> None:
         self.calls.append(("insert_text", text))
 
     def create_table(self, rows: int, cols: int, header: bool = True) -> None:
         self.created_shape = (rows, cols)
+        if self.create_enters_cell:
+            self.in_cell = True
         self.calls.append(("create_table", (rows, cols, header)))
 
     def is_cell(self) -> bool:
@@ -261,6 +300,28 @@ class FakeCanvas:
 
     def cell_fill(self, color: str) -> None:
         self.calls.append(("cell_fill", color))
+
+    def set_cell_fill(self, *, fill) -> int:
+        self.calls.append(("set_cell_fill", fill))
+        return self.cell_fill_actions
+
+    def exit_table(self) -> None:
+        self.calls.append(("exit_table", None))
+        self.in_cell = False
+
+    def insert_text_box(self, text: str, width_mm: float, height_mm: float, **kwargs) -> int:
+        self.calls.append(
+            (
+                "insert_text_box",
+                {
+                    "text": text,
+                    "width_mm": width_mm,
+                    "height_mm": height_mm,
+                    **kwargs,
+                },
+            )
+        )
+        return self.text_box_actions
 
     def select_cell_text(self) -> None:
         self.calls.append(("select_cell_text", None))
@@ -292,11 +353,43 @@ class FakeCanvas:
     def break_page(self) -> None:
         self.calls.append(("break_page", None))
 
+    def break_paragraph(self) -> None:
+        self.calls.append(("break_paragraph", None))
+
+    def set_page_number(self, **kwargs) -> None:
+        self.calls.append(("set_page_number", kwargs))
+
+    def set_page_visibility(self, **kwargs) -> None:
+        self.calls.append(("set_page_visibility", kwargs))
+
+    def restart_page_number(self, **kwargs) -> None:
+        self.calls.append(("restart_page_number", kwargs))
+
+    def set_table_properties(self, **kwargs) -> int:
+        self.calls.append(("set_table_properties", kwargs))
+        return 1
+
+    def set_table_position(self, **kwargs) -> int:
+        self.calls.append(("set_table_position", kwargs))
+        return 1
+
+    def set_current_table_properties(self, **kwargs) -> int:
+        self.calls.append(("set_current_table_properties", kwargs))
+        return 1
+
+    def set_current_inline_table_position(self, **kwargs) -> int:
+        self.calls.append(("set_current_inline_table_position", kwargs))
+        return 1
+
     def set_pagedef(self, **kwargs) -> None:
         self.calls.append(("set_pagedef", kwargs))
 
     def set_style(self, style) -> None:
         self.calls.append(("set_style", style))
+
+    def run(self, action: str) -> bool:
+        self.calls.append(("run", action))
+        return True
 
 
 @pytest.fixture
@@ -307,6 +400,21 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Engine, Fak
     eng = Engine(
         lock_timeout=1,
         canvas_factory=lambda new=False, allow_launch=False, hwnd=0: fake,
+        document_lister=lambda: [
+            {
+                "instance": "!HwpObject.120.9",
+                "document_index": 0,
+                "window_handle": 9999,
+                "window_title": "빈 문서 1 - 한글",
+                "pid": 1234,
+                "path": "",
+                "unsaved": True,
+                "modified": True,
+                "page_count": 3,
+                "active": True,
+                "visible": True,
+            }
+        ],
     )
     return eng, fake
 
@@ -350,6 +458,140 @@ def test_insert_title_skips_restore_count_when_shape_unavailable(engine) -> None
     assert load_state().undo_stack == [3]
 
 
+def test_insert_paragraph_writes_structured_runs_layout_and_page_break(engine) -> None:
+    """빈 문서 재구현은 HWPML 주입 없이 문단·런 공개 사양만으로 조립한다."""
+    eng, fake = engine
+
+    out = eng.insert_paragraph(
+        runs=[
+            {
+                "text": "Q. ",
+                "bold": True,
+                "superscript": True,
+                "underline": {
+                    "enabled": True,
+                    "type": "bottom",
+                    "shape": "solid",
+                    "color": "#112233",
+                },
+                "strikeout": {
+                    "enabled": True,
+                    "type": "continuous",
+                    "shape": "solid",
+                    "color": "#445566",
+                },
+                "kerning": True,
+                "font": "함초롬돋움",
+                "size": 15,
+                "letter_spacing_percent": -3,
+                "width_scale_percent": 110,
+            },
+            {"text": "문의 내용", "color": "#112233"},
+        ],
+        paragraph={
+            "align": "justify",
+            "first_line_indent_mm": -20.7,
+            "line_spacing_percent": 150,
+            "break_latin_word": "keep_word",
+            "break_non_latin_word": "keep_word",
+        },
+        page_break_before=True,
+    )
+
+    assert out["undo_units"] == 1
+    assert out["page_break_before"] is True
+    assert ("break_page", None) in fake.calls
+    assert (
+        "set_paragraph_format",
+        {
+            "align": "justify",
+            "first_line_indent_mm": -20.7,
+            "line_spacing_percent": 150.0,
+            "break_latin_word": "keep_word",
+            "break_non_latin_word": "keep_word",
+        },
+    ) in fake.calls
+    font_call = next(value for name, value in fake.calls if name == "set_font")
+    assert font_call["face"] == "함초롬돋움"
+    assert font_call["superscript"] is True
+    assert font_call["underline"]["color"] == "#112233"
+    assert font_call["strikeout"]["type"] == "continuous"
+    assert font_call["kerning"] is True
+    assert font_call["letter_spacing_percent"] == -3
+    assert font_call["width_scale_percent"] == 110
+    assert [value for name, value in fake.calls if name == "insert_text"] == ["Q. ", "문의 내용"]
+    assert fake.calls.count(("break_paragraph", None)) == 1
+    assert load_state().undo_stack == [out["hangul_actions"]]
+
+
+def test_insert_paragraph_rejects_invalid_structured_specs_before_edit(engine) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError, match="text와 runs"):
+        eng.insert_paragraph("중복", runs=[{"text": "런"}])
+    with pytest.raises(UsageError, match="line_spacing_percent"):
+        eng.insert_paragraph(paragraph={"line_spacing_percent": 20})
+    with pytest.raises(UsageError, match="letter_spacing_percent"):
+        eng.insert_paragraph(runs=[{"text": "런", "letter_spacing_percent": 0.5}])
+    with pytest.raises(UsageError, match="break_latin_word"):
+        eng.insert_paragraph(paragraph={"break_latin_word": "wrap_anywhere"})
+    with pytest.raises(UsageError, match="superscript"):
+        eng.insert_paragraph(runs=[{"text": "런", "superscript": "true"}])
+    with pytest.raises(UsageError, match="underline.shape"):
+        eng.insert_paragraph(runs=[{"text": "런", "underline": {"shape": "wave"}}])
+    with pytest.raises(UsageError, match="kerning"):
+        eng.insert_paragraph(runs=[{"text": "런", "kerning": 1}])
+    assert fake.calls == []
+
+
+def test_write_cell_replaces_contents_with_structured_paragraphs_in_one_undo_unit(engine) -> None:
+    eng, fake = engine
+
+    out = eng.write_cell(
+        table=0,
+        cell="b2",
+        paragraphs=[
+            {
+                "runs": [{"text": "제목", "bold": True}],
+                "paragraph": {"align": "center", "after_spacing_mm": 1.5},
+            },
+            {"text": "설명", "paragraph": {"line_spacing_percent": 140}},
+        ],
+    )
+
+    assert out["cell"] == "B2"
+    assert out["paragraph_count"] == 2
+    assert out["undo_units"] == 1
+    assert ("get_into_nth_table", 0) in fake.calls
+    assert ("goto_addr", "B2") in fake.calls
+    assert ("select_cell_text", None) in fake.calls
+    texts = [value for name, value in fake.calls if name == "insert_text"]
+    assert texts == ["", "제목", "설명"]
+    # 두 문단 사이에만 BreakPara가 있고 셀 끝에 빈 문단을 만들지 않는다.
+    assert fake.calls.count(("break_paragraph", None)) == 1
+    assert load_state().undo_stack == [out["hangul_actions"]]
+
+
+def test_write_cell_rejects_bad_target_and_page_break_before_edit(engine) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError, match="A1"):
+        eng.write_cell(table=0, cell="not-a-cell", paragraphs=[])
+    with pytest.raises(UsageError, match="page_break_before"):
+        eng.write_cell(
+            table=0,
+            cell="A1",
+            paragraphs=[{"text": "셀", "page_break_before": True}],
+        )
+    assert fake.calls == []
+
+
+def test_set_page_number_is_native_canvas_action_and_one_undo_unit(engine) -> None:
+    eng, fake = engine
+    out = eng.set_page_number(position="bottom_center", separator="-")
+    assert out["undo_units"] == 1
+    assert ("set_page_number", {"position": "bottom_center", "separator": "-"}) in fake.calls
+    assert load_state().undo_stack == [1]
+
+
 def test_create_table_header_fill_and_default_margin(engine) -> None:
     eng, fake = engine
     eng.create_table(rows=8, cols=4, header_fill="gray")
@@ -391,6 +633,22 @@ def test_fill_cells_grid(engine) -> None:
     addrs = [c[1] for c in fake.calls if c[0] == "goto_addr"]
     assert "A1" in addrs and "B1" in addrs
     assert load_state().undo_stack[-1] == 2
+
+
+def test_exit_table_dispatches_without_creating_an_undo_entry(engine) -> None:
+    eng, fake = engine
+
+    out = eng.dispatch("exit_table")
+
+    assert out == {
+        "ok": True,
+        "command": "exit_table",
+        "left_table": True,
+        "undo_units": 0,
+    }
+    assert ("exit_table", None) in fake.calls
+    assert fake.in_cell is False
+    assert load_state().undo_stack == []
 
 
 def test_layout_review_wrapped_cell_increases_column_width(engine) -> None:
@@ -495,6 +753,23 @@ def test_close_without_force_rejected(engine) -> None:
     eng, _ = engine
     with pytest.raises(DestructiveGuardError):
         eng.close(force=False)
+
+
+def test_close_all_requires_force_and_clears_target_after_document_level_closes(engine) -> None:
+    eng, _ = engine
+    with pytest.raises(DestructiveGuardError):
+        eng.close_all(force=False)
+
+    eng.document_closer = lambda: {
+        "closed": [{"instance": "!HwpObject.120.1", "document_index": 0}],
+        "failures": [],
+    }
+    eng.document_lister = lambda: []
+    out = eng.close_all(force=True)
+    assert out["ok"] is True
+    assert out["closed_count"] == 1
+    assert out["remaining_count"] == 0
+    assert load_state().target_hwnd == 0
 
 
 def test_open_dirty_requires_discard(engine) -> None:
@@ -605,6 +880,7 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
     assert out["window_title"] == "빈 문서 2 - 한글"
     assert load_state().target_hwnd == 855126
     assert any(c["new"] is True and c["hwnd"] == 0 for c in calls)
+    assert not any(name == "new_document" for name, _ in created.calls)
 
     before = len(calls)
     st2 = eng.status()
@@ -619,37 +895,25 @@ def test_open_new_updates_pin_so_followup_writes_succeed(tmp_path: Path, monkeyp
     assert not any(c[0] == "insert_text" for c in rot_first.calls)
 
 
-def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """_connect(new=True) 는 Add 전에 고정하지 않는다.
-
-    라이브: 그 시점의 window_handle() 은 아직 Item(0)=이전 창.
-    new_document()/Add 뒤에 활성 창 핸들로 고정해야 한다.
-    """
+def test_open_new_uses_connector_document_and_pins_active_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """open --new는 연결 단계가 만든 문서를 그대로 쓰며 두 번째 FileNew를 하지 않는다."""
     monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "lock"))
     monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
 
     canvas = FakeCanvas()
     canvas.hwnd = 855126
     canvas.title = "보고서.hwp - 한글"
-    pin_at_add: list[int] = []
-
-    def after_add() -> None:
-        pin_at_add.append(load_state().target_hwnd)
-        canvas.hwnd = 3738628
-        canvas.title = "빈 문서 2 - 한글"
-        canvas.path = ""
-        canvas.calls.append(("new_document", None))
-
-    canvas.new_document = after_add  # type: ignore[method-assign]
+    factory_calls: list[dict[str, int | bool]] = []
 
     def factory(new=False, allow_launch=False, hwnd=0):
+        factory_calls.append({"new": new, "allow_launch": allow_launch, "hwnd": hwnd})
         if new:
-            # Add 전: COM 이 아직 Item(0) 이전 창을 돌려주는 상황
-            canvas.hwnd = 855126
-            return canvas
-        if hwnd == 3738628:
+            # Connector가 새 문서를 이미 만들고 활성 창 핸들을 돌려준다.
             canvas.hwnd = 3738628
-            return canvas
+            canvas.title = "빈 문서 2 - 한글"
+            canvas.path = ""
         return canvas
 
     eng = Engine(lock_timeout=1, canvas_factory=factory)
@@ -657,9 +921,17 @@ def test_open_new_pins_after_add_not_item0_before(tmp_path: Path, monkeypatch: p
     assert load_state().target_hwnd == 855126
 
     out = eng.open(new=True)
-    assert pin_at_add == [855126]  # Add 직전 pin 은 아직 이전 창 (새 Item(0) 으로 덮지 않음)
+    assert not any(name == "new_document" for name, _ in canvas.calls)
+    assert factory_calls[-1] == {"new": True, "allow_launch": True, "hwnd": 0}
     assert load_state().target_hwnd == 3738628
     assert out["window_title"] == "빈 문서 2 - 한글"
+
+
+def test_open_without_new_still_creates_one_document(engine) -> None:
+    eng, fake = engine
+    out = eng.open()
+    assert out["new"] is False
+    assert [call for call in fake.calls if call[0] == "new_document"] == [("new_document", None)]
 
 
 def test_open_path_moves_pin_when_document_handle_changes(engine) -> None:
@@ -727,6 +999,35 @@ def test_status_and_snapshot(engine) -> None:
     snap = eng.snapshot()
     assert "제목" in snap["body"]
     assert snap["tables"][0]["cols"] == 2
+
+
+def test_list_documents_is_global_read_only_status(engine) -> None:
+    eng, fake = engine
+    out = eng.list_documents()
+    assert out == {
+        "ok": True,
+        "command": "list_documents",
+        "read_only": True,
+        "count": 1,
+        "documents": [
+            {
+                "instance": "!HwpObject.120.9",
+                "document_index": 0,
+                "window_handle": 9999,
+                "window_title": "빈 문서 1 - 한글",
+                "pid": 1234,
+                "path": "",
+                "unsaved": True,
+                "modified": True,
+                "page_count": 3,
+                "active": True,
+                "visible": True,
+            }
+        ],
+    }
+    # 대상 문서 고정·커서 이동을 위해 캔버스에 붙지 않는다.
+    assert fake.calls == []
+    assert load_state().target_hwnd == 0
 
 
 def test_set_cell_margin_whole_table(engine) -> None:
@@ -915,6 +1216,196 @@ def test_snapshot_restores_caret_and_selection(engine) -> None:
     assert restored and restored[0][1][0] is True
 
 
+def test_format_paragraph_by_text_validates_then_formats_one_normal_body_paragraph(engine) -> None:
+    eng, fake = engine
+    text = " ◦ 본문 한 문단입니다. "
+
+    check = eng.format_paragraph_by_text(text=text, dry_run=True)
+    assert check["dry_run"] is True
+    assert check["matched"] == text
+    assert check["undo_units"] == 0
+    assert not any(name == "set_font" for name, _value in fake.calls)
+
+    fake.calls.clear()
+    out = eng.format_paragraph_by_text(
+        text=text,
+        font="휴먼명조",
+        size=15,
+        bold=False,
+        paragraph={
+            "align": "justify",
+            "first_line_indent_mm": -21.3,
+            "line_spacing_percent": 155,
+            "break_latin_word": "keep_word",
+            "break_non_latin_word": "keep_word",
+        },
+    )
+
+    assert out["undo_units"] == 1
+    assert ("select_exact_body_paragraph", (text, 1)) in fake.calls
+    font_call = [value for name, value in fake.calls if name == "set_font"][0]
+    assert font_call["face"] == "휴먼명조"
+    assert font_call["height_pt"] == 15
+    paragraph_call = [value for name, value in fake.calls if name == "set_paragraph_format"][0]
+    assert paragraph_call["line_spacing_percent"] == 155
+    assert ("set_pos", (0, 3, 7)) in fake.calls
+    assert any(name == "restore_selection" for name, _value in fake.calls)
+
+
+def test_format_paragraph_by_text_rejects_multiline_or_empty_format(engine) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError, match="줄바꿈"):
+        eng.format_paragraph_by_text(text="한 문단\n다음 문단", dry_run=True)
+    with pytest.raises(UsageError, match="적용할"):
+        eng.format_paragraph_by_text(text="본문")
+    assert fake.calls == []
+
+
+def test_recreate_inline_table_before_paragraph_rebuilds_without_cut_or_clipboard(engine) -> None:
+    eng, fake = engine
+    question = "Q. 지원 제외되는 업종이 있나요? 업종과 무관하게 신청할 수 있나요?"
+    answer = " ◦ 소상공인 정책자금 지원 제외 업종의 경우 신청 불가합니다."
+    fake.selected = question
+    fake.create_enters_cell = True
+    table_spec = {
+        "kind": "table",
+        "rows": 1,
+        "cols": 1,
+        "column_widths_mm": [168.991139],
+        "row_heights_mm": [16.178389],
+        "merges": [],
+        "exit_cell": "A1",
+        "cells": {
+            "A1": {
+                "paragraphs": [
+                    {
+                        "paragraph": {"align": "justify", "line_spacing_percent": 150},
+                        "runs": [
+                            {"text": "Q. ", "font": "맑은 고딕", "size": 15, "bold": True},
+                            {"text": question[3:], "font": "맑은 고딕", "size": 15, "bold": True},
+                        ],
+                    }
+                ],
+                "margin_mm": [1.799167, 1.799167, 0.497417, 0.497417],
+                "valign": "center",
+                "borders": [
+                    {
+                        "sides": "left,right,top,bottom",
+                        "line_type": "Solid",
+                        "width": "0.12mm",
+                        "color": "#000000",
+                    }
+                ],
+                "fill": "#FFF7CC",
+            }
+        },
+        "position": {
+            "mode": "inline",
+            "affect_line_spacing": False,
+            "outside_margin_mm": [0.493889, 0.493889, 0.493889, 0.493889],
+            "horizontal_relative_to": "paragraph",
+        },
+        "properties": {"repeat_header": True, "page_break": "cell", "cell_spacing_mm": 0},
+    }
+    blank = {
+        "kind": "paragraph",
+        "paragraph": {"align": "justify", "line_spacing_percent": 155},
+        "runs": [{"text": "", "font": "휴먼명조", "size": 10, "color": "#0000FF"}],
+    }
+
+    check = eng.recreate_inline_table_before_paragraph(
+        old_table=0,
+        expected_table_text=question,
+        before_text=answer,
+        table_spec=table_spec,
+        blank_paragraph=blank,
+        dry_run=True,
+    )
+    assert check["dry_run"] is True
+    assert not any(name == "create_table" for name, _value in fake.calls)
+
+    fake.calls.clear()
+    out = eng.recreate_inline_table_before_paragraph(
+        old_table=0,
+        expected_table_text=question,
+        before_text=answer,
+        table_spec=table_spec,
+        blank_paragraph=blank,
+    )
+    assert out["undo_units"] == 1
+    assert ("create_table", (1, 1, False)) in fake.calls
+    assert ("delete_table_control", None) in fake.calls
+    assert len([c for c in fake.calls if c[0] == "ensure_blank_paragraph_before_body"]) == 2
+    assert not any(value in {"InternalCut", "InternalPaste"} for name, value in fake.calls if name == "run")
+    assert any(name == "set_current_table_properties" for name, _value in fake.calls)
+    assert any(name == "set_current_inline_table_position" for name, _value in fake.calls)
+    assert any(name == "set_paragraph_format" for name, _value in fake.calls)
+
+
+def test_recreate_inline_table_before_paragraph_rejects_nonempty_blank_source(engine) -> None:
+    eng, fake = engine
+    table_spec = {
+        "rows": 1,
+        "cols": 1,
+        "column_widths_mm": [100],
+        "row_heights_mm": [10],
+        "cells": {
+            "A1": {
+                "paragraphs": [{"runs": [{"text": "Q."}]}],
+                "margin_mm": [1, 1, 1, 1],
+                "valign": "center",
+                "borders": [
+                    {
+                        "sides": "all",
+                        "line_type": "Solid",
+                        "width": "0.12mm",
+                        "color": "#000000",
+                    }
+                ],
+                "fill": "#FFFFFF",
+            }
+        },
+        "position": {"mode": "inline"},
+        "properties": {"page_break": "cell", "repeat_header": True, "cell_spacing_mm": 0},
+    }
+    with pytest.raises(UsageError, match="텍스트는 모두 비어"):
+        eng.recreate_inline_table_before_paragraph(
+            old_table=0,
+            expected_table_text="Q.",
+            before_text="답변",
+            table_spec=table_spec,
+            blank_paragraph={"runs": [{"text": "빈 문단이 아님"}]},
+        )
+    assert fake.calls == []
+
+
+def test_trim_blank_paragraphs_before_body_removes_only_excess_enter(engine) -> None:
+    eng, fake = engine
+    answer = " ◦ 답변 문단"
+    fake.blank_paragraph_count = 2
+
+    check = eng.trim_blank_paragraphs_before_body(answer, keep=1, dry_run=True)
+    assert check["before"] == 2
+    assert check["remove"] == 1
+    assert not any(name == "remove_empty_paragraph_immediately_before_body" for name, _ in fake.calls)
+
+    fake.calls.clear()
+    out = eng.trim_blank_paragraphs_before_body(answer, keep=1)
+    assert out["removed"] == 1
+    assert out["remaining"] == 1
+    assert out["undo_units"] == 1
+    assert fake.blank_paragraph_count == 1
+    assert ("remove_empty_paragraph_immediately_before_body", answer) in fake.calls
+
+
+def test_trim_blank_paragraphs_before_body_refuses_to_invent_missing_enter(engine) -> None:
+    eng, fake = engine
+    fake.blank_paragraph_count = 0
+    with pytest.raises(HangulCommandError, match="빈 문단이 0개"):
+        eng.trim_blank_paragraphs_before_body("답변", keep=1)
+    assert not any(name == "remove_empty_paragraph_immediately_before_body" for name, _ in fake.calls)
+
+
 def test_set_format_range_applies_only_requested_cells(engine) -> None:
     """회귀 방지(#12): A1:B2 는 4칸 전부, 행 전체 확대 없이 요청 칸만."""
     eng, fake = engine
@@ -925,10 +1416,312 @@ def test_set_format_range_applies_only_requested_cells(engine) -> None:
     assert not any(c[0] == "select_row" for c in fake.calls)
 
 
+def test_insert_text_box_dispatches_normalized_visual_specs_and_undo(engine) -> None:
+    """새 공개 글상자 명령은 COM 세부값이 아닌 정규화된 사양만 어댑터로 넘긴다."""
+    eng, fake = engine
+    out = eng.dispatch(
+        "insert_text_box",
+        text="문의 안내",
+        width_mm=118,
+        height_mm=23.5,
+        fill={
+            "type": "linear_gradient",
+            "angle": 90,
+            "stops": [
+                {"offset": 0, "color": "#004A99"},
+                {"offset": 1, "color": "#00A7C6"},
+            ],
+        },
+        line={"type": "solid", "color": "#113355", "width_mm": 0.3},
+        shadow={
+            "type": "offset",
+            "color": "#000000",
+            "alpha": 96,
+            "offset_x_mm": 1,
+            "offset_y_mm": -1,
+        },
+        text_shadow={
+            "type": "offset",
+            "color": "#101010",
+            "alpha": 0,
+            "offset_x_mm": 0.5,
+            "offset_y_mm": 0,
+        },
+        position={"mode": "floating", "x_mm": 10, "y_mm": 20},
+        bold=True,
+        font="함초롬돋움",
+        size=16,
+        color="#FFFFFF",
+    )
+
+    call = next(value for name, value in fake.calls if name == "insert_text_box")
+    assert call["text"] == "문의 안내"
+    assert call["width_mm"] == 118.0
+    assert call["height_mm"] == 23.5
+    assert call["fill"] == {
+        "type": "linear_gradient",
+        "angle": 90.0,
+        "stops": [
+            {"offset": 0.0, "color": "#004A99"},
+            {"offset": 1.0, "color": "#00A7C6"},
+        ],
+    }
+    assert call["line"] == {"type": "solid", "color": "#113355", "width_mm": 0.3}
+    assert call["shadow"]["alpha"] == 96.0
+    assert call["text_shadow"]["alpha"] == 0
+    assert call["margin"] is None  # 기본은 지원되지 않는 여백 쓰기를 요청하지 않는다.
+    assert call["position"] == {"mode": "floating", "x_mm": 10.0, "y_mm": 20.0}
+    assert call["color"] == "#FFFFFF"
+    assert out["undo_units"] == 1
+    assert out["hangul_actions"] == fake.text_box_actions
+    assert load_state().undo_stack == [fake.text_box_actions]
+
+    undone = eng.undo()
+    assert undone["hangul_undo_steps"] == fake.text_box_actions
+    assert fake.undone == fake.text_box_actions
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "fill",
+            {
+                "type": "linear_gradient",
+                "angle": 90,
+                "stops": [
+                    {"offset": index / 10, "color": "#123456"}
+                    for index in range(11)
+                ],
+            },
+            "최대 10개",
+        ),
+        (
+            "line",
+            {"type": "solid", "color": "#123456", "width_mm": 0.13},
+            "지원값",
+        ),
+        (
+            "text_shadow",
+            {"type": "offset", "color": "#000000", "alpha": 1},
+            "지원되지 않습니다",
+        ),
+    ],
+)
+def test_insert_text_box_rejects_unsupported_public_visual_specs(
+    engine, field, value, message
+) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError, match=message):
+        eng.insert_text_box("안내", width_mm=100, height_mm=20, **{field: value})
+    assert not any(name == "insert_text_box" for name, _value in fake.calls)
+
+
+def test_set_cell_fill_propagates_solid_and_gradient_with_actual_undo_counts(engine) -> None:
+    eng, fake = engine
+
+    solid = eng.set_cell_fill("#123456", table=0, cell_range="A1:B1")
+    solid_calls = [value for name, value in fake.calls if name == "set_cell_fill"]
+    assert solid_calls == [
+        {"type": "solid", "color": "#123456"},
+        {"type": "solid", "color": "#123456"},
+    ]
+    assert solid["hangul_actions"] == 2
+    assert load_state().undo_stack == [2]
+    eng.undo()
+    assert fake.undone == 2
+
+    fake.calls.clear()
+    gradient = eng.set_cell_fill(
+        {
+            "type": "linear_gradient",
+            "angle": 450,
+            "stops": ["#112233", "#AABBCC"],
+        }
+    )
+    gradient_call = next(value for name, value in fake.calls if name == "set_cell_fill")
+    assert gradient_call == {
+        "type": "linear_gradient",
+        "angle": 90.0,
+        "stops": [
+            {"offset": 0.0, "color": "#112233"},
+            {"offset": 1.0, "color": "#AABBCC"},
+        ],
+    }
+    assert gradient["hangul_actions"] == 1
+    assert load_state().undo_stack == [1]
+
+
+def test_set_cell_fill_normalizes_radial_gradient_before_canvas_call(engine) -> None:
+    eng, fake = engine
+
+    out = eng.set_cell_fill(
+        {
+            "type": "radial_gradient",
+            "angle": 0,
+            "center_x": 50,
+            "center_y": 0,
+            "step": 100,
+            "step_center": 50,
+            "stops": ["#EAFFFC", "#FF843A"],
+        },
+        table=0,
+        cell_range="A1",
+    )
+
+    payload = next(value for name, value in fake.calls if name == "set_cell_fill")
+    assert payload["type"] == "radial_gradient"
+    assert payload["center_x"] == 50
+    assert payload["center_y"] == 0
+    assert payload["step"] == 100
+    assert payload["step_center"] == 50
+    assert out["hangul_actions"] == 1
+    with pytest.raises(UsageError, match="0~100 정수"):
+        eng.set_cell_fill(
+            {
+                "type": "radial_gradient",
+                "stops": ["#000000", "#FFFFFF"],
+                "center_x": 12.5,
+            },
+            table=0,
+            cell_range="A1",
+        )
+
+
+def test_set_format_keeps_solid_compatibility_and_uses_gradient_adapter(engine) -> None:
+    eng, fake = engine
+    eng.set_format(fill="#112233", table=0)
+    assert ("cell_fill", "#112233") in fake.calls
+    assert not any(name == "set_cell_fill" for name, _value in fake.calls)
+
+    fake.calls.clear()
+    eng.set_format(
+        fill={
+            "type": "linear_gradient",
+            "angle": 0,
+            "stops": ["#112233", "#445566"],
+        },
+        table=0,
+    )
+    assert not any(name == "cell_fill" for name, _value in fake.calls)
+    assert next(value for name, value in fake.calls if name == "set_cell_fill") == {
+        "type": "linear_gradient",
+        "angle": 0.0,
+        "stops": [
+            {"offset": 0.0, "color": "#112233"},
+            {"offset": 1.0, "color": "#445566"},
+        ],
+    }
+
+
+def test_set_format_propagates_text_shadow_and_rejects_nonzero_alpha(engine) -> None:
+    eng, fake = engine
+    eng.set_format(
+        font="함초롬돋움",
+        text_shadow={
+            "type": "offset",
+            "color": "#102030",
+            "alpha": 0,
+            "offset_x_mm": 0.4,
+            "offset_y_mm": 0.2,
+        },
+    )
+    font_call = next(value for name, value in fake.calls if name == "set_font")
+    assert font_call["text_shadow"] == {
+        "type": "offset",
+        "color": "#102030",
+        "alpha": 0,
+        "offset_x_mm": 0.4,
+        "offset_y_mm": 0.2,
+    }
+
+    with pytest.raises(UsageError, match="지원되지 않습니다"):
+        eng.set_format(text_shadow={"type": "offset", "color": "#000000", "alpha": 12})
+
+
 def test_set_format_range_with_row_rejected(engine) -> None:
     eng, _ = engine
     with pytest.raises(UsageError):
         eng.set_format(fill="gray", table=0, cell_range="A1:B1", row=1)
+
+
+def test_table_properties_are_public_validated_and_one_undo_unit(engine) -> None:
+    eng, fake = engine
+
+    out = eng.dispatch(
+        "set_table_properties",
+        table=0,
+        page_break="table",
+        repeat_header=False,
+        cell_spacing_mm=0.5,
+    )
+
+    assert out["page_break"] == "table"
+    assert out["repeat_header"] is False
+    assert out["cell_spacing_mm"] == 0.5
+    assert out["undo_units"] == 1
+    assert ("set_table_properties", {
+        "table": 0,
+        "page_break": "table",
+        "repeat_header": False,
+        "cell_spacing_mm": 0.5,
+    }) in fake.calls
+    assert load_state().undo_stack == [1]
+
+    with pytest.raises(UsageError, match="page_break"):
+        eng.set_table_properties(table=0, page_break="paragraph")
+    with pytest.raises(UsageError, match="repeat_header"):
+        eng.set_table_properties(table=0, repeat_header=1)  # type: ignore[arg-type]
+    with pytest.raises(UsageError, match="0~50"):
+        eng.set_table_properties(table=0, cell_spacing_mm=50.1)
+
+
+def test_table_position_keeps_json_layout_and_one_undo_unit(engine) -> None:
+    eng, fake = engine
+    position = {
+        "mode": "floating",
+        "horizontal_relative_to": "para",
+        "vertical_relative_to": "para",
+        "horizontal_align": "left",
+        "vertical_align": "top",
+        "x_mm": 0.024694,
+        "y_mm": 1.608667,
+        "wrap": "top_and_bottom",
+        "flow_with_text": True,
+        "allow_overlap": False,
+        "outside_margin_mm": [0.493889, 0.493889, 0.493889, 0.493889],
+    }
+
+    out = eng.set_table_position(table=0, position=position)
+
+    assert out["position"] == position
+    assert out["undo_units"] == 1
+    assert ("set_table_position", {"table": 0, "position": position}) in fake.calls
+    assert load_state().undo_stack == [1]
+    with pytest.raises(UsageError, match="floating"):
+        eng.set_table_position(table=0, position={"mode": "floating", "x_mm": 0, "y_mm": 0})
+
+
+def test_page_visibility_and_restart_are_native_one_undo_commands(engine) -> None:
+    eng, fake = engine
+
+    hidden = eng.set_page_visibility(hide_page_num=True)
+    restarted = eng.restart_page_number(number=1)
+
+    assert hidden["undo_units"] == 1
+    assert restarted["undo_units"] == 1
+    assert ("set_page_visibility", {
+        "hide_header": False,
+        "hide_footer": False,
+        "hide_master_page": False,
+        "hide_border": False,
+        "hide_fill": False,
+        "hide_page_num": True,
+    }) in fake.calls
+    assert ("restart_page_number", {"number": 1}) in fake.calls
+    assert load_state().undo_stack == [1, 1]
+    with pytest.raises(UsageError, match="1~999999"):
+        eng.restart_page_number(number=0)
 
 
 def test_normalize_margin_helper() -> None:

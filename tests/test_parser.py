@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from hwpctl.cli import _kwargs_for
 from hwpctl.parser import (
     build_parser,
     known_commands,
@@ -16,12 +17,20 @@ def test_required_commands_exist() -> None:
     names = set(tool_names())
     for required in (
         "status",
+        "list_documents",
         "open",
         "snapshot",
+        "format_paragraph_by_text",
+        "recreate_inline_table_before_paragraph",
+        "trim_blank_paragraphs_before_body",
         "insert_title",
         "insert_paragraph",
         "create_table",
+        "set_table_properties",
+        "set_table_position",
         "fill_cells",
+        "write_cell",
+        "exit_table",
         "layout_review",
         "set_cell_margin",
         "set_col_width",
@@ -31,14 +40,21 @@ def test_required_commands_exist() -> None:
         "merge_cells",
         "set_valign",
         "set_cell_border",
+        "insert_image",
+        "insert_text_box",
+        "set_cell_fill",
         "insert_chart",
         "set_format",
         "set_style",
         "replace_selection",
         "undo",
         "page",
+        "set_page_number",
+        "set_page_visibility",
+        "restart_page_number",
         "set_pagedef",
         "save_as",
+        "close_all",
         "hwpx_status",
         "hwpx_inspect",
     ):
@@ -51,6 +67,12 @@ def test_status_parse() -> None:
     assert ns.command == "status"
 
 
+def test_list_documents_parse_and_cli_kwargs() -> None:
+    ns = parse_args(["list_documents"])
+    assert ns.command == "list_documents"
+    assert _kwargs_for(ns) == {}
+
+
 def test_open_new_and_path() -> None:
     ns = parse_args(["open", "--new"])
     assert ns.new is True
@@ -58,6 +80,11 @@ def test_open_new_and_path() -> None:
     ns = parse_args(["open", "C:/docs/a.hwp", "--discard"])
     assert ns.path.endswith("a.hwp")
     assert ns.discard is True
+
+
+def test_close_all_parse_and_cli_kwargs() -> None:
+    ns = parse_args(["close_all", "--force"])
+    assert _kwargs_for(ns) == {"force": True}
 
 
 def test_insert_title_and_paragraph() -> None:
@@ -68,6 +95,175 @@ def test_insert_title_and_paragraph() -> None:
     assert ns.text == "본문입니다."
 
 
+def test_format_paragraph_by_text_cli_kwargs() -> None:
+    ns = parse_args(
+        [
+            "format_paragraph_by_text",
+            "--text",
+            " ◦ 본문입니다. ",
+            "--font",
+            "휴먼명조",
+            "--size",
+            "15",
+            "--no-bold",
+            "--paragraph",
+            '{"align":"justify","line_spacing_percent":155}',
+            "--dry-run",
+        ]
+    )
+    assert _kwargs_for(ns) == {
+        "text": " ◦ 본문입니다. ",
+        "font": "휴먼명조",
+        "size": 15.0,
+        "bold": False,
+        "italic": None,
+        "color": "",
+        "letter_spacing_percent": None,
+        "width_scale_percent": None,
+        "paragraph": {"align": "justify", "line_spacing_percent": 155},
+        "occurrence": 1,
+        "dry_run": True,
+    }
+
+
+def test_recreate_inline_table_before_paragraph_cli_kwargs() -> None:
+    ns = parse_args(
+        [
+            "recreate_inline_table_before_paragraph",
+            "--old-table",
+            "11",
+            "--expected-table-text",
+            "Q. 질문",
+            "--before-text",
+            " ◦ 답변",
+            "--table-spec",
+            '{"kind":"table","rows":1}',
+            "--blank-paragraph",
+            '{"kind":"paragraph","runs":[{"text":""}]}',
+            "--dry-run",
+        ]
+    )
+    assert _kwargs_for(ns) == {
+        "old_table": 11,
+        "expected_table_text": "Q. 질문",
+        "before_text": " ◦ 답변",
+        "table_spec": {"kind": "table", "rows": 1},
+        "blank_paragraph": {"kind": "paragraph", "runs": [{"text": ""}]},
+        "dry_run": True,
+    }
+
+
+def test_trim_blank_paragraphs_before_body_cli_kwargs() -> None:
+    ns = parse_args(
+        [
+            "trim_blank_paragraphs_before_body",
+            "--text",
+            " ◦ 답변",
+            "--keep",
+            "1",
+            "--dry-run",
+        ]
+    )
+    assert _kwargs_for(ns) == {"text": " ◦ 답변", "keep": 1, "dry_run": True}
+
+
+def test_structured_paragraph_and_write_cell_cli_kwargs() -> None:
+    paragraph = parse_args(
+        [
+            "insert_paragraph",
+            "--runs",
+            '[{"text":"Q. ","bold":true,"superscript":true,"underline":{"enabled":true,"type":"bottom","shape":"solid","color":"#112233"},"strikeout":{"enabled":true,"type":"continuous","shape":"solid","color":"#445566"},"kerning":true,"letter_spacing_percent":-3},{"text":"답변"}]',
+            "--paragraph",
+            '{"align":"justify","first_line_indent_mm":-8,"line_spacing_percent":150,"break_latin_word":"keep_word","break_non_latin_word":"break_word"}',
+            "--page-break-before",
+        ]
+    )
+    assert paragraph.text == ""
+    assert _kwargs_for(paragraph) == {
+        "text": "",
+        "runs": [
+            {
+                "text": "Q. ",
+                "bold": True,
+                "superscript": True,
+                "underline": {
+                    "enabled": True,
+                    "type": "bottom",
+                    "shape": "solid",
+                    "color": "#112233",
+                },
+                "strikeout": {
+                    "enabled": True,
+                    "type": "continuous",
+                    "shape": "solid",
+                    "color": "#445566",
+                },
+                "kerning": True,
+                "letter_spacing_percent": -3,
+            },
+            {"text": "답변"},
+        ],
+        "paragraph": {
+            "align": "justify",
+            "first_line_indent_mm": -8,
+            "line_spacing_percent": 150,
+            "break_latin_word": "keep_word",
+            "break_non_latin_word": "break_word",
+        },
+        "page_break_before": True,
+    }
+
+    cell = parse_args(
+        [
+            "write_cell",
+            "--table",
+            "2",
+            "--cell",
+            "B3",
+            "--paragraphs",
+            '[{"runs":[{"text":"항목","bold":true}],"paragraph":{"align":"center"}}]',
+        ]
+    )
+    assert _kwargs_for(cell) == {
+        "table": 2,
+        "cell": "B3",
+        "paragraphs": [
+            {
+                "runs": [{"text": "항목", "bold": True}],
+                "paragraph": {"align": "center"},
+            }
+        ],
+    }
+
+
+def test_set_page_number_cli_kwargs() -> None:
+    ns = parse_args(["set_page_number", "--position", "bottom_center", "--separator", "-"])
+    assert _kwargs_for(ns) == {"position": "bottom_center", "separator": "-"}
+
+
+def test_page_visibility_and_restart_cli_kwargs() -> None:
+    visibility = parse_args(
+        [
+            "set_page_visibility",
+            "--hide-header",
+            "--hide-master-page",
+            "--hide-page-num",
+            "--no-hide-fill",
+        ]
+    )
+    assert _kwargs_for(visibility) == {
+        "hide_header": True,
+        "hide_footer": False,
+        "hide_master_page": True,
+        "hide_border": False,
+        "hide_fill": False,
+        "hide_page_num": True,
+    }
+
+    restart = parse_args(["restart_page_number", "--number", "7"])
+    assert _kwargs_for(restart) == {"number": 7}
+
+
 def test_create_table_header_fill() -> None:
     ns = parse_args(["create_table", "--rows", "8", "--cols", "4", "--header-fill", "gray"])
     assert ns.rows == 8
@@ -75,6 +271,59 @@ def test_create_table_header_fill() -> None:
     assert ns.header_fill == "gray"
     assert ns.no_header is False
     assert ns.cell_padding == "3.5,2.0"  # 새 표 기본 칸 안여백(mm)
+
+
+def test_table_properties_and_position_cli_kwargs() -> None:
+    properties = parse_args(
+        [
+            "set_table_properties",
+            "--table",
+            "2",
+            "--page-break",
+            "table",
+            "--no-repeat-header",
+            "--cell-spacing-mm",
+            "0.7",
+        ]
+    )
+    assert _kwargs_for(properties) == {
+        "table": 2,
+        "page_break": "table",
+        "repeat_header": False,
+        "cell_spacing_mm": 0.7,
+    }
+
+    position = parse_args(
+        [
+            "set_table_position",
+            "--table",
+            "2",
+            "--position",
+            '{"mode":"floating","horizontal_relative_to":"para","vertical_relative_to":"para","horizontal_align":"left","vertical_align":"top","x_mm":0.025,"y_mm":1.609,"wrap":"top_and_bottom","flow_with_text":true,"allow_overlap":false,"outside_margin_mm":[0.5,0.5,0.5,0.5]}',
+        ]
+    )
+    assert _kwargs_for(position) == {
+        "table": 2,
+        "position": {
+            "mode": "floating",
+            "horizontal_relative_to": "para",
+            "vertical_relative_to": "para",
+            "horizontal_align": "left",
+            "vertical_align": "top",
+            "x_mm": 0.025,
+            "y_mm": 1.609,
+            "wrap": "top_and_bottom",
+            "flow_with_text": True,
+            "allow_overlap": False,
+            "outside_margin_mm": [0.5, 0.5, 0.5, 0.5],
+        },
+    }
+
+
+def test_exit_table_parse_and_cli_kwargs() -> None:
+    ns = parse_args(["exit_table"])
+    assert ns.command == "exit_table"
+    assert _kwargs_for(ns) == {}
 
 
 def test_create_table_cell_padding_override() -> None:
@@ -105,6 +354,83 @@ def test_insert_chart_parse() -> None:
     assert ns.cell_range == "A1:B5"
     with pytest.raises(SystemExit):
         parse_args(["insert_chart", "--type", "donut"])
+
+
+def test_visual_format_cli_parses_structured_specs_and_preserves_default_margin() -> None:
+    text_box = parse_args(
+        [
+            "insert_text_box",
+            "문의 안내",
+            "--width",
+            "118",
+            "--height",
+            "23.5",
+            "--fill",
+            '{"type":"linear_gradient","angle":90,"stops":[{"offset":0,"color":"#004A99"},{"offset":1,"color":"#00A7C6"}]}',
+            "--line",
+            '{"type":"solid","color":"#113355","width_mm":0.3}',
+            "--shadow",
+            '{"type":"offset","color":"#000000","alpha":96,"offset_x_mm":1,"offset_y_mm":1}',
+            "--text-shadow",
+            '{"type":"offset","color":"#101010","alpha":0,"offset_x_mm":0.5,"offset_y_mm":0}',
+            "--position",
+            '{"mode":"floating","x_mm":10,"y_mm":20}',
+            "--bold",
+            "--font",
+            "함초롬돋움",
+            "--size",
+            "16",
+            "--color",
+            "#FFFFFF",
+        ]
+    )
+    assert text_box.command == "insert_text_box"
+    assert text_box.margin == "none"
+    text_box_kwargs = _kwargs_for(text_box)
+    assert text_box_kwargs["fill"] == {
+        "type": "linear_gradient",
+        "angle": 90,
+        "stops": [
+            {"offset": 0, "color": "#004A99"},
+            {"offset": 1, "color": "#00A7C6"},
+        ],
+    }
+    assert text_box_kwargs["line"]["width_mm"] == 0.3
+    assert text_box_kwargs["text_shadow"]["alpha"] == 0
+    assert text_box_kwargs["margin"] == "none"
+    assert text_box_kwargs["position"] == {"mode": "floating", "x_mm": 10, "y_mm": 20}
+
+    cell_fill = parse_args(
+        [
+            "set_cell_fill",
+            "--table",
+            "2",
+            "--range",
+            "A1:B3",
+            "--fill",
+            '#123456',
+        ]
+    )
+    assert _kwargs_for(cell_fill) == {
+        "fill": "#123456",
+        "table": 2,
+        "cell_range": "A1:B3",
+    }
+
+    text_format = parse_args(
+        [
+            "set_format",
+            "--text-shadow",
+            '{"type":"offset","color":"#000000","alpha":1}',
+        ]
+    )
+    # CLI는 구조를 충실히 전달하고, 한/글 2022 제한(alpha=0)은 Engine이
+    # CLI/MCP 공통으로 검증한다.
+    assert _kwargs_for(text_format)["text_shadow"] == {
+        "type": "offset",
+        "color": "#000000",
+        "alpha": 1,
+    }
 
 
 def test_table_size_merge_valign_and_border_parse() -> None:
@@ -277,6 +603,14 @@ def test_tool_catalog_marks_destructive() -> None:
     assert by_name["save_as"]["destructive"] is False
     assert by_name["insert_title"]["write"] is True
     assert by_name["snapshot"]["write"] is False
+    assert by_name["list_documents"]["write"] is False
+    assert by_name["list_documents"]["destructive"] is False
+    assert by_name["set_table_properties"]["write"] is True
+    assert by_name["set_table_position"]["write"] is True
+    assert by_name["set_page_visibility"]["write"] is True
+    assert by_name["restart_page_number"]["write"] is True
+    assert by_name["exit_table"]["write"] is False
+    assert by_name["exit_table"]["destructive"] is False
     assert by_name["hwpx_status"]["write"] is False
     assert by_name["hwpx_inspect"]["write"] is False
     assert by_name["hwpx_inspect"]["destructive"] is False
