@@ -517,9 +517,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="현재 구역, 모든 구역, 새 구역 적용",
     )
 
-    p_save_as = add_common(sub.add_parser("save_as", help="새 경로로 저장 (원본 유지)"))
+    p_save_as = add_common(
+        sub.add_parser("save_as", help="새 경로로 저장 (기존 파일은 --overwrite 필수)")
+    )
     p_save_as.add_argument("path")
     p_save_as.add_argument("--format", default="", help="HWP, HWPX, PDF 등. 확장자로 추정")
+    p_save_as.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="원본이 아닌 기존 대상 파일을 덮어씁니다. 없으면 거부합니다.",
+    )
 
     p_save = add_common(sub.add_parser("save", help="원본에 저장 — --overwrite 필수"))
     p_save.add_argument(

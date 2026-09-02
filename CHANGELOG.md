@@ -38,4 +38,6 @@
 ### Security
 
 - 원본 덮어쓰기·닫기·수정본 폐기에 명시 플래그 요구
+- `save_as`도 기존 대상 파일에는 `overwrite=true` / `--overwrite`를 요구하고,
+  원본과 같은 경로는 계속 `save --overwrite`로만 저장
 - MCP HTTP 연결을 loopback과 토큰으로 제한

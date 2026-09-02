@@ -48,7 +48,8 @@ class _DispatchGate:
 
 INSTRUCTIONS = (
     "한/글 2022 창을 직접 고친다. 키 입력은 쓰지 말고 이 도구만 호출하라. "
-    "원본 파일은 덮어쓰지 말고 save_as 로 새 경로에 저장하라. "
+    "원본 파일은 덮어쓰지 말고 save_as 로 새 경로에 저장하라. save_as 대상이 이미 있으면 "
+    "overwrite=true 가 필요하며, 원본 경로는 save(overwrite=true) 로만 저장한다. "
     "자동저장은 없다. save/close 는 각각 overwrite/force 가 필요하다. "
     "새 표에는 기본 칸 안여백(좌우 3.5mm, 상하 2.0mm)이 적용된다. "
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
@@ -748,9 +749,13 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
-    async def save_as(path: str, format: str = "") -> dict[str, Any]:
-        """새 경로로 저장한다. 원본은 덮어쓰지 않는다. 자동저장 없음."""
-        return await _call(engine, "save_as", path=path, format=format)
+    async def save_as(
+        path: str, format: str = "", overwrite: bool = False
+    ) -> dict[str, Any]:
+        """새 경로로 저장한다. 기존 대상은 overwrite=true가 필요하며 원본 경로는 거부한다."""
+        return await _call(
+            engine, "save_as", path=path, format=format, overwrite=overwrite
+        )
 
     @mcp.tool()
     async def save(overwrite: bool = False) -> dict[str, Any]:

@@ -169,7 +169,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_page_visibility` | 현재 쪽의 머리말·꼬리말·바탕쪽·테두리·채우기·쪽 번호 숨김 |
 | `restart_page_number` | 현재 위치부터 네이티브 쪽 번호 다시 시작 |
 | `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
-| `save_as` | **새 경로** 저장. 원본 유지. 자동저장 없음 |
+| `save_as` | **새 경로** 저장. 기존 대상은 **`--overwrite` 필수**, 원본 경로는 거부 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
 | `close_all` | 열려 있는 모든 한/글 문서 닫기. **`--force` 필수** |
@@ -362,6 +362,7 @@ hwpctl insert_chart --table 0 --type column --range A1:B10
 | 작업 | 플래그 |
 |---|---|
 | 원본 덮어쓰기 (`save`) | `--overwrite` |
+| 다른 기존 파일을 `save_as` 로 덮어쓰기 | `--overwrite` |
 | 문서 닫기 (`close`) | `--force` |
 | 수정본을 버리고 다른 파일 열기 | `--discard` |
 | `save_as` 로 원본과 같은 경로 | 거부 → `save --overwrite` |

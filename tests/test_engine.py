@@ -782,11 +782,46 @@ def test_open_dirty_requires_discard(engine) -> None:
 
 def test_save_as_refuses_same_path(engine, tmp_path: Path) -> None:
     eng, fake = engine
-    dest = tmp_path / "same.hwp"
-    dest.write_text("x", encoding="utf-8")
+    dest = tmp_path / "new-parent" / "same.hwp"
     fake.path = str(dest)
     with pytest.raises(DestructiveGuardError):
+        eng.save_as(str(dest), overwrite=True)
+    assert not dest.parent.exists()
+    assert not any(call[0] == "save_as" for call in fake.calls)
+
+
+def test_save_as_refuses_existing_different_path_without_overwrite(
+    engine, tmp_path: Path
+) -> None:
+    eng, fake = engine
+    source = tmp_path / "source.hwp"
+    source.write_text("source", encoding="utf-8")
+    dest = tmp_path / "existing-other.hwp"
+    dest.write_text("must-stay", encoding="utf-8")
+    fake.path = str(source)
+
+    with pytest.raises(DestructiveGuardError) as exc:
         eng.save_as(str(dest))
+
+    assert "--overwrite" in exc.value.message
+    assert dest.read_text(encoding="utf-8") == "must-stay"
+    assert not any(call[0] == "save_as" for call in fake.calls)
+
+
+def test_save_as_allows_existing_different_path_with_overwrite(
+    engine, tmp_path: Path
+) -> None:
+    eng, fake = engine
+    source = tmp_path / "source.hwp"
+    source.write_text("source", encoding="utf-8")
+    dest = tmp_path / "existing-other.hwp"
+    dest.write_text("replace", encoding="utf-8")
+    fake.path = str(source)
+
+    out = eng.save_as(str(dest), overwrite=True)
+
+    assert out["overwritten"] is True
+    assert ("save_as", (str(dest), "")) in fake.calls
 
 
 def test_replace_selection_requires_real_block(engine) -> None:

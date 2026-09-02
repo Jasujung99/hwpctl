@@ -555,6 +555,11 @@ def test_close_requires_force_flag_default_false() -> None:
 def test_save_as_and_page() -> None:
     ns = parse_args(["save_as", "out.hwpx", "--format", "HWPX"])
     assert ns.path == "out.hwpx"
+    assert ns.overwrite is False
+    assert _kwargs_for(ns) == {"path": "out.hwpx", "format": "HWPX", "overwrite": False}
+    overwrite = parse_args(["save_as", "out.hwpx", "--overwrite"])
+    assert overwrite.overwrite is True
+    assert _kwargs_for(overwrite)["overwrite"] is True
     ns = parse_args(["page", "--goto", "3"])
     assert ns.goto == 3
     assert ns.break_page is False
@@ -600,7 +605,7 @@ def test_tool_catalog_marks_destructive() -> None:
     by_name = {t["name"]: t for t in tool_catalog()}
     assert by_name["save"]["destructive"] is True
     assert by_name["close"]["destructive"] is True
-    assert by_name["save_as"]["destructive"] is False
+    assert by_name["save_as"]["destructive"] is True
     assert by_name["insert_title"]["write"] is True
     assert by_name["snapshot"]["write"] is False
     assert by_name["list_documents"]["write"] is False

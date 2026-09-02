@@ -1939,23 +1939,37 @@ class Engine:
                 "hangul_actions": 1,
             }
 
-    def save_as(self, path: str, format: str = "") -> dict[str, Any]:
+    def save_as(
+        self, path: str, format: str = "", overwrite: bool = False
+    ) -> dict[str, Any]:
         dest = Path(path).expanduser()
-        dest.parent.mkdir(parents=True, exist_ok=True)
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
             info = canvas.doc_info()
-            if info.path and _same_file(info.path, dest) and dest.exists():
+            # save_as 는 "새 경로" 계약을 지킨다. 원본 경로라면 --overwrite 를
+            # 주더라도 save --overwrite 를 써야 한다. 그렇지 않으면 원본과 다른
+            # 기존 파일도 SaveAs 대화상자 없이 조용히 덮어쓸 수 있다.
+            if info.path and _same_file(info.path, dest):
                 raise DestructiveGuardError(
                     "save_as 는 원본을 덮어쓰지 않습니다. "
                     "같은 경로에 저장하려면 save --overwrite 를 쓰세요."
                 )
+            existed = dest.exists()
+            if existed and not overwrite:
+                raise DestructiveGuardError(
+                    "save_as 대상 파일이 이미 있습니다. 덮어쓰려면 "
+                    "--overwrite (MCP: overwrite=true) 를 명시하세요."
+                )
+            # 파괴 가드를 모두 통과한 경우에만 디렉터리를 만든다. 거부된
+            # save_as 요청이 빈 디렉터리를 남기지 않게 한다.
+            dest.parent.mkdir(parents=True, exist_ok=True)
             canvas.save_as(str(dest), fmt=format)
             return {
                 "ok": True,
                 "command": "save_as",
                 "path": str(dest),
                 "original_path": info.path,
+                "overwritten": existed,
                 "autosave": False,
             }
 

@@ -284,7 +284,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "apply": args.apply,
         }
     if cmd == "save_as":
-        return {"path": args.path, "format": args.format}
+        return {"path": args.path, "format": args.format, "overwrite": args.overwrite}
     if cmd == "save":
         return {"overwrite": args.overwrite}
     if cmd == "close":
