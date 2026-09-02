@@ -108,6 +108,7 @@ class Engine:
             "insert_title": self.insert_title,
             "insert_paragraph": self.insert_paragraph,
             "write_cell": self.write_cell,
+            "move_to_cell": self.move_to_cell,
             "create_table": self.create_table,
             "fill_cells": self.fill_cells,
             "exit_table": self.exit_table,
@@ -115,6 +116,7 @@ class Engine:
             "set_table_position": self.set_table_position,
             "set_cell_margin": self.set_cell_margin,
             "set_col_width": self.set_col_width,
+            "set_table_grid": self.set_table_grid,
             "get_col_width": self.get_col_width,
             "set_row_height": self.set_row_height,
             "get_row_height": self.get_row_height,
@@ -760,6 +762,24 @@ class Engine:
                 "hangul_actions": actions[0],
             }
 
+    def move_to_cell(self, table: int, cell: str) -> dict[str, Any]:
+        """지정 표 셀로 이동한다. 문서 내용을 바꾸지 않아 Undo를 기록하지 않는다."""
+
+        if isinstance(table, bool) or not isinstance(table, int) or table < 0:
+            raise UsageError("table 은 0 이상의 표 번호여야 합니다.")
+        address = _normalize_cell_address(cell)
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            canvas.move_to_cell(table, address)
+            return {
+                "ok": True,
+                "command": "move_to_cell",
+                "table": table,
+                "cell": address,
+                "in_cell": True,
+                "undo_units": 0,
+            }
+
     @staticmethod
     def _write_paragraph_spec(
         canvas: HangulCanvas,
@@ -962,6 +982,95 @@ class Engine:
                 "unit": unit,
                 "requested": values,
                 "widths_mm": targets,
+                "undo_units": 1,
+                "hangul_actions": actions,
+            }
+
+    def set_table_grid(
+        self,
+        table: int,
+        column_widths_mm: Any,
+        row_heights_mm: Any,
+    ) -> dict[str, Any]:
+        """병합 전 완전 직사각 표의 열·행 격자를 정밀하게 지정한다.
+
+        기존 ``set_col_width``는 열 블록 선택을 사용하고 ``set_row_height``는
+        대표 셀 하나에 적용한다. 표가 쪽을 넘으면 이 방식만으로는 하단 격자가
+        기본값에 남을 수 있다. 이 명령은 모든 실제 셀에 너비·높이를 함께 써서
+        쪽 경계를 넘는 한/글 표 격자를 명시적으로 고정한다.
+        """
+        if isinstance(table, bool) or not isinstance(table, int) or table < 0:
+            raise UsageError("table 은 0 이상의 표 번호여야 합니다.")
+        widths = _normalize_grid_measurements(column_widths_mm, "열 너비")
+        heights = _normalize_grid_measurements(row_heights_mm, "행 높이")
+
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            saved = canvas.get_pos()
+            if not saved:
+                raise HangulCommandError(
+                    "현재 커서 위치를 저장하지 못해 표 격자를 안전하게 적용할 수 없습니다."
+                )
+            actions = 0
+            try:
+                canvas.get_into_nth_table(table)
+                addresses = canvas.table_cell_addresses()
+                coordinates: dict[tuple[int, int], str] = {}
+                for address in addresses:
+                    row, col = parse_a1(address)
+                    coordinate = (row, col)
+                    if coordinate in coordinates:
+                        raise HangulCommandError(
+                            "표의 실제 셀 주소가 중복되어 격자를 안전하게 적용할 수 없습니다."
+                        )
+                    coordinates[coordinate] = address
+
+                rows = max((row for row, _col in coordinates), default=-1) + 1
+                cols = max((col for _row, col in coordinates), default=-1) + 1
+                expected = {(row, col) for row in range(rows) for col in range(cols)}
+                if not coordinates or set(coordinates) != expected:
+                    raise UsageError(
+                        "set_table_grid는 병합 전의 완전한 직사각 표에서만 사용할 수 있습니다. "
+                        "열·행 격자를 먼저 지정한 뒤 셀을 병합하세요."
+                    )
+                if len(widths) != cols:
+                    raise UsageError(
+                        f"열 너비는 표의 실제 열 수({cols})와 같은 {cols}개를 지정하세요."
+                    )
+                if len(heights) != rows:
+                    raise UsageError(
+                        f"행 높이는 표의 실제 행 수({rows})와 같은 {rows}개를 지정하세요."
+                    )
+
+                for row in range(rows):
+                    for col in range(cols):
+                        canvas.goto_addr(coordinates[(row, col)])
+                        canvas.set_cell_geometry_current(widths[col], heights[row])
+                        actions += 1
+            except Exception:
+                # 표 탐색과 실패한 중간 적용 뒤에도 호출자가 작업하던 위치로 돌아간다.
+                canvas.set_pos(saved)
+                if actions:
+                    self._record_undo("set_table_grid", actions)
+                raise
+
+            if not canvas.set_pos(saved):
+                if actions:
+                    self._record_undo("set_table_grid", actions)
+                raise HangulCommandError(
+                    "표 격자를 적용했지만 원래 커서 위치를 복원하지 못했습니다. "
+                    "hwpctl undo로 이번 명령의 변경을 되돌릴 수 있습니다."
+                )
+            self._record_undo("set_table_grid", actions)
+            return {
+                "ok": True,
+                "command": "set_table_grid",
+                "table": table,
+                "column_widths_mm": widths,
+                "row_heights_mm": heights,
+                "rows": rows,
+                "cols": cols,
+                "cursor_restored": True,
                 "undo_units": 1,
                 "hangul_actions": actions,
             }
@@ -1445,19 +1554,24 @@ class Engine:
                 "undo_units": 1,
             }
 
-    def exit_table(self) -> dict[str, Any]:
+    def exit_table(self, destination: str = "body") -> dict[str, Any]:
         """현재 표의 마지막 셀에서 일반 본문으로 커서를 이동한다.
 
         문서 내용을 바꾸지 않는 이동 명령이므로 Undo 이력은 기록하지 않는다.
         한/글 어댑터가 MoveRight 뒤의 셀 상태까지 검증한다.
         """
+        if not isinstance(destination, str) or destination not in {"body", "parent"}:
+            raise UsageError("destination은 body 또는 parent여야 합니다.")
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
-            canvas.exit_table()
+            canvas.exit_table(destination=destination)
             return {
                 "ok": True,
                 "command": "exit_table",
+                "destination": destination,
                 "left_table": True,
+                "in_cell": destination == "parent",
+                "context": "parent_cell" if destination == "parent" else "body",
                 "undo_units": 0,
             }
 
@@ -2990,6 +3104,20 @@ def _normalize_positive_numbers(value: Any, label: str) -> list[float]:
     if not numbers or any(not isfinite(number) or number <= 0 for number in numbers):
         raise UsageError(f"{label} 값은 모두 0보다 커야 합니다.")
     return numbers
+
+
+def _normalize_grid_measurements(value: Any, label: str) -> list[float]:
+    """정밀 표 격자에 쓸 치수를 COM 호출 전에 엄격히 정규화한다."""
+    if isinstance(value, bool) or (
+        isinstance(value, (list, tuple)) and any(isinstance(item, bool) for item in value)
+    ):
+        raise UsageError(f"{label} 값은 true/false가 아닌 mm 숫자여야 합니다.")
+    values = _normalize_positive_numbers(value, label)
+    if any(number < 0.01 for number in values):
+        raise UsageError(f"{label} 값은 한/글 단위로 표현 가능한 0.01mm 이상이어야 합니다.")
+    if any(number > 500 for number in values):
+        raise UsageError(f"{label} 값은 500mm 이하여야 합니다.")
+    return values
 
 
 def _normalize_border_sides(value: str) -> list[str]:

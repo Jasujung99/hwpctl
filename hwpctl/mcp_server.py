@@ -14,7 +14,7 @@ import hmac
 import os
 import sys
 import threading
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -401,6 +401,22 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
+    async def set_table_grid(
+        table: int,
+        column_widths_mm: list[float],
+        row_heights_mm: list[float],
+    ) -> dict[str, Any]:
+        """병합 전 완전 직사각 표의 열·행 격자를 mm로 함께 고정한다.
+        여러 쪽 표도 모든 실제 셀을 순회하며 적용하고, 완료 뒤 원래 커서를 복원한다."""
+        return await _call(
+            engine,
+            "set_table_grid",
+            table=table,
+            column_widths_mm=column_widths_mm,
+            row_heights_mm=row_heights_mm,
+        )
+
+    @mcp.tool()
     async def get_col_width(
         table: int | None = None,
         column: int | None = None,
@@ -508,9 +524,15 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
-    async def exit_table() -> dict[str, Any]:
-        """현재 표의 마지막 셀에서 일반 본문으로 이동한다. MoveRight 뒤에도 셀 안이면 실패한다."""
-        return await _call(engine, "exit_table")
+    async def move_to_cell(table: int, cell: str) -> dict[str, Any]:
+        """지정 표의 A1 셀로만 커서를 이동한다. 문서 내용이나 Undo 이력은 바꾸지 않는다."""
+        return await _call(engine, "move_to_cell", table=table, cell=cell)
+
+    @mcp.tool()
+    async def exit_table(destination: Literal["body", "parent"] = "body") -> dict[str, Any]:
+        """현재 표 마지막 셀에서 body(기본) 또는 바로 바깥 부모 셀로 이동한다.
+        parent는 중첩 표에서 부모 표까지 건너뛰지 않는다."""
+        return await _call(engine, "exit_table", destination=destination)
 
     @mcp.tool()
     async def set_cell_fill(

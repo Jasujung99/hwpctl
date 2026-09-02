@@ -158,6 +158,12 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "column": args.column,
             "unit": args.unit,
         }
+    if cmd == "set_table_grid":
+        return {
+            "table": args.table,
+            "column_widths_mm": args.column_widths_mm,
+            "row_heights_mm": args.row_heights_mm,
+        }
     if cmd == "get_col_width":
         return {"table": args.table, "column": args.column}
     if cmd == "set_row_height":
@@ -228,8 +234,10 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "cell": args.cell,
             "paragraphs": parse_json_or_raw(args.paragraphs),
         }
+    if cmd == "move_to_cell":
+        return {"table": args.table, "cell": args.cell}
     if cmd == "exit_table":
-        return {}
+        return {"destination": args.destination}
     if cmd == "set_cell_fill":
         return {
             "fill": parse_json_or_raw(args.fill),

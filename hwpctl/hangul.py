@@ -732,6 +732,32 @@ class HangulCanvas:
             raise HangulCommandError("현재 행 높이 조절 액션이 실패했습니다.")
         self.assert_no_dialog()
 
+    def set_cell_geometry_current(self, width_mm: float, height_mm: float) -> None:
+        """현재 셀의 열 너비와 행 높이를 한 번에 설정한다.
+
+        한/글의 ``TablePropertyDialog``는 현재 셀의 Width/Height를 쓰면 해당
+        표 격자선까지 함께 조정한다. 여러 쪽으로 이어지는 표는 열/행 블록 선택
+        액션이 경계에서 끊길 수 있으므로, ``set_table_grid``가 실제 모든 셀을
+        순회하며 이 원자 동작을 호출한다.
+        """
+        width = self._number(width_mm, "표 칸 너비", minimum=0.01, maximum=500.0)
+        height = self._number(height_mm, "표 칸 높이", minimum=0.01, maximum=500.0)
+        self.assert_no_dialog()
+        ok = False
+        try:
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            pset.HSet.SetItem("ShapeType", 3)
+            pset.HSet.SetItem("ShapeCellSize", 1)
+            pset.ShapeTableCell.Width = self._mm_to_hwpunit(width)
+            pset.ShapeTableCell.Height = self._mm_to_hwpunit(height)
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except Exception as exc:
+            raise HangulCommandError(f"현재 표 칸 크기 조절에 실패했습니다: {exc}") from exc
+        if not ok:
+            raise HangulCommandError("현재 표 칸 크기(TablePropertyDialog) 액션이 실패했습니다.")
+        self.assert_no_dialog()
+
     def get_row_height(self) -> float:
         """현재 셀의 행 높이(mm). TablePropertyDialog 기본값에서 읽는다."""
         if not self.is_cell():
@@ -1129,7 +1155,12 @@ class HangulCanvas:
 
     def get_into_nth_table(self, n: int = 0) -> None:
         if self.px:
-            self.px.get_into_nth_table(n=n, select_cell=False)
+            try:
+                result = self.px.get_into_nth_table(n=n, select_cell=False)
+            except Exception as exc:
+                raise HangulCommandError(f"{n}번 표 안으로 들어가지 못했습니다.") from exc
+            if result is False or not self.is_cell():
+                raise HangulCommandError(f"{n}번 표 안으로 들어가지 못했습니다.")
             return
         tables = self._table_ctrls()
         if n < 0 or n >= len(tables):
@@ -2310,8 +2341,8 @@ class HangulCanvas:
     def undo_once(self) -> None:
         self.run("Undo")
 
-    def exit_table(self) -> None:
-        """현재 표의 마지막 셀에서 문서 본문으로 커서를 옮긴다.
+    def exit_table(self, destination: str = "body") -> None:
+        """현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동한다.
 
         한/글 2022에서는 마지막 셀 *문단 끝*에서 ``MoveRight``가 표 밖의
         일반 문단으로 이동한다. 구조화 ``write_cell``은 마지막 실행 후 캐럿을
@@ -2319,25 +2350,120 @@ class HangulCanvas:
         다른 셀에서는 다음 셀로만 이동할 수 있으므로, 이동 뒤에도 셀 안이면
         실패해 본문을 표 안에 삽입하는 실수를 막는다.
         """
+        if destination not in {"body", "parent"}:
+            raise UsageError("표 탈출 destination은 body 또는 parent여야 합니다.")
         if not self.is_cell():
             raise HangulCommandError(
                 "캐럿이 표 셀 안에 있지 않아 표 밖으로 이동할 수 없습니다."
             )
+        origin = self.get_pos()
+        if not origin or len(origin) < 1:
+            raise HangulCommandError(
+                "표 탈출 전 현재 목록 위치를 읽지 못했습니다. "
+                "실패 시 커서를 복원할 수 없어 이동을 시작하지 않습니다."
+            )
+        try:
+            self._require_current_final_table_cell()
+            if destination == "parent":
+                self._exit_table_to_parent(origin[0])
+                return
+            if not self.run("MoveListEnd"):
+                raise HangulCommandError("표 마지막 셀의 끝으로 이동하는 MoveListEnd 액션이 실패했습니다.")
+            if not self.run("MoveRight"):
+                raise HangulCommandError("표 밖으로 이동하는 MoveRight 액션이 실패했습니다.")
+            if self.is_cell():
+                # 다문단 1×1 셀은 MoveListEnd/MoveRight 뒤에도 셀의 하위 목록에
+                # 남을 수 있다. 한/글의 MoveParentList로 문서 본문 목록으로 한
+                # 단계만 올라간 뒤 다시 확인한다. 표의 다른 셀로 이동하는 대신
+                # 부모 목록으로만 나가므로 다음 본문을 셀 안에 쓰지 않는다.
+                if self.run("MoveParentList") and not self.is_cell():
+                    return
+                raise HangulCommandError(
+                    "MoveRight 뒤에도 캐럿이 표 셀 안에 있습니다. "
+                    "표의 마지막 셀 끝에 캐럿을 둔 뒤 exit_table을 다시 호출하세요."
+                )
+        except Exception:
+            # 실패한 이동은 사용자의 편집 위치를 바꾸지 않는다. 복원 자체가
+            # 실패해도 원래 실패 원인을 덮어쓰지 않는다.
+            self.set_pos(origin)
+            raise
+
+    def _require_current_final_table_cell(self) -> None:
+        """현재 표의 마지막 실제 셀을 KeyIndicator와 이동 순회로 함께 확인한다."""
+        addresses = self._table_addresses()
+        current = self.current_cell_addr()
+        if not addresses or not current:
+            raise HangulCommandError(
+                "현재 표의 마지막 셀 위치를 검증하지 못했습니다. "
+                "표 셀 주소가 보이는 상태에서 다시 시도하세요."
+            )
+        if current != addresses[-1]:
+            raise HangulCommandError(
+                "표를 탈출하려면 현재 표의 마지막 셀 끝에 캐럿을 두어야 합니다."
+            )
+
+    def _exit_table_to_parent(self, origin_list: int) -> None:
+        """현재 중첩 표를 한 단계만 탈출한다.
+
+        중첩 표의 마지막 셀에서는 MoveRight만으로 부모 셀 목록으로 이동한다.
+        이 상태도 ``is_cell()``은 true이므로, 기존 body 탈출처럼 MoveParentList를
+        무조건 한 번 더 호출하면 부모 표까지 건너뛴다. 목록 ID가 바뀌었는지를
+        확인해 그 지점에서 멈춘다.
+        """
+
         if not self.run("MoveListEnd"):
             raise HangulCommandError("표 마지막 셀의 끝으로 이동하는 MoveListEnd 액션이 실패했습니다.")
         if not self.run("MoveRight"):
-            raise HangulCommandError("표 밖으로 이동하는 MoveRight 액션이 실패했습니다.")
-        if self.is_cell():
-            # 다문단 1×1 셀은 MoveListEnd/MoveRight 뒤에도 셀의 하위 목록에
-            # 남을 수 있다. 한/글의 MoveParentList로 문서 본문 목록으로 한
-            # 단계만 올라간 뒤 다시 확인한다. 표의 다른 셀로 이동하는 대신
-            # 부모 목록으로만 나가므로 다음 본문을 셀 안에 쓰지 않는다.
-            if self.run("MoveParentList") and not self.is_cell():
-                return
+            raise HangulCommandError("부모 목록으로 이동하는 MoveRight 액션이 실패했습니다.")
+        after_right = self.get_pos()
+        if not after_right or len(after_right) < 1:
             raise HangulCommandError(
-                "MoveRight 뒤에도 캐럿이 표 셀 안에 있습니다. "
-                "표의 마지막 셀 끝에 캐럿을 둔 뒤 exit_table을 다시 호출하세요."
+                "MoveRight 뒤 부모 셀 목록 위치를 검증하지 못했습니다. "
+                "표 밖으로 과도하게 이동하지 않도록 parent 탈출을 중단했습니다."
             )
+        after_right_list = after_right[0]
+        if self.is_cell() and after_right_list != origin_list:
+            return
+
+        if not self.is_cell():
+            raise HangulCommandError(
+                "parent 탈출은 중첩 표의 바로 바깥 부모 셀에서만 성공할 수 있습니다. "
+                "현재 표에는 부모 셀이 없어 본문으로 나가기를 중단했습니다."
+            )
+
+        # 다문단 최종 셀에서 MoveRight가 같은 목록에 머무는 한/글 2022 경로만
+        # 한 단계 올린다. 부모 셀 안이면 is_cell은 true인 채로 성공한다.
+        if not self.run("MoveParentList"):
+            raise HangulCommandError("부모 목록으로 이동하는 MoveParentList 액션이 실패했습니다.")
+        after_parent = self.get_pos()
+        if not after_parent or len(after_parent) < 1:
+            raise HangulCommandError(
+                "MoveParentList 뒤 부모 셀 목록 위치를 검증하지 못했습니다. "
+                "표 밖으로 과도하게 이동하지 않도록 parent 탈출을 중단했습니다."
+            )
+        after_parent_list = after_parent[0]
+        if self.is_cell() and after_parent_list != after_right_list:
+            return
+        if not self.is_cell():
+            raise HangulCommandError(
+                "MoveParentList가 부모 셀을 지나 본문으로 이동했습니다. "
+                "parent 탈출은 중첩 표에서만 사용하세요."
+            )
+        raise HangulCommandError(
+            "부모 목록으로 이동했지만 표 문맥이 바뀌지 않았습니다. "
+            "표의 마지막 셀 끝에 캐럿을 둔 뒤 다시 시도하세요."
+        )
+
+    def move_to_cell(self, table: int, addr: str) -> None:
+        """지정 표의 셀로만 커서를 이동한다. 문서 내용·Undo 이력은 바꾸지 않는다."""
+
+        if isinstance(table, bool) or not isinstance(table, int) or table < 0:
+            raise UsageError("table 은 0 이상의 표 번호여야 합니다.")
+        _parse_a1(addr)
+        self.get_into_nth_table(table)
+        self.goto_addr(addr)
+        if not self.is_cell() or self.current_cell_addr() != addr.strip().upper():
+            raise HangulCommandError(f"셀 {addr} 이동 뒤 캐럿 위치를 검증하지 못했습니다.")
 
     def set_table_properties(
         self,
@@ -3755,7 +3881,7 @@ def _parse_a1(addr: str) -> tuple[int, int]:
     if i == 0 or i == len(raw):
         raise UsageError(f"셀 주소가 올바르지 않습니다: {addr}")
     letters, digits = raw[:i], raw[i:]
-    if not digits.isdigit():
+    if not letters.isascii() or not letters.isalpha() or not digits.isdigit() or int(digits) < 1:
         raise UsageError(f"셀 주소가 올바르지 않습니다: {addr}")
     col = 0
     for ch in letters:

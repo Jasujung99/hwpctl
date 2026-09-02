@@ -74,7 +74,13 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         True,
     ),
-    ToolSpec("exit_table", "현재 표의 마지막 셀에서 본문으로 이동. 이동 뒤 셀 밖인지 검증", False, False),
+    ToolSpec("move_to_cell", "지정 표 셀로 이동. 문서 변경·Undo 없음", False, False),
+    ToolSpec(
+        "exit_table",
+        "현재 표 마지막 셀에서 본문 또는 중첩 표의 바로 바깥 부모 셀로 이동. Undo 없음",
+        False,
+        False,
+    ),
     ToolSpec(
         "layout_review",
         "표를 채운 뒤 항상 호출: 줄바꿈·행 높이·본문 폭·쪽 수 검토 및 수정",
@@ -83,6 +89,12 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec("set_cell_margin", "표 칸 안쪽 여백(mm). 표 전체·범위·현재 셀", False, True),
     ToolSpec("set_col_width", "표 열 너비를 mm 또는 비율로 지정. Undo 1단위", False, True),
+    ToolSpec(
+        "set_table_grid",
+        "병합 전 표의 열·행 격자를 모든 실제 셀에 정밀 적용. Undo 1단위",
+        False,
+        True,
+    ),
     ToolSpec("get_col_width", "현재 열 또는 지정 표의 열 너비(mm) 읽기", False, False),
     ToolSpec("set_row_height", "현재 행 또는 지정 행 높이(mm). Undo 1단위", False, True),
     ToolSpec("get_row_height", "현재 행 또는 지정 행 높이(mm) 읽기", False, False),

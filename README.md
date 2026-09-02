@@ -151,10 +151,12 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_table_position` | 표의 글자처럼 취급/떠 있는 위치·바깥 여백 |
 | `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
 | `write_cell` | 표 셀을 구조화 문단·글자 런으로 원자적 교체. Undo 1단위 |
-| `exit_table` | 현재 표의 마지막 셀에서 일반 본문으로 이동. 이동 뒤 셀 밖인지 검증 |
+| `move_to_cell` | 지정 표의 A1 셀로 이동. 문서 변경·Undo 없음 |
+| `exit_table` | 현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동. 이동 뒤 문맥 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
 | `set_col_width` | 열 너비를 mm·비율로 설정 |
+| `set_table_grid` | 병합 전 표의 열·행 격자를 모든 실제 셀에 정밀 적용 |
 | `get_col_width` | 현재 열 또는 지정 표의 열 너비(mm) 조회 |
 | `set_row_height` | 현재 행 또는 지정 행 높이(mm) 설정 |
 | `get_row_height` | 현재 행 또는 지정 행 높이(mm) 조회 |
@@ -257,6 +259,7 @@ MCP/Engine 시그니처(같은 이름의 CLI도 제공):
 
 ```python
 set_col_width(widths, table=None, column=None, unit="mm")  # unit: mm | ratio
+set_table_grid(table, column_widths_mm, row_heights_mm)      # 병합 전 완전 직사각 표, mm
 get_col_width(table=None, column=None)                     # 결과 단위: mm
 set_row_height(height, table=None, row=None)               # mm, row는 1부터
 get_row_height(table=None, row=None)                       # 결과 단위: mm
@@ -269,11 +272,12 @@ insert_paragraph(text="", runs=None, paragraph=None, page_break_before=False)
 #       underline/strikeout(bool 또는 {enabled,color,type,shape}), text_shadow,
 #       letter_spacing_percent, width_scale_percent
 write_cell(table, cell, paragraphs)                         # A1, 마지막 문단 뒤 빈 문단 없음
+move_to_cell(table, cell)                                   # A1, 문서 변경·Undo 없음
 set_table_properties(table, page_break="cell", repeat_header=True, cell_spacing_mm=0.0)
 set_table_position(table, position)                         # inline/floating JSON 객체
 insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None)
 set_cell_fill(fill, table=None, cell_range="")
-exit_table()  # 마지막 셀에서 일반 본문으로 이동; Undo 없음
+exit_table(destination="body")  # body 또는 중첩 표의 바로 바깥 parent; Undo 없음
 set_format(..., text_shadow=None)
 set_cell_border(sides="all", line_type="Solid", width="0.12mm",
                 color="#000000", table=None, cell_range="")
@@ -311,6 +315,7 @@ CLI 예:
 
 ```bat
 hwpctl set_col_width --table 0 --widths 1,2,1 --unit ratio
+hwpctl set_table_grid --table 0 --column-widths-mm 30,60,30 --row-heights-mm 10,12,10
 hwpctl get_col_width --table 0
 hwpctl set_row_height --table 0 --row 2 --height 12
 hwpctl merge_cells --table 0 --range A1:B1
@@ -332,12 +337,16 @@ hwpctl restart_page_number --number 1
 ```bat
 hwpctl open --new
 hwpctl create_table --rows 2 --cols 3
-hwpctl set_col_width --widths 1,2,1 --unit ratio
+hwpctl set_table_grid --table 0 --column-widths-mm 30,60,30 --row-heights-mm 12,12
 hwpctl set_valign center --table 0
 hwpctl layout_review --table 0
 hwpctl page
 hwpctl undo
 ```
+
+`set_table_grid`는 셀 병합 전에만 사용합니다. 여러 쪽으로 이어지는 표도 모든 실제
+셀에 너비와 높이를 함께 적용해 열·행 블록 선택이 쪽 경계에서 끊기는 한/글 2022
+경로를 피합니다. 완료 뒤에는 호출 전 커서 위치를 복원합니다.
 
 ## 한/글 네이티브 차트 (insert_chart)
 

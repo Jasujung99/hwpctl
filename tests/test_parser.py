@@ -30,10 +30,12 @@ def test_required_commands_exist() -> None:
         "set_table_position",
         "fill_cells",
         "write_cell",
+        "move_to_cell",
         "exit_table",
         "layout_review",
         "set_cell_margin",
         "set_col_width",
+        "set_table_grid",
         "get_col_width",
         "set_row_height",
         "get_row_height",
@@ -323,7 +325,29 @@ def test_table_properties_and_position_cli_kwargs() -> None:
 def test_exit_table_parse_and_cli_kwargs() -> None:
     ns = parse_args(["exit_table"])
     assert ns.command == "exit_table"
-    assert _kwargs_for(ns) == {}
+    assert _kwargs_for(ns) == {"destination": "body"}
+    parent = parse_args(["exit_table", "--destination", "parent"])
+    assert _kwargs_for(parent) == {"destination": "parent"}
+
+    move = parse_args(["move_to_cell", "--table", "2", "--cell", "B3"])
+    assert _kwargs_for(move) == {"table": 2, "cell": "B3"}
+
+    grid = parse_args(
+        [
+            "set_table_grid",
+            "--table",
+            "2",
+            "--column-widths-mm",
+            "30,50,30",
+            "--row-heights-mm",
+            "10,12",
+        ]
+    )
+    assert _kwargs_for(grid) == {
+        "table": 2,
+        "column_widths_mm": "30,50,30",
+        "row_heights_mm": "10,12",
+    }
 
 
 def test_create_table_cell_padding_override() -> None:
@@ -439,6 +463,19 @@ def test_table_size_merge_valign_and_border_parse() -> None:
     )
     assert col.widths == "1,2,1"
     assert col.unit == "ratio"
+    grid = parse_args(
+        [
+            "set_table_grid",
+            "--table",
+            "0",
+            "--column-widths-mm",
+            "30,50",
+            "--row-heights-mm",
+            "12,15",
+        ]
+    )
+    assert grid.column_widths_mm == "30,50"
+    assert grid.row_heights_mm == "12,15"
     assert parse_args(["get_col_width", "--table", "0", "--column", "2"]).column == 2
 
     row = parse_args(["set_row_height", "--height", "12.5", "--table", "0", "--row", "2"])
@@ -616,6 +653,8 @@ def test_tool_catalog_marks_destructive() -> None:
     assert by_name["restart_page_number"]["write"] is True
     assert by_name["exit_table"]["write"] is False
     assert by_name["exit_table"]["destructive"] is False
+    assert by_name["move_to_cell"]["write"] is False
+    assert by_name["move_to_cell"]["destructive"] is False
     assert by_name["hwpx_status"]["write"] is False
     assert by_name["hwpx_inspect"]["write"] is False
     assert by_name["hwpx_inspect"]["destructive"] is False

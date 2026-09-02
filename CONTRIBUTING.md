@@ -23,6 +23,15 @@ Windows와 한글 2022에서 실기 확인하려면 별도 가상환경에 다�
 py -m pip install -e ".[windows,dev]"
 ```
 
+표 격자·중첩 표처럼 COM 스텁만으로 확정할 수 없는 변경은, 사용자 문서가 아닌
+별도 `DispatchEx` 빈 문서를 쓰는 opt-in 실기 회귀도 실행합니다. 이 테스트는 저장하지
+않고 만든 한/글 인스턴스를 닫습니다.
+
+```bat
+set HWPCTL_RUN_HANGUL_INTEGRATION=1
+pytest tests/test_hangul_live_integration.py
+```
+
 ## 변경 원칙
 
 - `main`에 직접 푸시하지 않고 작은 작업 브랜치와 PR을 사용합니다.

@@ -220,6 +220,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
     p_col.add_argument("--column", type=int, default=None, help="열 번호(1부터, mm 단일값 전용)")
 
+    p_grid = add_common(
+        sub.add_parser("set_table_grid", help="병합 전 표의 열·행 격자를 mm로 정밀 지정")
+    )
+    p_grid.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_grid.add_argument("--column-widths-mm", required=True, help="열 너비 목록(mm). 예: 30,50,30")
+    p_grid.add_argument("--row-heights-mm", required=True, help="행 높이 목록(mm). 예: 10,12,10")
+
     p_get_col = add_common(sub.add_parser("get_col_width", help="표 열 너비(mm) 읽기"))
     p_get_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
     p_get_col.add_argument("--column", type=int, default=None, help="열 번호(1부터)")
@@ -361,11 +368,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="text/runs/paragraph 문단 객체의 JSON 배열",
     )
 
-    add_common(
+    p_move_to_cell = add_common(
+        sub.add_parser("move_to_cell", help="지정 표 셀로 커서를 이동 (문서 변경 없음)")
+    )
+    p_move_to_cell.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_move_to_cell.add_argument("--cell", required=True, help="셀 주소. 예: A1")
+
+    p_exit_table = add_common(
         sub.add_parser(
             "exit_table",
-            help="현재 표의 마지막 셀에서 일반 본문으로 이동 (MoveRight 후 셀 밖 검증)",
+            help="현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동",
         )
+    )
+    p_exit_table.add_argument(
+        "--destination",
+        choices=["body", "parent"],
+        default="body",
+        help="body(기본) 또는 중첩 표의 바로 바깥 부모 셀",
     )
 
     p_cell_fill = add_common(

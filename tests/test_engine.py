@@ -185,6 +185,9 @@ class FakeCanvas:
     def set_row_height_current(self, height: float) -> None:
         self.calls.append(("set_row_height_current", height))
 
+    def set_cell_geometry_current(self, width: float, height: float) -> None:
+        self.calls.append(("set_cell_geometry_current", (width, height)))
+
     def get_row_height(self) -> float:
         return 10.0
 
@@ -305,9 +308,13 @@ class FakeCanvas:
         self.calls.append(("set_cell_fill", fill))
         return self.cell_fill_actions
 
-    def exit_table(self) -> None:
-        self.calls.append(("exit_table", None))
-        self.in_cell = False
+    def move_to_cell(self, table: int, cell: str) -> None:
+        self.calls.append(("move_to_cell", (table, cell)))
+        self.in_cell = True
+
+    def exit_table(self, destination: str = "body") -> None:
+        self.calls.append(("exit_table", destination))
+        self.in_cell = destination == "parent"
 
     def insert_text_box(self, text: str, width_mm: float, height_mm: float, **kwargs) -> int:
         self.calls.append(
@@ -681,12 +688,47 @@ def test_exit_table_dispatches_without_creating_an_undo_entry(engine) -> None:
     assert out == {
         "ok": True,
         "command": "exit_table",
+        "destination": "body",
         "left_table": True,
+        "in_cell": False,
+        "context": "body",
         "undo_units": 0,
     }
-    assert ("exit_table", None) in fake.calls
+    assert ("exit_table", "body") in fake.calls
     assert fake.in_cell is False
     assert load_state().undo_stack == []
+
+
+def test_move_to_cell_and_parent_exit_keep_undo_history_unchanged(engine) -> None:
+    eng, fake = engine
+
+    moved = eng.dispatch("move_to_cell", table=2, cell="b3")
+    exited = eng.dispatch("exit_table", destination="parent")
+
+    assert moved == {
+        "ok": True,
+        "command": "move_to_cell",
+        "table": 2,
+        "cell": "B3",
+        "in_cell": True,
+        "undo_units": 0,
+    }
+    assert exited["destination"] == "parent"
+    assert exited["in_cell"] is True
+    assert exited["context"] == "parent_cell"
+    assert ("move_to_cell", (2, "B3")) in fake.calls
+    assert ("exit_table", "parent") in fake.calls
+    assert fake.in_cell is True
+    assert load_state().undo_stack == []
+
+    with pytest.raises(UsageError, match="0 이상의 표 번호"):
+        eng.move_to_cell(table=True, cell="A1")  # type: ignore[arg-type]
+    with pytest.raises(UsageError, match="A1 형식"):
+        eng.move_to_cell(table=0, cell="not-a-cell")
+    with pytest.raises(UsageError, match="A1 형식"):
+        eng.move_to_cell(table=0, cell="A0")
+    with pytest.raises(UsageError, match="body 또는 parent"):
+        eng.exit_table(destination="outer")
 
 
 def test_layout_review_wrapped_cell_increases_column_width(engine) -> None:
@@ -1210,6 +1252,92 @@ def test_set_col_width_rejects_bad_ratio(engine) -> None:
         eng.set_col_width([1], table=0, unit="ratio")
     with pytest.raises(UsageError):
         eng.set_col_width([1, 2], table=0, column=1, unit="ratio")
+
+
+def test_set_table_grid_applies_every_unmerged_cell_and_restores_cursor(engine) -> None:
+    eng, fake = engine
+    fake.created_shape = (2, 3)
+
+    out = eng.set_table_grid(
+        table=0,
+        column_widths_mm=[25, 50, 25],
+        row_heights_mm=[11, 17],
+    )
+
+    assert out == {
+        "ok": True,
+        "command": "set_table_grid",
+        "table": 0,
+        "column_widths_mm": [25.0, 50.0, 25.0],
+        "row_heights_mm": [11.0, 17.0],
+        "rows": 2,
+        "cols": 3,
+        "cursor_restored": True,
+        "undo_units": 1,
+        "hangul_actions": 6,
+    }
+    assert [value for name, value in fake.calls if name == "goto_addr"] == [
+        "A1", "B1", "C1", "A2", "B2", "C2"
+    ]
+    assert [value for name, value in fake.calls if name == "set_cell_geometry_current"] == [
+        (25.0, 11.0), (50.0, 11.0), (25.0, 11.0),
+        (25.0, 17.0), (50.0, 17.0), (25.0, 17.0),
+    ]
+    assert fake.calls[-1] == ("set_pos", (0, 3, 7))
+    assert load_state().undo_stack == [6]
+
+
+def test_set_table_grid_rejects_merge_before_any_geometry_write(engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    eng, fake = engine
+    monkeypatch.setattr(fake, "table_cell_addresses", lambda: ["A1", "C1"])
+
+    with pytest.raises(UsageError, match="병합 전"):
+        eng.set_table_grid(table=0, column_widths_mm=[20, 20, 20], row_heights_mm=[10])
+
+    assert not any(name == "set_cell_geometry_current" for name, _value in fake.calls)
+    assert load_state().undo_stack == []
+
+
+def test_set_table_grid_records_only_completed_geometry_actions_on_failure(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    fake.created_shape = (2, 2)
+    original = fake.set_cell_geometry_current
+    attempts = 0
+
+    def fail_on_third(width: float, height: float) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 3:
+            raise HangulCommandError("실패")
+        original(width, height)
+
+    monkeypatch.setattr(fake, "set_cell_geometry_current", fail_on_third)
+
+    with pytest.raises(HangulCommandError, match="실패"):
+        eng.set_table_grid(table=0, column_widths_mm=[40, 60], row_heights_mm=[10, 12])
+
+    assert load_state().undo_stack == [2]
+    assert fake.calls[-1] == ("set_pos", (0, 3, 7))
+
+
+def test_set_table_grid_rejects_non_numeric_boolean_measurements_before_connect(engine) -> None:
+    eng, fake = engine
+
+    with pytest.raises(UsageError, match="true/false"):
+        eng.set_table_grid(table=0, column_widths_mm=[True], row_heights_mm=[10])
+
+    assert fake.calls == []
+
+
+def test_set_table_grid_rejects_out_of_range_measurements_before_connect(engine) -> None:
+    eng, fake = engine
+
+    with pytest.raises(UsageError, match="500mm"):
+        eng.set_table_grid(table=0, column_widths_mm=[501], row_heights_mm=[10])
+
+    assert fake.calls == []
 
 
 def test_get_col_width_current_and_table(engine) -> None:
@@ -1897,6 +2025,8 @@ def test_normalize_cells() -> None:
 def test_parse_a1_and_range() -> None:
     assert parse_a1("B12") == (11, 1)
     assert expand_range("A1:B2") == ["A1", "B1", "A2", "B2"]
+    with pytest.raises(UsageError):
+        parse_a1("A0")
 
 
 def test_parse_color() -> None:

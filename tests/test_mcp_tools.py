@@ -18,6 +18,8 @@ def test_mcp_registers_engine_tools() -> None:
     assert "set_cell_margin" in names
     assert "insert_chart" in names
     assert "exit_table" in names
+    assert "move_to_cell" in names
+    assert "set_table_grid" in names
     assert "set_table_properties" in names
     assert "set_table_position" in names
     assert "recreate_inline_table_before_paragraph" in names
@@ -45,6 +47,8 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
         "set_cell_fill",
         "list_documents",
         "exit_table",
+        "move_to_cell",
+        "set_table_grid",
         "write_cell",
         "set_page_number",
         "set_table_properties",
@@ -66,7 +70,17 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
     assert set(write_cell["required"]) == {"table", "cell", "paragraphs"}
     assert set(write_cell["properties"]) == {"table", "cell", "paragraphs"}
 
-    assert tools["exit_table"].inputSchema["properties"] == {}
+    move_to_cell = tools["move_to_cell"].inputSchema
+    assert set(move_to_cell["required"]) == {"table", "cell"}
+    assert set(move_to_cell["properties"]) == {"table", "cell"}
+
+    exit_table = tools["exit_table"].inputSchema
+    assert exit_table["properties"]["destination"]["default"] == "body"
+    assert exit_table["properties"]["destination"]["enum"] == ["body", "parent"]
+
+    table_grid = tools["set_table_grid"].inputSchema
+    assert set(table_grid["required"]) == {"table", "column_widths_mm", "row_heights_mm"}
+    assert set(table_grid["properties"]) == {"table", "column_widths_mm", "row_heights_mm"}
     assert tools["list_documents"].inputSchema["properties"] == {}
 
     text_box = tools["insert_text_box"].inputSchema

@@ -12,6 +12,12 @@
 - 내부 순수 함수 `compact_formatting_xml`: 미사용 글자·문단 서식 정의만 검사·정리.
   문단·도형 앵커는 삭제하지 않으며, 공개 파일 수정 명령으로 제공하지 않음.
 
+- 병합 전 완전 직사각 표의 모든 실제 셀에 열 너비·행 높이를 함께 적용하는
+  `set_table_grid(table, column_widths_mm, row_heights_mm)`: 쪽 경계를 넘는 표 격자를
+  명시적으로 고정하고, 원래 커서를 복원하며 hwpctl Undo 한 단위로 기록
+- 비파괴 표 탐색 `move_to_cell(table, cell)` 및 중첩 표 한 단계 탈출
+  `exit_table(destination="parent")`: 마지막 셀·목록 문맥을 검증해 본문 또는 부모
+  표를 과도하게 건너뛰지 않음
 - 비공개 참조 문서를 위한 실험적 읽기 전용 HWPML 캡처·구조 비교 계층
   `hwpctl.reference`: 원본 해시를 열기 전후 확인하고, 스타일 ID·빈 문단·공유 표
   테두리에 강한 구조 보고서를 원문·경로 없이 만든다. 이 계층은 아직 CLI/MCP 작성

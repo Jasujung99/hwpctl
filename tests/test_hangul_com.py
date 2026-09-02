@@ -238,6 +238,20 @@ def make_canvas(com: StubCom) -> HangulCanvas:
     return HangulCanvas(px=None, com=com, backend="win32com")
 
 
+class PositionedStubCom(StubCom):
+    """실제 COM처럼 GetPos/SetPos를 제공하는 표 이동 테스트 더블."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.position = [1, 0, 0]
+
+    def GetPos(self):  # noqa: N802 - COM method name
+        return tuple(self.position)
+
+    def SetPos(self, list_id: int, para: int, pos: int):  # noqa: N802 - COM method name
+        self.position = [list_id, para, pos]
+
+
 class StubWindow:
     def __init__(self, handle: int, visible: bool = False) -> None:
         self.WindowHandle = handle
@@ -623,8 +637,9 @@ def test_select_cell_text_ok_in_cell_and_cell_field() -> None:
 
 
 def test_exit_table_uses_moveright_and_verifies_cursor_left_cell() -> None:
-    com = StubCom(cur_field_state=1)
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
     canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
     original_run = canvas.run
 
     def move_out(action: str) -> bool:
@@ -647,15 +662,30 @@ def test_exit_table_rejects_outside_or_nonfinal_cell() -> None:
     assert "MoveListEnd" not in outside.HAction.calls
     assert "MoveRight" not in outside.HAction.calls
 
-    still_in_cell = StubCom(cur_field_state=1)
+    still_in_cell = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    still_canvas = make_canvas(still_in_cell)
+    still_canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
     with pytest.raises(HangulCommandError, match="마지막 셀"):
-        make_canvas(still_in_cell).exit_table()
+        still_canvas.exit_table()
     assert still_in_cell.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
 
 
-def test_exit_table_uses_parent_list_for_multiline_final_cell() -> None:
-    com = StubCom(cur_field_state=1)
+def test_exit_table_rejects_nonfinal_cell_before_moving_the_cursor() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
     canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1", "B1"]  # type: ignore[method-assign]
+
+    with pytest.raises(HangulCommandError, match="마지막 셀"):
+        canvas.exit_table()
+
+    assert com.HAction.calls == []
+    assert com.GetPos() == (1, 0, 0)
+
+
+def test_exit_table_uses_parent_list_for_multiline_final_cell() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
     original_run = canvas.run
 
     def leave_parent_list(action: str) -> bool:
@@ -668,6 +698,132 @@ def test_exit_table_uses_parent_list_for_multiline_final_cell() -> None:
 
     assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
     assert canvas.is_cell() is False
+
+
+def test_exit_table_parent_stops_after_moveright_enters_parent_cell() -> None:
+    """중첩 표 마지막 셀은 MoveRight만으로 부모 셀 목록에 들어갈 수 있다."""
+
+    class NestedCom(StubCom):
+        def __init__(self) -> None:
+            super().__init__(cur_field_state=1, cell_addr="A1")
+            self.position = [101, 0, 0]
+
+        def GetPos(self):  # noqa: N802 - COM method name
+            return tuple(self.position)
+
+        def SetPos(self, list_id: int, para: int, pos: int):  # noqa: N802 - COM method name
+            self.position = [list_id, para, pos]
+
+    com = NestedCom()
+    canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
+    original_run = canvas.run
+
+    def leave_inner_table(action: str) -> bool:
+        if action == "MoveRight":
+            com.position[0] = 202  # 부모 셀 list
+            com.CurFieldState = 1
+        return original_run(action)
+
+    canvas.run = leave_inner_table  # type: ignore[method-assign]
+    canvas.exit_table(destination="parent")
+
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight"]
+    assert canvas.is_cell() is True
+
+
+def test_exit_table_parent_uses_one_parent_list_only_when_moveright_stays_put() -> None:
+    class NestedCom(StubCom):
+        def __init__(self) -> None:
+            super().__init__(cur_field_state=1, cell_addr="A1")
+            self.position = [101, 0, 0]
+
+        def GetPos(self):  # noqa: N802 - COM method name
+            return tuple(self.position)
+
+        def SetPos(self, list_id: int, para: int, pos: int):  # noqa: N802 - COM method name
+            self.position = [list_id, para, pos]
+
+    com = NestedCom()
+    canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
+    original_run = canvas.run
+
+    def leave_after_parent_list(action: str) -> bool:
+        if action == "MoveParentList":
+            com.position[0] = 202
+            com.CurFieldState = 1
+        return original_run(action)
+
+    canvas.run = leave_after_parent_list  # type: ignore[method-assign]
+    canvas.exit_table(destination="parent")
+
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
+    assert canvas.is_cell() is True
+
+
+def test_exit_table_parent_rejects_escaping_a_top_level_table_to_body() -> None:
+    """parent는 최상위 표에서 본문으로 빠지는 성공 경로가 아니어야 한다."""
+
+    class PositionedCom(StubCom):
+        def __init__(self) -> None:
+            super().__init__(cur_field_state=1, cell_addr="A1")
+            self.position = [101, 0, 0]
+
+        def GetPos(self):  # noqa: N802 - COM method name
+            return tuple(self.position)
+
+        def SetPos(self, list_id: int, para: int, pos: int):  # noqa: N802 - COM method name
+            self.position = [list_id, para, pos]
+
+    com = PositionedCom()
+    canvas = make_canvas(com)
+    canvas._table_addresses = lambda: ["A1"]  # type: ignore[method-assign]
+    original_run = canvas.run
+
+    def leave_to_body(action: str) -> bool:
+        if action == "MoveRight":
+            com.position[0] = 202
+            com.CurFieldState = 0
+        return original_run(action)
+
+    canvas.run = leave_to_body  # type: ignore[method-assign]
+
+    with pytest.raises(HangulCommandError, match="중첩 표"):
+        canvas.exit_table(destination="parent")
+
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight"]
+    assert com.position == [101, 0, 0]
+
+
+def test_move_to_cell_composes_verified_table_and_cell_navigation() -> None:
+    com = StubCom(cur_field_state=1, cell_addr="B3")
+    canvas = make_canvas(com)
+    calls: list[tuple[str, object]] = []
+    canvas.get_into_nth_table = lambda table: calls.append(("table", table))  # type: ignore[method-assign]
+    canvas.goto_addr = lambda addr: calls.append(("cell", addr))  # type: ignore[method-assign]
+
+    canvas.move_to_cell(2, "B3")
+
+    assert calls == [("table", 2), ("cell", "B3")]
+    with pytest.raises(UsageError, match="0 이상의 표 번호"):
+        canvas.move_to_cell(True, "A1")  # type: ignore[arg-type]
+    with pytest.raises(UsageError, match="셀 주소"):
+        canvas.move_to_cell(0, "A0")
+
+
+def test_pyhwpx_table_navigation_rejects_a_failed_target_before_cell_move() -> None:
+    class FailedPx:
+        def get_into_nth_table(self, **_kwargs):
+            return False
+
+        def is_cell(self):
+            return True
+
+    canvas = HangulCanvas(px=FailedPx(), com=StubCom(), backend="pyhwpx")
+
+    with pytest.raises(HangulCommandError, match="0번 표"):
+        canvas.get_into_nth_table(0)
 
 
 def test_has_selection_uses_is_block_flag() -> None:
@@ -1069,6 +1225,23 @@ def test_row_height_uses_shape_cell_size_and_reads_default() -> None:
     pset = com.HParameterSet.HShapeObject
     assert pset.HSet.items["ShapeCellSize"] == 1
     assert pset.ShapeTableCell.items["Height"] == com.MiliToHwpUnit(12)
+
+
+def test_cell_geometry_writes_width_and_height_in_one_table_property_action() -> None:
+    com = StubCom()
+    canvas = make_canvas(com)
+
+    canvas.set_cell_geometry_current(30, 12)
+
+    pset = com.HParameterSet.HShapeObject
+    assert pset.HSet.items["ShapeType"] == 3
+    assert pset.HSet.items["ShapeCellSize"] == 1
+    assert pset.ShapeTableCell.items["Width"] == com.MiliToHwpUnit(30)
+    assert pset.ShapeTableCell.items["Height"] == com.MiliToHwpUnit(12)
+    assert com.HAction.executed[-1] == "TablePropertyDialog"
+
+    with pytest.raises(HangulCommandError, match="표 칸 크기"):
+        make_canvas(StubCom(execute_ok=False)).set_cell_geometry_current(30, 12)
 
 
 def test_merge_cells_normalizes_block_state_before_and_after() -> None:
