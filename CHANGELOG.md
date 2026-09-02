@@ -29,6 +29,8 @@
 - Codex, Claude Code, Cursor, Gemini CLI, Grok Build용 로컬 MCP 설정 예제
 - 공개용 보안 정책, 알려진 한계, 기여 안내와 릴리스 체크리스트
 - 표 너비·높이, 셀 병합·정렬·테두리, 쪽 설정, 스타일과 레이아웃 검토 문서
+- Windows COM extra 없이 Python 3.10·3.12에서 HWPX·MCP 도구 목록·오류 종료 코드·
+  공개 파일을 검증하는 Linux CI 계약
 
 ### Changed
 
