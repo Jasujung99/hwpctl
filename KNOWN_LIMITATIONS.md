@@ -51,7 +51,9 @@
 - 변경 추적, 암호화 문서, 매크로, 복잡한 개체, 모든 HWP/HWPX 변환을 지원하는 범용
   문서 처리기는 아닙니다.
 - `hwpx_status` / `hwpx_inspect` 는 한글 없이 `.hwpx` 서식 그룹만 읽습니다.
-  공고문 재현·쪽 이미지 비교·HWPX 쓰기 CLI 는 아직 없습니다.
+  사전 렌더된 PPM(P6) 페이지는 라이브러리 API `compare_page_images(...)`로 비교할 수
+  있지만, HWPX/PDF 렌더 파이프라인과 비교 CLI/MCP, 공고문 재현·HWPX 쓰기 CLI 는 아직
+  없습니다.
   단계는 [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md)을 따릅니다.
 
 ## 저장과 데이터 보호

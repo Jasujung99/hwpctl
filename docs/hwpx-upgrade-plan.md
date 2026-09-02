@@ -24,7 +24,9 @@ flowchart LR
 - 패키지 `hwpctl/hwpx/`: `document` · `inspect` · `write` · `compare`.
 - 읽기 명령 `hwpx_status` / `hwpx_inspect` — **COM·SingleWriterLock 없음**.
 - `write.py` 는 문단·런 서식·표 채움의 얇은 래퍼만. CLI 쓰기 명령은 아직 없다.
-- `compare.py` 는 쪽 이미지 비교 자리만 (`NotImplementedError`).
+- `compare.py` 는 이미 사전 렌더된 PPM(P6) 쪽 이미지의 픽셀 차이·diff·overlay를
+  계산하는 라이브러리 API `compare_page_images(...)`를 제공한다. PDF/HWPX를 PPM으로
+  렌더하는 파이프라인과 CLI/MCP 래퍼는 아직 없다.
 - 기존 `hangul.py` / Engine COM 명령은 그대로.
 
 Linux 에서 읽기만 확인:
@@ -47,10 +49,11 @@ hwpctl hwpx_inspect 샘플.hwpx
 `save_document(..., mode="patch")` 로 손대지 않은 파트를 보존한다.
 `add_shape` / `add_control` 같은 저수준 API 는 쓰지 않는다.
 
-## 4단계 — 시각 비교 (다음)
+## 4단계 — 렌더 파이프라인과 공개 시각 비교 (다음)
 
-`compare.py` 에 쪽 이미지(또는 PDF/SVG) 대조를 붙인다.
-한/글 렌더가 없으면 비-Hancom 렌더러 파일럿만 허용한다.
+원본·결과를 같은 렌더러와 DPI로 PPM(P6) 쪽 이미지로 만든 뒤
+`compare_page_images(...)`에 넘기는 현재 라이브러리 API를 CLI/MCP 작업 흐름으로
+연결한다. 한/글 렌더가 없으면 비-Hancom 렌더러 파일럿만 허용한다.
 
 ## 5단계 — 선택적 `hwpctl open` (다음)
 
@@ -63,4 +66,4 @@ Windows + 한글 2022 가 있을 때만 실물 창에서 확인·미세 조정�
 - 공고문 전체 재현 스크립트
 - `.hwp` 바이너리 쓰기
 - `hwpx_inspect` 이외의 HWPX 쓰기 CLI/MCP 명령
-- 쪽 이미지 비교 구현
+- PDF/HWPX → PPM 렌더 파이프라인과 쪽 이미지 비교 CLI/MCP 명령

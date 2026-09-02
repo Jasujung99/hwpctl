@@ -133,6 +133,7 @@ hwpctl mcp --http --host 127.0.0.1 --port 18765 --token %HWPCTL_TOKEN%
 
 CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 stderr 한국어.
 
+<!-- hwpctl-tool-catalog:start -->
 | 이름 | 하는 일 |
 |---|---|
 | `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
@@ -152,12 +153,15 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `exit_table` | 현재 표의 마지막 셀에서 일반 본문으로 이동. 이동 뒤 셀 밖인지 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
-| `set_col_width` / `get_col_width` | 열 너비를 mm·비율로 설정 / mm로 조회 |
-| `set_row_height` / `get_row_height` | 행 높이를 mm로 설정 / 조회 |
+| `set_col_width` | 열 너비를 mm·비율로 설정 |
+| `get_col_width` | 현재 열 또는 지정 표의 열 너비(mm) 조회 |
+| `set_row_height` | 현재 행 또는 지정 행 높이(mm) 설정 |
+| `get_row_height` | 현재 행 또는 지정 행 높이(mm) 조회 |
 | `merge_cells` | `TableCellBlock` 선택 범위의 셀 합치기 |
 | `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
 | `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
+| `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입 |
 | `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
 | `set_cell_fill` | 표 셀 범위의 단색/선형 그라데이션 채우기 |
 | `set_format` | 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
@@ -175,6 +179,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `close_all` | 열려 있는 모든 한/글 문서 닫기. **`--force` 필수** |
 | `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
 | `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
+<!-- hwpctl-tool-catalog:end -->
 
 도구 목록만 (한/글 불필요):
 
@@ -393,7 +398,7 @@ MCP 서버가 떠 있어도 잠금은 **명령 단위**입니다. 서버 프로�
 pip install -e ".[dev]"
 pytest
 hwpctl status
-# → 한국어 오류, 종료 코드 2
+# → 한국어 오류, 종료 코드 3
 ```
 
 레이아웃:
@@ -401,7 +406,7 @@ hwpctl status
 ```
 hwpctl/           엔진·CLI·MCP
 hwpctl/hwpx/      한글 없는 .hwpx 준비 (python-hwpx)
-examples/         클라이언트 설정만 (한/글 코드 없음)
+examples/         MCP 클라이언트 설정 + Engine 직접 호출 예제
 tests/            파서·잠금·한/글 없음·HWPX XML
 ```
 
