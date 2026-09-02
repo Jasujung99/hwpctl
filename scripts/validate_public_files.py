@@ -28,6 +28,9 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 TOOL_TABLE_START = "<!-- hwpctl-tool-catalog:start -->"
 TOOL_TABLE_END = "<!-- hwpctl-tool-catalog:end -->"
 TOOL_TABLE_NAME = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
+ASSET_PROVENANCE_MARKERS = {
+    "assets/new-year-card/new-year-minhwa-background.png": "GPT 계열 이미지 생성 모델",
+}
 
 
 def public_text_files() -> list[Path]:
@@ -132,6 +135,16 @@ def validate_readme_tool_catalog(errors: list[str]) -> None:
         errors.append("README 도구 표와 hwpctl.tools 불일치: " + "; ".join(details))
 
 
+def validate_asset_provenance(errors: list[str]) -> None:
+    """추적된 예제 이미지는 출처 고지가 빠지지 않게 한다."""
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    for relative, marker in ASSET_PROVENANCE_MARKERS.items():
+        if not (ROOT / relative).is_file():
+            continue
+        if relative not in notices or marker not in notices:
+            errors.append(f"missing asset provenance notice: {relative}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = public_text_files()
@@ -139,6 +152,7 @@ def main() -> int:
     validate_private_literals(files, errors)
     markdown_count = validate_markdown(files, errors)
     validate_readme_tool_catalog(errors)
+    validate_asset_provenance(errors)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
