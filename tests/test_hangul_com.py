@@ -1174,6 +1174,32 @@ def test_table_position_uses_native_inline_shape_fields() -> None:
     assert "TablePropertyDialog" in com.HAction.executed
 
 
+def test_table_position_floating_uses_table_placement_alignment_codes() -> None:
+    """TablePropertyDialog.HorzAlign is not the paragraph HAlign enum."""
+    com = StubCom()
+    canvas = make_canvas(com)
+    canvas.get_into_nth_table = lambda index: None  # type: ignore[method-assign]
+
+    assert canvas.set_table_position(
+        table=0,
+        position={
+            "mode": "floating",
+            "outside_margin_mm": [0.0, 0.0, 0.0, 0.0],
+            "horizontal_relative_to": "para",
+            "vertical_relative_to": "para",
+            "horizontal_align": "left",
+            "vertical_align": "top",
+            "wrap": "top_and_bottom",
+            "x_mm": 0.0,
+            "y_mm": 0.0,
+        },
+    ) == 1
+
+    pset = com.HParameterSet.HShapeObject
+    assert pset.items["TreatAsChar"] == 0
+    assert pset.items["HorzAlign"] == 0  # 0=Left for TablePropertyDialog.
+
+
 def test_table_inside_margin_is_explicitly_unsupported() -> None:
     com = StubCom()
     with pytest.raises(HangulCommandError) as exc:

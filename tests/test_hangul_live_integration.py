@@ -176,3 +176,37 @@ def test_font_slots_preserve_hft_type_for_hanyang_gyeongothic() -> None:
         assert applied_font.attrib["Type"].lower() == "hft"
     finally:
         _close_without_saving(app)
+
+
+def test_floating_table_left_alignment_uses_table_placement_enum() -> None:
+    """TablePropertyDialog의 왼쪽 정렬은 문단 HAlign이 아니라 raw 0이다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        canvas.create_table(rows=1, cols=1, header=False)
+        assert canvas.set_table_position(
+            table=0,
+            position={
+                "mode": "floating",
+                "outside_margin_mm": [0.0, 0.0, 0.0, 0.0],
+                "horizontal_relative_to": "para",
+                "vertical_relative_to": "para",
+                "horizontal_align": "left",
+                "vertical_align": "top",
+                "wrap": "top_and_bottom",
+                "x_mm": 0.0,
+                "y_mm": 0.0,
+            },
+        ) == 1
+        assert canvas.is_cell()
+        canvas.insert_text("표 안")
+
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "") or ""))
+        position = next(
+            element
+            for element in root.iter()
+            if str(element.tag).rsplit("}", 1)[-1].upper() == "POSITION"
+        )
+        assert position.attrib["TreatAsChar"].lower() == "false"
+        assert position.attrib["HorzAlign"] == "Left"
+    finally:
+        _close_without_saving(app)

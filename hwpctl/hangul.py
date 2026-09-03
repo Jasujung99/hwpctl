@@ -2662,11 +2662,11 @@ class HangulCanvas:
                     "page": ("Page", 1),
                     "para": ("Para", 2),
                 }
-                horizontal_align = {
-                    "left": ("Left", 1),
-                    "center": ("Center", 2),
-                    "right": ("Right", 3),
-                }
+                # TablePropertyDialog.HorzAlign uses its own zero-based table
+                # placement enum (0=Left, 1=Center, 2=Right).  ``HAlign`` is
+                # the paragraph-alignment enum: using ``HAlign('Left')`` here
+                # silently serializes a floating table as Center in HWPML.
+                horizontal_align = {"left": 0, "center": 1, "right": 2}
                 vertical_align = {
                     "top": ("Top", 0),
                     "center": ("Center", 1),
@@ -2704,7 +2704,7 @@ class HangulCanvas:
                 self._set_pset_item(
                     pset,
                     "HorzAlign",
-                    self._enum("HAlign", *horizontal_align[h_align]),
+                    horizontal_align[h_align],
                 )
                 self._set_pset_item(
                     pset,
