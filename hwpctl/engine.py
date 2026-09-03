@@ -224,6 +224,7 @@ class Engine:
         self,
         text: str,
         font: str = "",
+        font_slots: Any = None,
         size: float | None = None,
         bold: bool | None = None,
         italic: bool | None = None,
@@ -249,18 +250,18 @@ class Engine:
             raise UsageError("dry_run 값은 true 또는 false여야 합니다.")
         if isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 1:
             raise UsageError("occurrence 는 1 이상의 정수여야 합니다.")
-        if font is None:
-            font = ""
         if color is None:
             color = ""
+        normalized_font = _normalize_font_name(font)
+        normalized_font_slots = _normalize_font_slots(font_slots)
+        _reject_font_choice_conflict(normalized_font, normalized_font_slots)
         _validate_text_format(
             bold=bold,
             italic=italic,
-            font=font,
+            font=normalized_font,
             size=size,
             color=color,
         )
-        normalized_font = font.strip() if isinstance(font, str) else font
         normalized_color = _normalize_optional_color(color)
         normalized_spacing = _normalize_character_percent(
             letter_spacing_percent,
@@ -284,7 +285,7 @@ class Engine:
                 normalized_spacing,
                 normalized_width,
             )
-        ) or bool(normalized_font) or bool(normalized_color)
+        ) or bool(normalized_font) or bool(normalized_font_slots) or bool(normalized_color)
         if not dry_run and not (has_character_format or normalized_paragraph):
             raise UsageError("적용할 글자 또는 문단 서식이 없습니다.")
 
@@ -313,6 +314,7 @@ class Engine:
                         bold=bold,
                         italic=italic,
                         face=normalized_font,
+                        font_slots=normalized_font_slots,
                         height_pt=size,
                         text_color=normalized_color,
                         letter_spacing_percent=normalized_spacing,
@@ -665,6 +667,7 @@ class Engine:
         runs: Any = None,
         paragraph: Any = None,
         page_break_before: bool = False,
+        terminate: bool = True,
     ) -> dict[str, Any]:
         """새 일반 문단을 쓴다.
 
@@ -674,6 +677,8 @@ class Engine:
         HWPML을 주입하지 않고도 참조 문서의 문단 흐름을 재조립하기 위한 공개
         편집 단위다.
         """
+        if not isinstance(terminate, bool):
+            raise UsageError("terminate 값은 true 또는 false여야 합니다.")
         spec = _normalize_paragraph_spec(
             text=text,
             runs=runs,
@@ -682,22 +687,27 @@ class Engine:
         )
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
-            saved_char = canvas.get_charshape()
-            saved_para = canvas.get_parashape()
+            # terminate=false는 현재 문단을 계속 작성하기 위한 의도적인 저수준
+            # 흐름 제어다. 이 상태에서 이전 입력 서식을 복원하면 방금 쓴 문단
+            # 자체를 덮어쓰므로, 종료하는 일반 문단일 때만 복원한다.
+            saved_char = canvas.get_charshape() if terminate else None
+            saved_para = canvas.get_parashape() if terminate else None
             actions = [0]
             try:
-                self._write_paragraph_spec(canvas, spec, terminate=True, actions=actions)
+                self._write_paragraph_spec(canvas, spec, terminate=terminate, actions=actions)
             except Exception:
                 if actions[0]:
                     self._record_undo("insert_paragraph", actions[0])
                 raise
             # 새 문단을 끝낸 뒤에만 복원한다. 그래야 작성한 문단이 아니라 다음
             # 빈 문단의 입력 서식만 원래 상태로 돌아간다.
-            if canvas.set_charshape(saved_char):
-                actions[0] += 1
-            if canvas.set_parashape(saved_para):
-                actions[0] += 1
-            self._record_undo("insert_paragraph", max(1, actions[0]))
+            if terminate:
+                if canvas.set_charshape(saved_char):
+                    actions[0] += 1
+                if canvas.set_parashape(saved_para):
+                    actions[0] += 1
+            if actions[0]:
+                self._record_undo("insert_paragraph", actions[0])
             return {
                 "ok": True,
                 "command": "insert_paragraph",
@@ -705,7 +715,8 @@ class Engine:
                 "runs": spec["runs"],
                 "paragraph": spec["paragraph"],
                 "page_break_before": spec["page_break_before"],
-                "undo_units": 1,
+                "terminate": terminate,
+                "undo_units": 1 if actions[0] else 0,
                 "hangul_actions": actions[0],
             }
 
@@ -1371,6 +1382,7 @@ class Engine:
         bold: bool | None = None,
         italic: bool | None = None,
         font: str = "",
+        font_slots: Any = None,
         size: float | None = None,
         color: str = "",
     ) -> dict[str, Any]:
@@ -1392,10 +1404,13 @@ class Engine:
         margins = _normalize_margin(margin)
         normalized_align = _normalize_align(align, default="center")
         normalized_position = _normalize_text_box_position(position)
+        normalized_font = _normalize_font_name(font)
+        normalized_font_slots = _normalize_font_slots(font_slots)
+        _reject_font_choice_conflict(normalized_font, normalized_font_slots)
         _validate_text_format(
             bold=bold,
             italic=italic,
-            font=font,
+            font=normalized_font,
             size=size,
             color=color,
         )
@@ -1414,7 +1429,8 @@ class Engine:
                 position=normalized_position,
                 bold=bold,
                 italic=italic,
-                font=font,
+                font=normalized_font,
+                font_slots=normalized_font_slots,
                 size=size,
                 color=_normalize_optional_color(color),
             )
@@ -1756,6 +1772,7 @@ class Engine:
         bold: bool | None = None,
         italic: bool | None = None,
         font: str = "",
+        font_slots: Any = None,
         size: float | None = None,
         align: str = "",
         color: str = "",
@@ -1771,9 +1788,13 @@ class Engine:
             if has_text_shadow
             else None
         )
+        normalized_font = _normalize_font_name(font)
+        normalized_font_slots = _normalize_font_slots(font_slots)
+        _reject_font_choice_conflict(normalized_font, normalized_font_slots)
         has_font = (
             any(x is not None for x in (bold, italic, size))
-            or bool(font)
+            or bool(normalized_font)
+            or bool(normalized_font_slots)
             or bool(color)
             or has_text_shadow
         )
@@ -1783,7 +1804,7 @@ class Engine:
         _validate_text_format(
             bold=bold,
             italic=italic,
-            font=font,
+            font=normalized_font,
             size=size,
             color=color,
         )
@@ -1794,7 +1815,8 @@ class Engine:
             font_kwargs: dict[str, Any] = {
                 "bold": bold,
                 "italic": italic,
-                "face": font,
+                "face": normalized_font,
+                "font_slots": normalized_font_slots,
                 "height_pt": size,
                 "text_color": _normalize_optional_color(color),
             }
@@ -2359,6 +2381,7 @@ def _normalize_text_run(value: Any, index: int) -> dict[str, Any]:
         "strikeout",
         "kerning",
         "font",
+        "font_slots",
         "size",
         "color",
         "text_shadow",
@@ -2383,9 +2406,11 @@ def _normalize_text_run(value: Any, index: int) -> dict[str, Any]:
     underline = _normalize_text_decoration(value.get("underline"), f"runs[{index}].underline", kind="underline")
     strikeout = _normalize_text_decoration(value.get("strikeout"), f"runs[{index}].strikeout", kind="strikeout")
     kerning = _normalize_optional_bool(value.get("kerning"), f"runs[{index}].kerning")
-    font = value.get("font", "")
-    if font is None:
-        font = ""
+    font = _normalize_font_name(value.get("font", ""), label=f"runs[{index}].font")
+    font_slots = _normalize_font_slots(
+        value.get("font_slots"), label=f"runs[{index}].font_slots"
+    )
+    _reject_font_choice_conflict(font, font_slots, label=f"runs[{index}]")
     size = value.get("size")
     color = value.get("color", "")
     _validate_text_format(
@@ -2410,7 +2435,8 @@ def _normalize_text_run(value: Any, index: int) -> dict[str, Any]:
         "underline": underline,
         "strikeout": strikeout,
         "kerning": kerning,
-        "font": str(font).strip(),
+        "font": font,
+        "font_slots": font_slots,
         "size": float(size) if size is not None else None,
         "color": _normalize_optional_color(color),
         "text_shadow": text_shadow,
@@ -2427,6 +2453,84 @@ def _normalize_text_run(value: Any, index: int) -> dict[str, Any]:
             maximum=200,
         ),
     }
+
+
+_FONT_SLOT_NAMES = (
+    "hangul",
+    "hanja",
+    "japanese",
+    "latin",
+    "other",
+    "symbol",
+    "user",
+)
+_FONT_SLOT_TYPES = {"ttf", "hft"}
+
+
+def _normalize_font_name(value: Any, *, label: str = "font") -> str:
+    """기존 단일 글꼴 이름을 엄격하게 정규화한다."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise UsageError(f"{label} 값은 문자열이어야 합니다.")
+    return value.strip()
+
+
+def _normalize_font_slots(value: Any, *, label: str = "font_slots") -> dict[str, dict[str, str]] | None:
+    """한/글 HCharShape의 문자권별 글꼴/글꼴 타입 사양을 검증한다.
+
+    ``font``는 모든 문자권에 같은 이름을 쓰는 기존 호환 경로다. 한양 전용 글꼴처럼
+    FontType까지 필요한 경우에는 이 함수가 만든 슬롯 사양만 COM에 전달한다.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise UsageError(f"{label} 는 문자권별 글꼴 객체여야 합니다.")
+    if not value:
+        raise UsageError(f"{label} 는 비어 있을 수 없습니다.")
+    unknown = set(value) - set(_FONT_SLOT_NAMES)
+    if unknown:
+        raise UsageError(
+            f"{label} 에 지원하지 않는 문자권이 있습니다: "
+            f"{', '.join(sorted(str(key) for key in unknown))}"
+        )
+    normalized: dict[str, dict[str, str]] = {}
+    for slot in _FONT_SLOT_NAMES:
+        if slot not in value:
+            continue
+        raw = value[slot]
+        slot_label = f"{label}.{slot}"
+        if not isinstance(raw, dict):
+            raise UsageError(f"{slot_label} 은 name/type 글꼴 객체여야 합니다.")
+        unexpected = set(raw) - {"name", "type"}
+        if unexpected:
+            raise UsageError(
+                f"{slot_label} 에 지원하지 않는 필드가 있습니다: "
+                f"{', '.join(sorted(str(key) for key in unexpected))}"
+            )
+        name = raw.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise UsageError(f"{slot_label}.name 은 비어 있지 않은 글꼴 이름이어야 합니다.")
+        raw_type = raw.get("type")
+        if not isinstance(raw_type, str):
+            raise UsageError(f"{slot_label}.type 은 ttf 또는 hft여야 합니다.")
+        font_type = raw_type.strip().lower()
+        if font_type not in _FONT_SLOT_TYPES:
+            raise UsageError(f"{slot_label}.type 은 ttf 또는 hft여야 합니다.")
+        normalized[slot] = {"name": name.strip(), "type": font_type}
+    return normalized
+
+
+def _reject_font_choice_conflict(
+    font: str,
+    font_slots: dict[str, dict[str, str]] | None,
+    *,
+    label: str = "font",
+) -> None:
+    if font and font_slots:
+        if label == "font":
+            raise UsageError("font 와 font_slots 는 함께 지정할 수 없습니다.")
+        raise UsageError(f"{label} 에서는 font 와 font_slots 를 함께 지정할 수 없습니다.")
 
 
 def _normalize_character_percent(
@@ -2520,6 +2624,7 @@ def _run_font_kwargs(run: dict[str, Any]) -> dict[str, Any]:
         "strikeout",
         "kerning",
         "font",
+        "font_slots",
         "size",
         "color",
         "text_shadow",
@@ -2537,6 +2642,7 @@ def _run_font_kwargs(run: dict[str, Any]) -> dict[str, Any]:
         "strikeout": run["strikeout"],
         "kerning": run["kerning"],
         "face": run["font"],
+        "font_slots": run["font_slots"],
         "height_pt": run["size"],
         "text_color": run["color"],
         "text_shadow": run["text_shadow"],

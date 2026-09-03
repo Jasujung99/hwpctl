@@ -12,6 +12,12 @@
 - 내부 순수 함수 `compact_formatting_xml`: 미사용 글자·문단 서식 정의만 검사·정리.
   문단·도형 앵커는 삭제하지 않으며, 공개 파일 수정 명령으로 제공하지 않음.
 
+- 문자권별 글꼴 사양 `font_slots`: `hangul`/`hanja`/`japanese`/`latin`/
+  `other`/`symbol`/`user`별로 `{name, type: ttf|hft}`를 지정한다. 한양 전용
+  HFT 글꼴은 `FaceName*`과 `FontType*`을 하나의 네이티브 `CharShape` 액션으로
+  적용하며 기존 단일 `font`와 동시에 지정하면 실행 전에 거부한다.
+- 구조화 문단 `insert_paragraph(..., terminate=True)`: `terminate=false`로
+  `BreakPara` 자동 생성을 끄고 중첩 표 앞뒤의 문단 경계를 호출자가 정확히 제어
 - 병합 전 완전 직사각 표의 모든 실제 셀에 열 너비·행 높이를 함께 적용하는
   `set_table_grid(table, column_widths_mm, row_heights_mm)`: 쪽 경계를 넘는 표 격자를
   명시적으로 고정하고, 원래 커서를 복원하며 hwpctl Undo 한 단위로 기록

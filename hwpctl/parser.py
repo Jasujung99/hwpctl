@@ -78,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_format_paragraph.add_argument("--text", required=True, help="정확히 일치해야 하는 한 문단")
     p_format_paragraph.add_argument("--font", default="", help="글꼴 이름")
+    p_format_paragraph.add_argument(
+        "--font-slots",
+        default="",
+        help='문자권별 글꼴 JSON. 예: {"hangul":{"name":"한양견고딕","type":"hft"}}',
+    )
     p_format_paragraph.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
     p_format_paragraph.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
     p_format_paragraph.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)
@@ -155,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--page-break-before",
         action="store_true",
         help="이 문단 앞에서 네이티브 쪽 나누기",
+    )
+    p_para.add_argument(
+        "--terminate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="문단 끝 BreakPara 생성. --no-terminate은 중첩 표 앞뒤 등에서 호출자가 문단 경계를 직접 제어",
     )
 
     p_table = add_common(sub.add_parser("create_table", help="표 만들기 (기본 칸 안여백 3.5/2.0mm)"))
@@ -318,6 +329,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_text_box.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
     p_text_box.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)
     p_text_box.add_argument("--font", default="", help="글꼴 이름")
+    p_text_box.add_argument(
+        "--font-slots",
+        default="",
+        help='문자권별 글꼴 JSON. 예: {"hangul":{"name":"한양견고딕","type":"hft"}}',
+    )
     p_text_box.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
     p_text_box.add_argument("--align", default="center", choices=["left", "center", "right", "justify"])
     p_text_box.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
@@ -415,6 +431,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_fmt.add_argument("--bold", action=argparse.BooleanOptionalAction, default=None)
     p_fmt.add_argument("--italic", action=argparse.BooleanOptionalAction, default=None)
     p_fmt.add_argument("--font", default="", help="글꼴 이름")
+    p_fmt.add_argument(
+        "--font-slots",
+        default="",
+        help='문자권별 글꼴 JSON. 예: {"hangul":{"name":"한양견고딕","type":"hft"}}',
+    )
     p_fmt.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
     p_fmt.add_argument("--align", default="", choices=["", "left", "center", "right", "justify"])
     p_fmt.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")

@@ -61,10 +61,14 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
     } <= catalog <= set(tools)
 
     structured_paragraph = tools["insert_paragraph"].inputSchema
-    assert {"text", "runs", "paragraph", "page_break_before"} == set(
+    assert {"text", "runs", "paragraph", "page_break_before", "terminate"} == set(
         structured_paragraph["properties"]
     )
     assert structured_paragraph["properties"]["text"]["default"] == ""
+    assert structured_paragraph["properties"]["terminate"]["default"] is True
+
+    format_paragraph = tools["format_paragraph_by_text"].inputSchema
+    assert "font_slots" in format_paragraph["properties"]
 
     write_cell = tools["write_cell"].inputSchema
     assert set(write_cell["required"]) == {"table", "cell", "paragraphs"}
@@ -96,6 +100,7 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
         "bold",
         "italic",
         "font",
+        "font_slots",
         "size",
         "color",
     } <= set(text_box["properties"])
@@ -107,6 +112,7 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
 
     text_format = tools["set_format"].inputSchema
     assert "text_shadow" in text_format["properties"]
+    assert "font_slots" in text_format["properties"]
 
     save_as = tools["save_as"].inputSchema
     assert set(save_as["required"]) == {"path"}

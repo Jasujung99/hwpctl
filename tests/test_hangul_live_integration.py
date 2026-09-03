@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import pytest
@@ -102,5 +103,76 @@ def test_parent_exit_stops_in_the_immediate_parent_cell() -> None:
         assert result["context"] == "parent_cell"
         assert result["in_cell"] is True
         assert records == []
+    finally:
+        _close_without_saving(app)
+
+
+def test_nonterminating_paragraph_keeps_one_native_paragraph() -> None:
+    """terminate=false 뒤의 다음 문단 작성이 빈 문단을 몰래 하나 만들지 않는다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, records = _isolated_engine(canvas)
+        first = engine.insert_paragraph("앞", terminate=False)
+        second = engine.insert_paragraph("뒤", terminate=True)
+
+        text = canvas.get_body_text()
+        assert "앞뒤" in text
+        assert text.count("\r\n") == 1
+        assert first["terminate"] is False
+        assert second["terminate"] is True
+        assert records[0][0] == "insert_paragraph"
+        assert records[1][0] == "insert_paragraph"
+    finally:
+        _close_without_saving(app)
+
+
+def test_font_slots_preserve_hft_type_for_hanyang_gyeongothic() -> None:
+    """HFT 글꼴은 이름과 타입을 같은 HCharShape 실행에 넣어야 대체되지 않는다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        text = "한양견고딕 HFT 실기 검증"
+        canvas.set_font(
+            font_slots={"hangul": {"name": "한양견고딕", "type": "hft"}}
+        )
+        canvas.insert_text(text)
+        assert text in canvas.get_body_text()
+
+        # HCharShape COM 객체는 쓰기 항목을 다시 읽어 주지 않는 설치본이 있다.
+        # 저장하지 않는 읽기 전용 HWPML에서 실제 TEXT → CharShape → FONTID →
+        # Hangul FONTFACE 연결을 따라가면, 글꼴 이름만 등록된 경우가 아니라
+        # 방금 쓴 한국어 텍스트가 HFT 글꼴을 실제로 참조하는지 검증할 수 있다.
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "") or ""))
+
+        def local_name(element: Any) -> str:
+            return str(element.tag).rsplit("}", 1)[-1].upper()
+
+        font_faces: dict[str, Any] = {}
+        for face in root.iter():
+            if local_name(face) != "FONTFACE" or face.attrib.get("Lang") != "Hangul":
+                continue
+            for candidate in face:
+                if local_name(candidate) == "FONT":
+                    font_faces[candidate.attrib["Id"]] = candidate
+            break
+
+        matching_text = next(
+            element
+            for element in root.iter()
+            if local_name(element) == "TEXT" and "".join(element.itertext()) == text
+        )
+        charshape_id = matching_text.attrib["CharShape"]
+        charshape = next(
+            element
+            for element in root.iter()
+            if local_name(element) == "CHARSHAPE" and element.attrib.get("Id") == charshape_id
+        )
+        font_id = next(
+            element.attrib["Hangul"]
+            for element in charshape
+            if local_name(element) == "FONTID"
+        )
+        applied_font = font_faces[font_id]
+        assert applied_font.attrib["Name"] == "한양견고딕"
+        assert applied_font.attrib["Type"].lower() == "hft"
     finally:
         _close_without_saving(app)

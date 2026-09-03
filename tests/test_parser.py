@@ -95,6 +95,7 @@ def test_insert_title_and_paragraph() -> None:
     assert ns.size == 22
     ns = parse_args(["insert_paragraph", "본문입니다."])
     assert ns.text == "본문입니다."
+    assert ns.terminate is True
 
 
 def test_format_paragraph_by_text_cli_kwargs() -> None:
@@ -116,6 +117,7 @@ def test_format_paragraph_by_text_cli_kwargs() -> None:
     assert _kwargs_for(ns) == {
         "text": " ◦ 본문입니다. ",
         "font": "휴먼명조",
+        "font_slots": None,
         "size": 15.0,
         "bold": False,
         "italic": None,
@@ -125,6 +127,22 @@ def test_format_paragraph_by_text_cli_kwargs() -> None:
         "paragraph": {"align": "justify", "line_spacing_percent": 155},
         "occurrence": 1,
         "dry_run": True,
+    }
+
+
+def test_font_slots_cli_kwargs_preserve_structured_name_and_type() -> None:
+    ns = parse_args(
+        [
+            "set_format",
+            "--font-slots",
+            '{"hangul":{"name":"한양견고딕","type":"hft"},"latin":{"name":"Arial","type":"ttf"}}',
+        ]
+    )
+    kwargs = _kwargs_for(ns)
+    assert kwargs["font"] == ""
+    assert kwargs["font_slots"] == {
+        "hangul": {"name": "한양견고딕", "type": "hft"},
+        "latin": {"name": "Arial", "type": "ttf"},
     }
 
 
@@ -213,6 +231,16 @@ def test_structured_paragraph_and_write_cell_cli_kwargs() -> None:
             "break_non_latin_word": "break_word",
         },
         "page_break_before": True,
+        "terminate": True,
+    }
+
+    open_paragraph = parse_args(["insert_paragraph", "앞 문단", "--no-terminate"])
+    assert _kwargs_for(open_paragraph) == {
+        "text": "앞 문단",
+        "runs": None,
+        "paragraph": None,
+        "page_break_before": False,
+        "terminate": False,
     }
 
     cell = parse_args(
@@ -348,7 +376,6 @@ def test_exit_table_parse_and_cli_kwargs() -> None:
         "column_widths_mm": "30,50,30",
         "row_heights_mm": "10,12",
     }
-
 
 def test_create_table_cell_padding_override() -> None:
     ns = parse_args(["create_table", "--rows", "2", "--cols", "2", "--cell-padding", "none"])

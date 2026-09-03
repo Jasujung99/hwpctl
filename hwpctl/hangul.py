@@ -35,6 +35,20 @@ NO_WINDOW_KO = (
     "새 창을 만들려면 hwpctl open --new 를 사용하세요."
 )
 
+# HCharShape의 문자권별 글꼴 필드. ``FontType`` 1은 일반 TTF, 2는 한컴 전용
+# HFT 글꼴이다. 한양견고딕 같은 HFT 글꼴은 이름만 넣으면 대체 글꼴로 바뀔 수 있어
+# FaceName과 FontType을 같은 CharShape 실행에 넣어야 한다.
+FONT_SLOT_SUFFIXES: dict[str, str] = {
+    "hangul": "Hangul",
+    "hanja": "Hanja",
+    "japanese": "Japanese",
+    "latin": "Latin",
+    "other": "Other",
+    "symbol": "Symbol",
+    "user": "User",
+}
+FONT_TYPE_CODES = {"ttf": 1, "hft": 2}
+
 
 def require_windows() -> None:
     if sys.platform != "win32":
@@ -740,6 +754,8 @@ class HangulCanvas:
         액션이 경계에서 끊길 수 있으므로, ``set_table_grid``가 실제 모든 셀을
         순회하며 이 원자 동작을 호출한다.
         """
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 표 칸 크기를 조절할 수 없습니다.")
         width = self._number(width_mm, "표 칸 너비", minimum=0.01, maximum=500.0)
         height = self._number(height_mm, "표 칸 높이", minimum=0.01, maximum=500.0)
         self.assert_no_dialog()
@@ -842,12 +858,16 @@ class HangulCanvas:
         strikeout: dict[str, Any] | bool | None = None,
         kerning: bool | None = None,
         face: str = "",
+        font_slots: dict[str, dict[str, str]] | None = None,
         height_pt: float | None = None,
         text_color: str = "",
         text_shadow: dict[str, Any] | None = None,
         letter_spacing_percent: int | None = None,
         width_scale_percent: int | None = None,
     ) -> None:
+        normalized_font_slots = self._normalize_font_slots(font_slots)
+        if face and normalized_font_slots:
+            raise UsageError("font 와 font_slots 는 함께 지정할 수 없습니다.")
         kwargs: dict[str, Any] = {}
         if bold is not None:
             kwargs["Bold"] = bold
@@ -862,6 +882,7 @@ class HangulCanvas:
             kwargs["TextColor"] = rgb_to_bgr_int(rgb)
         if (
             not kwargs
+            and not normalized_font_slots
             and text_shadow is None
             and letter_spacing_percent is None
             and width_scale_percent is None
@@ -872,7 +893,7 @@ class HangulCanvas:
             and kerning is None
         ):
             return
-        if self.px:
+        if self.px and not normalized_font_slots:
             # pyhwpx does not expose the complete HCharShape shadow/자간/장평 surface.
             # Keep its well-tested font path for normal character attributes,
             # then use the underlying 2022 COM parameter set for the missing fields.
@@ -935,6 +956,18 @@ class HangulCanvas:
                     setattr(pset, attr, name)
                 except Exception:
                     pass
+        if normalized_font_slots:
+            # pyhwpx의 set_font는 FontType을 노출하지 않아 HFT 글꼴을 TTF처럼
+            # 해석한다. 슬롯 사양은 항상 이 단일 네이티브 CharShape 경로로 보낸다.
+            for slot, spec in normalized_font_slots.items():
+                suffix = FONT_SLOT_SUFFIXES[slot]
+                try:
+                    setattr(pset, f"FaceName{suffix}", spec["name"])
+                    setattr(pset, f"FontType{suffix}", FONT_TYPE_CODES[spec["type"]])
+                except Exception as exc:
+                    raise HangulCommandError(
+                        f"{slot} 문자권 글꼴/글꼴 타입을 적용하지 못했습니다."
+                    ) from exc
         if "Height" in kwargs:
             try:
                 pset.Height = int(float(kwargs["Height"]) * 100)
@@ -1294,6 +1327,39 @@ class HangulCanvas:
         if not isinstance(value, dict):
             raise UsageError(f"{label}은(는) 객체여야 합니다.")
         return value
+
+    @staticmethod
+    def _normalize_font_slots(
+        value: dict[str, dict[str, str]] | None,
+    ) -> dict[str, dict[str, str]] | None:
+        """Engine을 거치지 않는 내부 호출도 문자권·HFT 타입을 검증한다."""
+        if value is None:
+            return None
+        if not isinstance(value, dict) or not value:
+            raise UsageError("font_slots 는 비어 있지 않은 문자권별 글꼴 객체여야 합니다.")
+        unknown = set(value) - set(FONT_SLOT_SUFFIXES)
+        if unknown:
+            raise UsageError(
+                "font_slots 에 지원하지 않는 문자권이 있습니다: "
+                + ", ".join(sorted(str(slot) for slot in unknown))
+            )
+        normalized: dict[str, dict[str, str]] = {}
+        for slot in FONT_SLOT_SUFFIXES:
+            if slot not in value:
+                continue
+            spec = value[slot]
+            if not isinstance(spec, dict) or set(spec) != {"name", "type"}:
+                raise UsageError(f"font_slots.{slot} 은 name/type 글꼴 객체여야 합니다.")
+            name = spec.get("name")
+            font_type = spec.get("type")
+            if not isinstance(name, str) or not name.strip():
+                raise UsageError(
+                    f"font_slots.{slot}.name 은 비어 있지 않은 글꼴 이름이어야 합니다."
+                )
+            if not isinstance(font_type, str) or font_type.strip().lower() not in FONT_TYPE_CODES:
+                raise UsageError(f"font_slots.{slot}.type 은 ttf 또는 hft여야 합니다.")
+            normalized[slot] = {"name": name.strip(), "type": font_type.strip().lower()}
+        return normalized
 
     def _set_pset_item(self, pset: Any, name: str, value: Any) -> None:
         """COM ParameterSet/테스트 더블 모두에서 항목을 설정한다."""
@@ -1772,6 +1838,7 @@ class HangulCanvas:
         bold: bool | None = None,
         italic: bool | None = None,
         font: str = "",
+        font_slots: dict[str, dict[str, str]] | None = None,
         size: float | None = None,
         color: str = "",
         # Legacy internal aliases are retained so callers on older branches
@@ -1872,6 +1939,7 @@ class HangulCanvas:
                 bold=bold,
                 italic=italic,
                 face=actual_face,
+                font_slots=font_slots,
                 height_pt=actual_size,
                 text_color=actual_color,
                 text_shadow=text_shadow,

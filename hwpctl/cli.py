@@ -92,6 +92,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {
             "text": args.text,
             "font": args.font,
+            "font_slots": parse_json_or_raw(args.font_slots),
             "size": args.size,
             "bold": args.bold,
             "italic": args.italic,
@@ -121,6 +122,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "runs": parse_json_or_raw(args.runs),
             "paragraph": parse_json_or_raw(args.paragraph),
             "page_break_before": args.page_break_before,
+            "terminate": args.terminate,
         }
     if cmd == "create_table":
         return {
@@ -210,6 +212,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "bold": args.bold,
             "italic": args.italic,
             "font": args.font,
+            "font_slots": parse_json_or_raw(args.font_slots),
             "size": args.size,
             "align": args.align,
             "color": args.color,
@@ -251,6 +254,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "bold": args.bold,
             "italic": args.italic,
             "font": args.font,
+            "font_slots": parse_json_or_raw(args.font_slots),
             "size": args.size,
             "align": args.align,
             "color": args.color,

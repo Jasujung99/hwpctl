@@ -549,6 +549,78 @@ def test_insert_paragraph_writes_structured_runs_layout_and_page_break(engine) -
     assert load_state().undo_stack == [out["hangul_actions"]]
 
 
+def test_insert_paragraph_can_leave_the_current_paragraph_open(engine) -> None:
+    """중첩 표 앞뒤에는 자동 BreakPara가 문서 흐름을 하나 더 만들면 안 된다."""
+    eng, fake = engine
+
+    out = eng.insert_paragraph("부모 셀 안의 앞 텍스트", terminate=False)
+
+    assert out["terminate"] is False
+    assert out["undo_units"] == 1
+    assert ("insert_text", "부모 셀 안의 앞 텍스트") in fake.calls
+    assert ("break_paragraph", None) not in fake.calls
+    # 열린 문단에 원래 입력 서식을 되씌우면 방금 쓴 런을 망가뜨릴 수 있다.
+    assert not any(name in {"set_charshape", "set_parashape"} for name, _value in fake.calls)
+    assert load_state().undo_stack == [out["hangul_actions"]]
+
+
+def test_font_slots_reach_runs_and_direct_text_formatting(engine) -> None:
+    """HFT 글꼴은 단일 font 경로가 아니라 문자권별 name/type을 보존한다."""
+    eng, fake = engine
+    slots = {
+        "hangul": {"name": "한양견고딕", "type": "hft"},
+        "latin": {"name": "Arial", "type": "ttf"},
+    }
+
+    out = eng.insert_paragraph(runs=[{"text": "제목 A", "font_slots": slots}])
+    run_call = next(value for name, value in fake.calls if name == "set_font")
+    assert run_call["face"] == ""
+    assert run_call["font_slots"] == slots
+    assert out["runs"][0]["font_slots"] == slots
+
+    fake.calls.clear()
+    eng.set_format(font_slots=slots)
+    direct_call = next(value for name, value in fake.calls if name == "set_font")
+    assert direct_call["face"] == ""
+    assert direct_call["font_slots"] == slots
+
+    fake.calls.clear()
+    eng.format_paragraph_by_text("본문", font_slots=slots)
+    paragraph_call = next(value for name, value in fake.calls if name == "set_font")
+    assert paragraph_call["font_slots"] == slots
+
+    fake.calls.clear()
+    eng.insert_text_box("글상자", width_mm=40, height_mm=12, font_slots=slots)
+    text_box_call = next(value for name, value in fake.calls if name == "insert_text_box")
+    assert text_box_call["font"] == ""
+    assert text_box_call["font_slots"] == slots
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"runs": [{"text": "제목", "font": "함초롬돋움", "font_slots": {"hangul": {"name": "한양견고딕", "type": "hft"}}}]},
+            "font 와 font_slots",
+        ),
+        ({"runs": [{"text": "제목", "font_slots": {}}]}, "비어 있을 수 없습니다"),
+        ({"runs": [{"text": "제목", "font_slots": {"emoji": {"name": "Arial", "type": "ttf"}}}]}, "문자권"),
+        ({"runs": [{"text": "제목", "font_slots": {"hangul": {"name": "", "type": "hft"}}}]}, "비어 있지 않은"),
+        ({"runs": [{"text": "제목", "font_slots": {"hangul": {"name": "한양견고딕", "type": "otf"}}}]}, "ttf 또는 hft"),
+    ],
+)
+def test_font_slots_reject_invalid_or_conflicting_specs_before_edit(engine, kwargs, message) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError, match=message):
+        eng.insert_paragraph(**kwargs)
+    with pytest.raises(UsageError, match="font 와 font_slots"):
+        eng.set_format(
+            font="함초롬돋움",
+            font_slots={"hangul": {"name": "한양견고딕", "type": "hft"}},
+        )
+    assert fake.calls == []
+
+
 def test_insert_paragraph_rejects_invalid_structured_specs_before_edit(engine) -> None:
     eng, fake = engine
     with pytest.raises(UsageError, match="text와 runs"):
@@ -565,6 +637,8 @@ def test_insert_paragraph_rejects_invalid_structured_specs_before_edit(engine) -
         eng.insert_paragraph(runs=[{"text": "런", "underline": {"shape": "wave"}}])
     with pytest.raises(UsageError, match="kerning"):
         eng.insert_paragraph(runs=[{"text": "런", "kerning": 1}])
+    with pytest.raises(UsageError, match="terminate"):
+        eng.insert_paragraph("런", terminate=1)  # type: ignore[arg-type]
     assert fake.calls == []
 
 

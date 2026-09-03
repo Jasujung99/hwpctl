@@ -986,6 +986,44 @@ def test_set_font_applies_letter_spacing_and_width_scale_to_all_scripts() -> Non
     assert "CharShape" in com.HAction.executed
 
 
+def test_set_font_slots_writes_name_and_hft_type_in_one_charshape_action() -> None:
+    com = StubCom()
+    make_canvas(com).set_font(
+        bold=True,
+        font_slots={
+            "hangul": {"name": "한양견고딕", "type": "hft"},
+            "latin": {"name": "Arial", "type": "ttf"},
+        },
+    )
+
+    pset = com.HParameterSet.HCharShape
+    assert pset.items["FaceNameHangul"] == "한양견고딕"
+    assert pset.items["FontTypeHangul"] == 2
+    assert pset.items["FaceNameLatin"] == "Arial"
+    assert pset.items["FontTypeLatin"] == 1
+    assert pset.items["Bold"] is True
+    assert com.HAction.executed.count("CharShape") == 1
+
+
+def test_set_font_slots_bypass_pyhwpx_generic_font_path() -> None:
+    class Px:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def set_font(self, **kwargs) -> None:
+            self.calls.append(kwargs)
+
+    com = StubCom()
+    px = Px()
+    HangulCanvas(px=px, com=com, backend="pyhwpx").set_font(
+        font_slots={"hangul": {"name": "한양견고딕", "type": "hft"}}
+    )
+
+    assert px.calls == []
+    assert com.HParameterSet.HCharShape.items["FontTypeHangul"] == 2
+    assert com.HAction.executed == ["CharShape"]
+
+
 def test_set_font_applies_run_decorations_and_kerning_without_dropping_color() -> None:
     com = StubCom()
     make_canvas(com).set_font(

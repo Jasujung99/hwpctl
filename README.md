@@ -145,7 +145,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `recreate_inline_table_before_paragraph` | 검증한 1×1 질문 표를 답변 앞에 재생성. Cut/Paste·클립보드·HWPML 미사용 |
 | `trim_blank_paragraphs_before_body` | 정확한 답변 앞의 연속 빈 문단을 지정 개수만 남김 |
 | `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). 서식은 제목에만. Undo 1단위 |
-| `insert_paragraph` | 본문 문단·글자 런·문단 레이아웃. Undo 1단위 |
+| `insert_paragraph` | 본문 문단·글자 런·문단 레이아웃. `--no-terminate`로 문단 경계를 호출자가 제어. Undo 1단위 |
 | `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
 | `set_table_properties` | 표의 쪽 나눔(`none`/`table`/`cell`)·제목 행 반복·셀 간격 |
 | `set_table_position` | 표의 글자처럼 취급/떠 있는 위치·바깥 여백 |
@@ -167,7 +167,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입 |
 | `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
 | `set_cell_fill` | 표 셀 범위의 단색/선형 그라데이션 채우기 |
-| `set_format` | 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
+| `set_format` | 글꼴·문자권별 HFT 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
 | `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
 | `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
 | `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
@@ -207,6 +207,17 @@ hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
 ```bat
 hwpctl insert_paragraph --runs "[{\"text\":\"Q. \",\"bold\":true,\"underline\":true},{\"text\":\"문의 내용\",\"font\":\"함초롬돋움\"}]" --paragraph "{\"align\":\"justify\",\"first_line_indent_mm\":-8,\"line_spacing_percent\":150,\"break_latin_word\":\"keep_word\",\"break_non_latin_word\":\"keep_word\"}"
 hwpctl write_cell --table 0 --cell A1 --paragraphs "[{\"runs\":[{\"text\":\"항목\",\"bold\":true}],\"paragraph\":{\"align\":\"center\"}}]"
+```
+
+한양 전용 글꼴처럼 글꼴 타입까지 정확히 지정해야 할 때는 `font` 대신
+`font_slots`를 씁니다. 문자권은 `hangul`, `hanja`, `japanese`, `latin`, `other`,
+`symbol`, `user`이고, 각 값은 비어 있지 않은 `name`과 `type: "ttf" | "hft"`입니다.
+`font`와 `font_slots`는 함께 쓸 수 없습니다. 이 사양은 `runs`, `set_format`,
+`format_paragraph_by_text`, `insert_text_box`에서 동일하게 지원합니다.
+
+```bat
+hwpctl insert_paragraph --runs "[{\"text\":\"제목\",\"font_slots\":{\"hangul\":{\"name\":\"한양견고딕\",\"type\":\"hft\"},\"latin\":{\"name\":\"Arial\",\"type\":\"ttf\"}}}]"
+hwpctl set_format --font-slots "{\"hangul\":{\"name\":\"한양견고딕\",\"type\":\"hft\"}}"
 ```
 
 서브커맨드 이름은 밑줄입니다 (`insert_title`, `fill_cells`).
@@ -265,20 +276,22 @@ set_row_height(height, table=None, row=None)               # mm, row는 1부터
 get_row_height(table=None, row=None)                       # 결과 단위: mm
 merge_cells(cell_range, table=None)
 set_valign(align, table=None, cell_range="")               # top | center | bottom
-insert_paragraph(text="", runs=None, paragraph=None, page_break_before=False)
+insert_paragraph(text="", runs=None, paragraph=None, page_break_before=False, terminate=True)
 # paragraph: align, *_margin_mm, first_line_indent_mm, *_spacing_mm,
 #            line_spacing_percent, break_latin_word, break_non_latin_word
-# runs: text, bold, italic, superscript, subscript, kerning, font, size, color,
+# runs: text, bold, italic, superscript, subscript, kerning, font 또는 font_slots, size, color,
 #       underline/strikeout(bool 또는 {enabled,color,type,shape}), text_shadow,
 #       letter_spacing_percent, width_scale_percent
 write_cell(table, cell, paragraphs)                         # A1, 마지막 문단 뒤 빈 문단 없음
 move_to_cell(table, cell)                                   # A1, 문서 변경·Undo 없음
 set_table_properties(table, page_break="cell", repeat_header=True, cell_spacing_mm=0.0)
 set_table_position(table, position)                         # inline/floating JSON 객체
-insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None)
+format_paragraph_by_text(text, font="", font_slots=None, ...)
+insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None,
+                font="", font_slots=None, ...)
 set_cell_fill(fill, table=None, cell_range="")
 exit_table(destination="body")  # body 또는 중첩 표의 바로 바깥 parent; Undo 없음
-set_format(..., text_shadow=None)
+set_format(..., font="", font_slots=None, text_shadow=None)
 set_cell_border(sides="all", line_type="Solid", width="0.12mm",
                 color="#000000", table=None, cell_range="")
 set_style(style)                                           # 예: "개요 1"
@@ -347,6 +360,10 @@ hwpctl undo
 `set_table_grid`는 셀 병합 전에만 사용합니다. 여러 쪽으로 이어지는 표도 모든 실제
 셀에 너비와 높이를 함께 적용해 열·행 블록 선택이 쪽 경계에서 끊기는 한/글 2022
 경로를 피합니다. 완료 뒤에는 호출 전 커서 위치를 복원합니다.
+
+중첩 표 앞뒤처럼 문단 끝을 자동으로 넣으면 안 되는 경우에는
+`insert_paragraph --no-terminate`를 쓰고, 다음 문단 경계는 호출자가 명시적으로
+만듭니다.
 
 ## 한/글 네이티브 차트 (insert_chart)
 

@@ -208,6 +208,7 @@ def build_mcp(lock_timeout: float = 8.0):
     async def format_paragraph_by_text(
         text: str,
         font: str = "",
+        font_slots: dict[str, Any] | None = None,
         size: float | None = None,
         bold: bool | None = None,
         italic: bool | None = None,
@@ -221,13 +222,15 @@ def build_mcp(lock_timeout: float = 8.0):
         """정확히 일치하는 일반 본문 한 문단만 찾고 글자·문단 서식을 적용한다.
 
         표 셀/필드·부분 일치면 거부한다. dry_run=true는 찾기·문단 경계 검증만 하며
-        캐럿·선택을 복원하고 문서를 수정하지 않는다. Undo 한 단위.
+        캐럿·선택을 복원하고 문서를 수정하지 않는다. font_slots는 한양 전용(HFT)
+        글꼴 등 문자권별 name/type 사양이며 font와 함께 쓸 수 없다. Undo 한 단위.
         """
         return await _call(
             engine,
             "format_paragraph_by_text",
             text=text,
             font=font,
+            font_slots=font_slots,
             size=size,
             bold=bold,
             italic=italic,
@@ -295,13 +298,15 @@ def build_mcp(lock_timeout: float = 8.0):
         runs: list[dict[str, Any]] | None = None,
         paragraph: dict[str, Any] | None = None,
         page_break_before: bool = False,
+        terminate: bool = True,
     ) -> dict[str, Any]:
         """본문 문단을 삽입한다. runs는 문단 안의 글자 런 배열(굵게·기울임,
         위/아래첨자·밑줄·취소선(색·type·shape 포함)·kerning, 글꼴·크기·색·자간·장평 포함),
         paragraph는 align·여백(mm)·첫줄 들여쓰기(mm)·줄간격(%)·라틴/비라틴
         단어 줄바꿈(keep_word/break_word) 객체다.
         text와 runs는 함께 쓰지 않으며, page_break_before는 문단 앞에서
-        네이티브 쪽을 나눈다. Undo 한 단위."""
+        네이티브 쪽을 나눈다. terminate=false는 문단 끝을 만들지 않아 중첩 표
+        앞뒤처럼 호출자가 문단 경계를 직접 제어할 때 쓴다. Undo 한 단위."""
         return await _call(
             engine,
             "insert_paragraph",
@@ -309,6 +314,7 @@ def build_mcp(lock_timeout: float = 8.0):
             runs=runs,
             paragraph=paragraph,
             page_break_before=page_break_before,
+            terminate=terminate,
         )
 
     @mcp.tool()
@@ -598,13 +604,15 @@ def build_mcp(lock_timeout: float = 8.0):
         bold: bool | None = None,
         italic: bool | None = None,
         font: str = "",
+        font_slots: dict[str, Any] | None = None,
         size: float | None = None,
         color: str = "",
     ) -> dict[str, Any]:
         """편집 가능한 글상자를 넣는다. fill은 단색 색상 또는 structured fill,
         shadow는 {color, alpha(0~255), offset_x_mm, offset_y_mm}, text_shadow는
         alpha 없이 색·오프셋을 받는다.
-        position은 inline 또는 {mode:'floating', x_mm, y_mm}; Undo 한 단위."""
+        position은 inline 또는 {mode:'floating', x_mm, y_mm}; font_slots는 문자권별
+        name/type 글꼴 사양이며 font와 함께 쓸 수 없다. Undo 한 단위."""
         return await _call(
             engine,
             "insert_text_box",
@@ -621,6 +629,7 @@ def build_mcp(lock_timeout: float = 8.0):
             bold=bold,
             italic=italic,
             font=font,
+            font_slots=font_slots,
             size=size,
             color=color,
         )
@@ -651,6 +660,7 @@ def build_mcp(lock_timeout: float = 8.0):
         bold: bool | None = None,
         italic: bool | None = None,
         font: str = "",
+        font_slots: dict[str, Any] | None = None,
         size: float | None = None,
         align: str = "",
         color: str = "",
@@ -661,13 +671,15 @@ def build_mcp(lock_timeout: float = 8.0):
         cell_range: str = "",
     ) -> dict[str, Any]:
         """선택·문단·행·셀범위 서식. fill은 셀 배경(단색/그라데이션),
-        text_shadow는 글자 그림자 구조. cell_range는 요청 칸에만 적용."""
+        text_shadow는 글자 그림자 구조. font_slots는 문자권별 name/type 글꼴 사양이며
+        font와 함께 쓸 수 없다. cell_range는 요청 칸에만 적용."""
         return await _call(
             engine,
             "set_format",
             bold=bold,
             italic=italic,
             font=font,
+            font_slots=font_slots,
             size=size,
             align=align,
             color=color,

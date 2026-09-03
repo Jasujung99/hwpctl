@@ -31,7 +31,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("set_edit_marks", "조판·문단부호 표시를 명시적으로 설정. 본문 변경 없음", False, True),
     ToolSpec(
         "format_paragraph_by_text",
-        "정확히 일치하는 일반 본문 한 문단의 글자·문단 서식 적용. dry_run 가능",
+        "정확히 일치하는 일반 본문 한 문단의 글자·문단 서식 적용. 문자권별 HFT 글꼴·dry_run 가능",
         False,
         True,
     ),
@@ -50,7 +50,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("insert_title", "제목 문단 삽입 (가운데, 굵게, 큰 글씨). Undo 1단위", False, True),
     ToolSpec(
         "insert_paragraph",
-        "본문 문단·글자 런·문단 레이아웃 삽입. Undo 1단위",
+        "본문 문단·글자 런·문단 레이아웃·문자권별 HFT 글꼴 삽입. 필요 시 문단 종료를 호출자가 제어. Undo 1단위",
         False,
         True,
     ),
@@ -105,7 +105,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("insert_image", "그림 파일(PNG/JPG 등)을 본문·표 칸에 삽입. Undo 1단위", False, True),
     ToolSpec(
         "insert_text_box",
-        "편집 가능한 글상자 삽입 (크기·채우기·테두리·도형/글자 그림자). Undo 1단위",
+        "편집 가능한 글상자 삽입 (크기·채우기·테두리·도형/글자 그림자·HFT 글꼴). Undo 1단위",
         False,
         True,
     ),
@@ -115,7 +115,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         True,
     ),
-    ToolSpec("set_format", "선택/문단/행 서식 (글꼴, 크기, 굵게, 정렬, 셀 색, 글자 그림자)", False, True),
+    ToolSpec("set_format", "선택/문단/행 서식 (글꼴·문자권별 HFT, 크기, 굵게, 정렬, 셀 색, 글자 그림자)", False, True),
     ToolSpec("set_style", "현재 문단에 문서 스타일 적용. Undo 1단위", False, True),
     ToolSpec("replace_selection", "선택 영역을 텍스트로 교체", False, True),
     ToolSpec("undo", "직전 명령을 한/글 Undo 한 덩어리로 되돌리기", False, True),
