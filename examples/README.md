@@ -1,5 +1,8 @@
 # 클라이언트 설정 예제
 
+조판·문단 보기와 빈 서식 검사 범위는
+[편집 보기 및 서식 감사](EDIT_MARKS_AND_FORMAT_AUDIT.md)를 참고하세요.
+
 `cursor/`, `codex/`, `claude-code/`, `gemini/`, `grok-build/`, `grok-http/`는 MCP
 클라이언트 설정 예제입니다. `build_new_year_card.py`는 별도의 **Engine 직접 호출** 예제로,
 Windows + 한글 2022에서만 실행하며 새 문서와 새 산출물만 만듭니다.

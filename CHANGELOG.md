@@ -7,6 +7,11 @@
 
 ### Added
 
+- CLI/MCP `set_edit_marks`: 조판·문단부호 표시를 명시적으로 설정하고 읽어서 검증.
+  반복 호출 시 토글하지 않으며 본문이나 Undo 이력을 변경하지 않음.
+- 내부 순수 함수 `compact_formatting_xml`: 미사용 글자·문단 서식 정의만 검사·정리.
+  문단·도형 앵커는 삭제하지 않으며, 공개 파일 수정 명령으로 제공하지 않음.
+
 - 원본 구조를 이미지·클립보드·HWPML로 평면화하지 않는 문단 앵커 교정 API
   `recreate_inline_table_before_paragraph(...)`, `trim_blank_paragraphs_before_body(...)`:
   검증된 1×1 인라인 표를 답변 앞에 재생성하고 질문→빈 문단→답변의 문단부호를 보존
