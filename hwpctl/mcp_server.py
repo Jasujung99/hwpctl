@@ -390,6 +390,27 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
+    async def set_table_inside_margin(
+        table: int,
+        left: float = 3.5,
+        right: float = 3.5,
+        top: float = 2.0,
+        bottom: float = 2.0,
+    ) -> dict[str, Any]:
+        """표 기본 안쪽 여백(TABLE/INSIDEMARGIN, mm)을 설정한다. 개별 칸의
+        CELLMARGIN을 바꾸는 set_cell_margin과 다르며, 표 번호와 좌·우·상·하 네
+        값을 사용한다. Undo 한 단위."""
+        return await _call(
+            engine,
+            "set_table_inside_margin",
+            table=table,
+            left=left,
+            right=right,
+            top=top,
+            bottom=bottom,
+        )
+
+    @mcp.tool()
     async def set_col_width(
         widths: list[float],
         table: int | None = None,

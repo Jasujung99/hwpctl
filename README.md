@@ -155,6 +155,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `exit_table` | 현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동. 이동 뒤 문맥 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
 | `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
+| `set_table_inside_margin` | 표 기본 안쪽 여백(`TABLE/INSIDEMARGIN`, mm). 셀별 여백은 보존 |
 | `set_col_width` | 열 너비를 mm·비율로 설정 |
 | `set_table_grid` | 병합 전 표의 열·행 격자를 모든 실제 셀에 정밀 적용 |
 | `get_col_width` | 현재 열 또는 지정 표의 열 너비(mm) 조회 |
@@ -259,10 +260,18 @@ hwpctl set_cell_margin --table 0 --left 4 --right 4 --top 2 --bottom 2
 hwpctl set_cell_margin --table 0 --range A1:D4          :: 해당 칸들만
 ```
 
-한글 2022에서 `set_table_inside_margin`은 `True`를 반환해도 실제 값이 바뀌지
-않았습니다. 따라서 `create_table`의 기본 여백과 `set_cell_margin --table N`은
-모두 표의 실제 셀 주소를 순회하며 각 셀에 `set_cell_margin`을 한 번씩 적용합니다.
-Undo 기록에도 적용한 셀 수가 그대로 들어갑니다.
+원본의 표 전역 기본값인 `TABLE/INSIDEMARGIN`까지 맞춰야 할 때는 별도 명령을 씁니다.
+이 명령은 개별 칸의 `CELL/CELLMARGIN`을 덮어쓰지 않으므로, 셀별 여백과 표 기본값을
+구분해 재현할 수 있습니다.
+
+```bat
+hwpctl set_table_inside_margin --table 0 --left 4 --right 4 --top 1.5 --bottom 1.5
+```
+
+`create_table`의 기본 여백과 `set_cell_margin --table N`은 여전히 표의 실제 셀 주소를
+순회하며 각 셀의 `CELLMARGIN`을 적용합니다. Undo 기록에는 적용한 셀 수가 그대로
+들어갑니다. 반면 `set_table_inside_margin`은 네이티브 표 속성 액션 한 번으로
+`INSIDEMARGIN`만 바꾸며 Undo 한 단위입니다.
 
 ## 한글 2022 실측 서식 명령
 
@@ -286,6 +295,7 @@ write_cell(table, cell, paragraphs)                         # A1, 마지막 문�
 move_to_cell(table, cell)                                   # A1, 문서 변경·Undo 없음
 set_table_properties(table, page_break="cell", repeat_header=True, cell_spacing_mm=0.0)
 set_table_position(table, position)                         # inline/floating JSON 객체
+set_table_inside_margin(table, left=3.5, right=3.5, top=2.0, bottom=2.0)  # TABLE/INSIDEMARGIN, mm
 format_paragraph_by_text(text, font="", font_slots=None, ...)
 insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None,
                 font="", font_slots=None, ...)
@@ -336,6 +346,7 @@ hwpctl set_valign center --table 0 --range A1:C2
 hwpctl set_cell_border --table 0 --range A1:C2 --sides all --color #333333
 hwpctl set_table_properties --table 0 --page-break cell --repeat-header --cell-spacing-mm 0
 hwpctl set_table_position --table 0 --position "{\"mode\":\"inline\",\"outside_margin_mm\":[0.5,0.5,0.5,0.5]}"
+hwpctl set_table_inside_margin --table 0 --left 4 --right 4 --top 1.5 --bottom 1.5
 hwpctl set_style "개요 1"
 hwpctl set_pagedef --paper-width 210 --paper-height 297 --left 20 --right 20
 hwpctl page --break

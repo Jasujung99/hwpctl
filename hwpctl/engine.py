@@ -115,6 +115,7 @@ class Engine:
             "set_table_properties": self.set_table_properties,
             "set_table_position": self.set_table_position,
             "set_cell_margin": self.set_cell_margin,
+            "set_table_inside_margin": self.set_table_inside_margin,
             "set_col_width": self.set_col_width,
             "set_table_grid": self.set_table_grid,
             "get_col_width": self.get_col_width,
@@ -925,6 +926,58 @@ class Engine:
                 "undo_units": 1,
             }
 
+    def set_table_inside_margin(
+        self,
+        table: int,
+        left: Any = 3.5,
+        right: Any = 3.5,
+        top: Any = 2.0,
+        bottom: Any = 2.0,
+    ) -> dict[str, Any]:
+        """표 기본 안쪽 여백(``TABLE/INSIDEMARGIN``)을 네이티브로 설정한다.
+
+        각 실제 칸의 ``CELLMARGIN``을 바꾸는 ``set_cell_margin``과 달리,
+        이 명령은 표의 기본 안쪽 여백 하나만 바꾼다. 네 값은 각각 mm이며
+        한/글 COM을 부르기 전에 0~50의 유한 숫자인지 확인한다.
+        """
+        if isinstance(table, bool) or not isinstance(table, int) or table < 0:
+            raise UsageError("table 은 0 이상의 표 번호여야 합니다.")
+        margins = _normalize_table_inside_margin(left, right, top, bottom)
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            saved = canvas.get_pos()
+            if saved is None:
+                raise HangulCommandError(
+                    "현재 커서 위치를 저장하지 못해 표 전체 안쪽 여백을 안전하게 적용할 수 없습니다."
+                )
+            try:
+                canvas.get_into_nth_table(table)
+                action_result = canvas.set_table_inside_margin(*margins)
+            except Exception as exc:
+                if not canvas.set_pos(saved):
+                    raise HangulCommandError(
+                        "표 전체 안쪽 여백 적용에 실패했고 원래 커서 위치도 복원하지 못했습니다."
+                    ) from exc
+                raise
+            actions = _action_count(action_result)
+            if not canvas.set_pos(saved):
+                # 표 속성은 이미 적용됐으므로, 커서 복원이 실패해도 사용자가
+                # hwpctl undo로 문서 변경을 되돌릴 수 있게 남긴다.
+                self._record_undo("set_table_inside_margin", actions)
+                raise HangulCommandError(
+                    "표 전체 안쪽 여백 적용 뒤 원래 커서 위치를 복원하지 못했습니다."
+                )
+            self._record_undo("set_table_inside_margin", actions)
+            return {
+                "ok": True,
+                "command": "set_table_inside_margin",
+                "table": table,
+                "margin_mm": list(margins),
+                "cursor_restored": True,
+                "undo_units": 1,
+                "hangul_actions": actions,
+            }
+
     def set_col_width(
         self,
         widths: Any,
@@ -1025,44 +1078,20 @@ class Engine:
             actions = 0
             try:
                 canvas.get_into_nth_table(table)
-                addresses = canvas.table_cell_addresses()
-                coordinates: dict[tuple[int, int], str] = {}
-                for address in addresses:
-                    row, col = parse_a1(address)
-                    coordinate = (row, col)
-                    if coordinate in coordinates:
-                        raise HangulCommandError(
-                            "표의 실제 셀 주소가 중복되어 격자를 안전하게 적용할 수 없습니다."
-                        )
-                    coordinates[coordinate] = address
-
-                rows = max((row for row, _col in coordinates), default=-1) + 1
-                cols = max((col for _row, col in coordinates), default=-1) + 1
-                expected = {(row, col) for row in range(rows) for col in range(cols)}
-                if not coordinates or set(coordinates) != expected:
-                    raise UsageError(
-                        "set_table_grid는 병합 전의 완전한 직사각 표에서만 사용할 수 있습니다. "
-                        "열·행 격자를 먼저 지정한 뒤 셀을 병합하세요."
-                    )
-                if len(widths) != cols:
-                    raise UsageError(
-                        f"열 너비는 표의 실제 열 수({cols})와 같은 {cols}개를 지정하세요."
-                    )
-                if len(heights) != rows:
-                    raise UsageError(
-                        f"행 높이는 표의 실제 행 수({rows})와 같은 {rows}개를 지정하세요."
-                    )
-
-                for row in range(rows):
-                    for col in range(cols):
-                        canvas.goto_addr(coordinates[(row, col)])
-                        canvas.set_cell_geometry_current(widths[col], heights[row])
-                        actions += 1
-            except Exception:
+                actions = canvas.set_current_table_grid(widths, heights)
+            except Exception as exc:
+                # Canvas는 부분 적용 시에도 완료된 액션 수를 예외에 보존한다.
+                # 그래야 호출자가 hwpctl undo로 반쯤 적용된 격자를 되돌릴 수 있다.
+                actions = int(getattr(exc, "_hwpctl_table_grid_actions", actions))
                 # 표 탐색과 실패한 중간 적용 뒤에도 호출자가 작업하던 위치로 돌아간다.
-                canvas.set_pos(saved)
+                restored = canvas.set_pos(saved)
                 if actions:
                     self._record_undo("set_table_grid", actions)
+                if not restored:
+                    raise HangulCommandError(
+                        "표 격자 적용에 실패했고 원래 커서 위치도 복원하지 못했습니다. "
+                        "hwpctl undo로 이번 명령의 변경을 되돌릴 수 있습니다."
+                    ) from exc
                 raise
 
             if not canvas.set_pos(saved):
@@ -1079,8 +1108,8 @@ class Engine:
                 "table": table,
                 "column_widths_mm": widths,
                 "row_heights_mm": heights,
-                "rows": rows,
-                "cols": cols,
+                "rows": len(heights),
+                "cols": len(widths),
                 "cursor_restored": True,
                 "undo_units": 1,
                 "hangul_actions": actions,
@@ -2923,6 +2952,24 @@ def _normalize_margin(value: Any) -> tuple[float, float, float, float] | None:
         if v < 0 or v > 50:
             raise UsageError("셀 안 여백은 0~50mm 범위로 지정하세요.")
     return (left, right, top, bottom)
+
+
+def _normalize_table_inside_margin(
+    left: Any,
+    right: Any,
+    top: Any,
+    bottom: Any,
+) -> tuple[float, float, float, float]:
+    """표 전역 ``TABLE/INSIDEMARGIN``의 네 개 mm 입력을 엄격히 정규화."""
+    values = (
+        _finite_number(left, "표 안쪽 여백 left"),
+        _finite_number(right, "표 안쪽 여백 right"),
+        _finite_number(top, "표 안쪽 여백 top"),
+        _finite_number(bottom, "표 안쪽 여백 bottom"),
+    )
+    if any(value < 0.0 or value > 50.0 for value in values):
+        raise UsageError("표 안쪽 여백은 0~50mm 범위로 지정하세요.")
+    return values
 
 
 def _canonical_color(value: Any, label: str = "색") -> str:

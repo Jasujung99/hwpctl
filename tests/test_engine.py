@@ -156,6 +156,10 @@ class FakeCanvas:
     def set_cell_margin_current(self, left, right, top, bottom) -> None:
         self.calls.append(("set_cell_margin_current", (left, right, top, bottom)))
 
+    def set_table_inside_margin(self, left, right, top, bottom) -> int:
+        self.calls.append(("set_table_inside_margin", (left, right, top, bottom)))
+        return 1
+
     def table_cell_addresses(self) -> list[str]:
         rows, cols = self.created_shape or (self.layout["rows"], self.layout["cols"])
         return [a1(r, c) for r in range(rows) for c in range(cols)]
@@ -187,6 +191,10 @@ class FakeCanvas:
 
     def set_cell_geometry_current(self, width: float, height: float) -> None:
         self.calls.append(("set_cell_geometry_current", (width, height)))
+
+    def set_current_table_grid(self, widths: list[float], heights: list[float]) -> int:
+        self.calls.append(("set_current_table_grid", (list(widths), list(heights))))
+        return len(widths) * len(heights)
 
     def get_row_height(self) -> float:
         return 10.0
@@ -1307,6 +1315,67 @@ def test_set_cell_margin_rejects_out_of_range(engine) -> None:
         eng.set_cell_margin(table=0, left=100)
 
 
+def test_set_table_inside_margin_is_native_one_undo_unit_and_restores_cursor(engine) -> None:
+    eng, fake = engine
+
+    out = eng.dispatch(
+        "set_table_inside_margin",
+        table=0,
+        left=4,
+        right=4.5,
+        top=1,
+        bottom=1.5,
+    )
+
+    assert out == {
+        "ok": True,
+        "command": "set_table_inside_margin",
+        "table": 0,
+        "margin_mm": [4.0, 4.5, 1.0, 1.5],
+        "cursor_restored": True,
+        "undo_units": 1,
+        "hangul_actions": 1,
+    }
+    assert ("get_into_nth_table", 0) in fake.calls
+    assert ("set_table_inside_margin", (4.0, 4.5, 1.0, 1.5)) in fake.calls
+    assert fake.calls[-1] == ("set_pos", (0, 3, 7))
+    assert load_state().undo_stack == [1]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"left": -0.01},
+        {"right": 50.01},
+        {"top": float("nan")},
+        {"bottom": float("inf")},
+        {"left": True},
+        {"right": "not-a-number"},
+    ],
+)
+def test_set_table_inside_margin_rejects_invalid_mm_before_connect(engine, kwargs) -> None:
+    eng, fake = engine
+
+    with pytest.raises(UsageError):
+        eng.set_table_inside_margin(table=0, **kwargs)
+
+    assert fake.calls == []
+    assert load_state().undo_stack == []
+
+
+def test_set_table_inside_margin_records_undo_if_final_cursor_restore_fails(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+    monkeypatch.setattr(fake, "set_pos", lambda _pos: False)
+
+    with pytest.raises(HangulCommandError, match="커서 위치"):
+        eng.set_table_inside_margin(table=0)
+
+    assert ("set_table_inside_margin", (3.5, 3.5, 2.0, 2.0)) in fake.calls
+    assert load_state().undo_stack == [1]
+
+
 def test_set_col_width_mm_and_ratio(engine) -> None:
     eng, fake = engine
     out = eng.set_col_width("30,70", table=0, unit="mm")
@@ -1350,25 +1419,23 @@ def test_set_table_grid_applies_every_unmerged_cell_and_restores_cursor(engine) 
         "undo_units": 1,
         "hangul_actions": 6,
     }
-    assert [value for name, value in fake.calls if name == "goto_addr"] == [
-        "A1", "B1", "C1", "A2", "B2", "C2"
-    ]
-    assert [value for name, value in fake.calls if name == "set_cell_geometry_current"] == [
-        (25.0, 11.0), (50.0, 11.0), (25.0, 11.0),
-        (25.0, 17.0), (50.0, 17.0), (25.0, 17.0),
-    ]
+    assert ("get_into_nth_table", 0) in fake.calls
+    assert ("set_current_table_grid", ([25.0, 50.0, 25.0], [11.0, 17.0])) in fake.calls
     assert fake.calls[-1] == ("set_pos", (0, 3, 7))
     assert load_state().undo_stack == [6]
 
 
-def test_set_table_grid_rejects_merge_before_any_geometry_write(engine, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_set_table_grid_preserves_canvas_validation_error(engine, monkeypatch: pytest.MonkeyPatch) -> None:
     eng, fake = engine
-    monkeypatch.setattr(fake, "table_cell_addresses", lambda: ["A1", "C1"])
+    def reject_merged(_widths: list[float], _heights: list[float]) -> int:
+        raise UsageError("set_table_grid는 병합 전의 완전한 직사각 표에서만 사용할 수 있습니다.")
+
+    monkeypatch.setattr(fake, "set_current_table_grid", reject_merged)
 
     with pytest.raises(UsageError, match="병합 전"):
         eng.set_table_grid(table=0, column_widths_mm=[20, 20, 20], row_heights_mm=[10])
 
-    assert not any(name == "set_cell_geometry_current" for name, _value in fake.calls)
+    assert ("get_into_nth_table", 0) in fake.calls
     assert load_state().undo_stack == []
 
 
@@ -1376,24 +1443,39 @@ def test_set_table_grid_records_only_completed_geometry_actions_on_failure(
     engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     eng, fake = engine
-    fake.created_shape = (2, 2)
-    original = fake.set_cell_geometry_current
-    attempts = 0
+    def fail_after_two(_widths: list[float], _heights: list[float]) -> int:
+        error = HangulCommandError("실패")
+        setattr(error, "_hwpctl_table_grid_actions", 2)
+        raise error
 
-    def fail_on_third(width: float, height: float) -> None:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 3:
-            raise HangulCommandError("실패")
-        original(width, height)
-
-    monkeypatch.setattr(fake, "set_cell_geometry_current", fail_on_third)
+    monkeypatch.setattr(fake, "set_current_table_grid", fail_after_two)
 
     with pytest.raises(HangulCommandError, match="실패"):
         eng.set_table_grid(table=0, column_widths_mm=[40, 60], row_heights_mm=[10, 12])
 
     assert load_state().undo_stack == [2]
     assert fake.calls[-1] == ("set_pos", (0, 3, 7))
+
+
+def test_set_table_grid_elevates_cursor_restore_failure_after_apply_failure(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eng, fake = engine
+
+    def fail_after_two(_widths: list[float], _heights: list[float]) -> int:
+        error = HangulCommandError("격자 적용 실패")
+        setattr(error, "_hwpctl_table_grid_actions", 2)
+        raise error
+
+    monkeypatch.setattr(fake, "set_current_table_grid", fail_after_two)
+    monkeypatch.setattr(fake, "set_pos", lambda _pos: False)
+
+    with pytest.raises(HangulCommandError, match="커서 위치도 복원하지 못했습니다") as caught:
+        eng.set_table_grid(table=0, column_widths_mm=[40, 60], row_heights_mm=[10, 12])
+
+    assert isinstance(caught.value.__cause__, HangulCommandError)
+    assert str(caught.value.__cause__) == "격자 적용 실패"
+    assert load_state().undo_stack == [2]
 
 
 def test_set_table_grid_rejects_non_numeric_boolean_measurements_before_connect(engine) -> None:

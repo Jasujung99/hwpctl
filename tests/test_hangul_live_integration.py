@@ -210,3 +210,58 @@ def test_floating_table_left_alignment_uses_table_placement_enum() -> None:
         assert position.attrib["HorzAlign"] == "Left"
     finally:
         _close_without_saving(app)
+
+
+def test_table_inside_margin_serializes_to_table_hwpml_and_restores_cursor() -> None:
+    """표 전역 CellMargin*은 CELL/CELLMARGIN이 아닌 TABLE/INSIDEMARGIN이어야 한다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        canvas.create_table(rows=2, cols=2, header=False)
+        saved = canvas.get_pos()
+        assert saved
+
+        before_root = ET.fromstring(str(app.GetTextFile("HWPML2X", "") or ""))
+
+        def local_name(element: Any) -> str:
+            return str(element.tag).rsplit("}", 1)[-1].upper()
+
+        before_table = next(
+            element for element in before_root.iter() if local_name(element) == "TABLE"
+        )
+        before_cell_margins = [
+            dict(element.attrib)
+            for element in before_table.iter()
+            if local_name(element) == "CELLMARGIN"
+        ]
+
+        engine, records = _isolated_engine(canvas)
+        result = engine.set_table_inside_margin(
+            table=0,
+            left=4.0,
+            right=4.5,
+            top=1.0,
+            bottom=1.5,
+        )
+
+        assert result["margin_mm"] == [4.0, 4.5, 1.0, 1.5]
+        assert result["cursor_restored"] is True
+        assert records == [("set_table_inside_margin", 1)]
+        assert canvas.get_pos() == saved
+
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "") or ""))
+
+        table = next(element for element in root.iter() if local_name(element) == "TABLE")
+        inside = next(element for element in table.iter() if local_name(element) == "INSIDEMARGIN")
+        assert inside.attrib == {
+            "Bottom": str(app.MiliToHwpUnit(1.5)),
+            "Left": str(app.MiliToHwpUnit(4.0)),
+            "Right": str(app.MiliToHwpUnit(4.5)),
+            "Top": str(app.MiliToHwpUnit(1.0)),
+        }
+        assert [
+            dict(element.attrib)
+            for element in table.iter()
+            if local_name(element) == "CELLMARGIN"
+        ] == before_cell_margins
+    finally:
+        _close_without_saving(app)

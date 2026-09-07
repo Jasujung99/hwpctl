@@ -225,6 +225,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_margin.add_argument("--top", type=float, default=2.0, help="상단 여백(mm)")
     p_margin.add_argument("--bottom", type=float, default=2.0, help="하단 여백(mm)")
 
+    p_table_margin = add_common(
+        sub.add_parser(
+            "set_table_inside_margin",
+            help="표 기본 안쪽 여백(TABLE/INSIDEMARGIN, mm) 지정",
+        )
+    )
+    p_table_margin.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_margin.add_argument("--left", type=float, default=3.5, help="좌측 여백(mm)")
+    p_table_margin.add_argument("--right", type=float, default=3.5, help="우측 여백(mm)")
+    p_table_margin.add_argument("--top", type=float, default=2.0, help="상단 여백(mm)")
+    p_table_margin.add_argument("--bottom", type=float, default=2.0, help="하단 여백(mm)")
+
     p_col = add_common(sub.add_parser("set_col_width", help="표 열 너비를 mm 또는 비율로 지정"))
     p_col.add_argument("--widths", required=True, help="너비 목록. 예: 30 또는 1,2,1")
     p_col.add_argument("--unit", choices=["mm", "ratio"], default="mm")

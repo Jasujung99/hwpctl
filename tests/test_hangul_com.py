@@ -1200,12 +1200,48 @@ def test_table_position_floating_uses_table_placement_alignment_codes() -> None:
     assert pset.items["HorzAlign"] == 0  # 0=Left for TablePropertyDialog.
 
 
-def test_table_inside_margin_is_explicitly_unsupported() -> None:
-    com = StubCom()
-    with pytest.raises(HangulCommandError) as exc:
-        make_canvas(com).set_table_inside_margin(3.5, 3.5, 2.0, 2.0)
-    assert "값이 바뀌지 않습니다" in exc.value.message
+def test_table_inside_margin_writes_table_global_cellmargin_items_and_restores_cursor() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    canvas = make_canvas(com)
+
+    assert canvas.set_table_inside_margin(4.0, 4.5, 1.0, 1.5) == 1
+
+    pset = com.HParameterSet.HShapeObject
+    assert pset.HSet.items["ShapeType"] == 3
+    assert pset.HSet.items["ShapeCellSize"] == 0
+    assert pset.items["CellMarginLeft"] == com.MiliToHwpUnit(4.0)
+    assert pset.items["CellMarginRight"] == com.MiliToHwpUnit(4.5)
+    assert pset.items["CellMarginTop"] == com.MiliToHwpUnit(1.0)
+    assert pset.items["CellMarginBottom"] == com.MiliToHwpUnit(1.5)
+    assert "TablePropertyDialog" in com.HAction.executed
+    assert "CloseEx" in com.HAction.calls
+    assert "Cancel" in com.HAction.calls
+    assert com.GetPos() == (1, 0, 0)
+
+
+def test_table_inside_margin_failure_and_invalid_values_restore_or_avoid_mutation() -> None:
+    failed = PositionedStubCom(cur_field_state=1, cell_addr="A1", execute_ok=False)
+    with pytest.raises(HangulCommandError, match="TablePropertyDialog"):
+        make_canvas(failed).set_table_inside_margin(4.0, 4.0, 1.0, 1.0)
+    assert failed.GetPos() == (1, 0, 0)
+    assert "Cancel" in failed.HAction.calls
+
+    invalid = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    with pytest.raises(UsageError, match="유한한 숫자"):
+        make_canvas(invalid).set_table_inside_margin(float("nan"), 4.0, 1.0, 1.0)
+    assert "TablePropertyDialog" not in invalid.HAction.executed
+
+
+def test_table_inside_margin_stops_when_closeex_cannot_select_table() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1", fail={"CloseEx"})
+
+    with pytest.raises(HangulCommandError, match="CloseEx"):
+        make_canvas(com).set_table_inside_margin(4.0, 4.0, 1.0, 1.0)
+
+    assert "GetDefault:TablePropertyDialog" not in com.HAction.calls
     assert "TablePropertyDialog" not in com.HAction.executed
+    assert "Cancel" in com.HAction.calls
+    assert com.GetPos() == (1, 0, 0)
 
 
 def test_cell_margin_current_com_items() -> None:
@@ -1306,6 +1342,69 @@ def test_cell_geometry_writes_width_and_height_in_one_table_property_action() ->
 
     with pytest.raises(HangulCommandError, match="표 칸 크기"):
         make_canvas(StubCom(execute_ok=False)).set_cell_geometry_current(30, 12)
+
+
+def test_current_table_grid_writes_each_unmerged_cell_and_restores_cursor() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    canvas = make_canvas(com)
+    visited: list[str] = []
+    geometries: list[tuple[float, float]] = []
+    canvas.table_cell_addresses = lambda: ["A1", "B1", "C1", "A2", "B2", "C2"]  # type: ignore[method-assign]
+
+    def visit(address: str) -> None:
+        visited.append(address)
+        com.position = [1, 0, len(visited)]
+
+    canvas.goto_addr = visit  # type: ignore[method-assign]
+    canvas.set_cell_geometry_current = (  # type: ignore[method-assign]
+        lambda width, height: geometries.append((width, height))
+    )
+
+    assert canvas.set_current_table_grid([25, 50, 25], [11, 17]) == 6
+    assert visited == ["A1", "B1", "C1", "A2", "B2", "C2"]
+    assert geometries == [
+        (25.0, 11.0), (50.0, 11.0), (25.0, 11.0),
+        (25.0, 17.0), (50.0, 17.0), (25.0, 17.0),
+    ]
+    assert com.GetPos() == (1, 0, 0)
+
+
+def test_current_table_grid_rejects_merged_shape_before_writing_and_restores_cursor() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    canvas = make_canvas(com)
+    geometries: list[tuple[float, float]] = []
+    canvas.table_cell_addresses = lambda: ["A1", "C1"]  # type: ignore[method-assign]
+    canvas.set_cell_geometry_current = (  # type: ignore[method-assign]
+        lambda width, height: geometries.append((width, height))
+    )
+
+    with pytest.raises(UsageError, match="병합 전"):
+        canvas.set_current_table_grid([20, 20, 20], [10])
+
+    assert geometries == []
+    assert com.GetPos() == (1, 0, 0)
+
+
+def test_current_table_grid_restores_cursor_and_reports_partial_actions_on_failure() -> None:
+    com = PositionedStubCom(cur_field_state=1, cell_addr="A1")
+    canvas = make_canvas(com)
+    attempts = 0
+    canvas.table_cell_addresses = lambda: ["A1", "B1", "A2", "B2"]  # type: ignore[method-assign]
+    canvas.goto_addr = lambda _address: None  # type: ignore[method-assign]
+
+    def fail_on_third(_width: float, _height: float) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 3:
+            raise HangulCommandError("실패")
+
+    canvas.set_cell_geometry_current = fail_on_third  # type: ignore[method-assign]
+
+    with pytest.raises(HangulCommandError, match="실패") as caught:
+        canvas.set_current_table_grid([40, 60], [10, 12])
+
+    assert getattr(caught.value, "_hwpctl_table_grid_actions") == 2
+    assert com.GetPos() == (1, 0, 0)
 
 
 def test_merge_cells_normalizes_block_state_before_and_after() -> None:

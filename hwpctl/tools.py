@@ -88,6 +88,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         True,
     ),
     ToolSpec("set_cell_margin", "표 칸 안쪽 여백(mm). 표 전체·범위·현재 셀", False, True),
+    ToolSpec(
+        "set_table_inside_margin",
+        "표 기본 안쪽 여백(TABLE/INSIDEMARGIN, mm). 셀별 여백은 보존",
+        False,
+        True,
+    ),
     ToolSpec("set_col_width", "표 열 너비를 mm 또는 비율로 지정. Undo 1단위", False, True),
     ToolSpec(
         "set_table_grid",

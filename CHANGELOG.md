@@ -21,6 +21,10 @@
 - 병합 전 완전 직사각 표의 모든 실제 셀에 열 너비·행 높이를 함께 적용하는
   `set_table_grid(table, column_widths_mm, row_heights_mm)`: 쪽 경계를 넘는 표 격자를
   명시적으로 고정하고, 원래 커서를 복원하며 hwpctl Undo 한 단위로 기록
+- 표 전역 기본 안쪽 여백 `set_table_inside_margin(table, left, right, top, bottom)`:
+  한/글 2022 `TablePropertyDialog`의 `CellMargin*`으로
+  `TABLE/INSIDEMARGIN`만 변경한다. 각 칸의 `CELL/CELLMARGIN`은 보존하며,
+  CLI·MCP·Engine에서 네 mm 값을 엄격히 검증하고 Undo 한 단위로 기록
 - 비파괴 표 탐색 `move_to_cell(table, cell)` 및 중첩 표 한 단계 탈출
   `exit_table(destination="parent")`: 마지막 셀·목록 문맥을 검증해 본문 또는 부모
   표를 과도하게 건너뛰지 않음

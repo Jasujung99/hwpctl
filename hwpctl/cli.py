@@ -153,6 +153,14 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "top": args.top,
             "bottom": args.bottom,
         }
+    if cmd == "set_table_inside_margin":
+        return {
+            "table": args.table,
+            "left": args.left,
+            "right": args.right,
+            "top": args.top,
+            "bottom": args.bottom,
+        }
     if cmd == "set_col_width":
         return {
             "widths": args.widths,

@@ -16,6 +16,7 @@ def test_mcp_registers_engine_tools() -> None:
     for name in tool_names():
         assert name in names
     assert "set_cell_margin" in names
+    assert "set_table_inside_margin" in names
     assert "insert_chart" in names
     assert "exit_table" in names
     assert "move_to_cell" in names
@@ -53,6 +54,7 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
         "set_page_number",
         "set_table_properties",
         "set_table_position",
+        "set_table_inside_margin",
         "recreate_inline_table_before_paragraph",
         "trim_blank_paragraphs_before_body",
         "close_all",
@@ -139,6 +141,20 @@ def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None
     assert set(table_position["required"]) == {"table", "position"}
     assert set(table_position["properties"]) == {"table", "position"}
     assert table_position["properties"]["position"]["type"] == "object"
+
+    table_inside_margin = tools["set_table_inside_margin"].inputSchema
+    assert table_inside_margin["required"] == ["table"]
+    assert set(table_inside_margin["properties"]) == {
+        "table",
+        "left",
+        "right",
+        "top",
+        "bottom",
+    }
+    assert table_inside_margin["properties"]["left"]["default"] == 3.5
+    assert table_inside_margin["properties"]["right"]["default"] == 3.5
+    assert table_inside_margin["properties"]["top"]["default"] == 2.0
+    assert table_inside_margin["properties"]["bottom"]["default"] == 2.0
 
     recreate = tools["recreate_inline_table_before_paragraph"].inputSchema
     assert set(recreate["required"]) == {

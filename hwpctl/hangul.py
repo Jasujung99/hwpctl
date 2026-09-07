@@ -774,6 +774,94 @@ class HangulCanvas:
             raise HangulCommandError("현재 표 칸 크기(TablePropertyDialog) 액션이 실패했습니다.")
         self.assert_no_dialog()
 
+    def set_current_table_grid(
+        self,
+        column_widths_mm: list[float] | tuple[float, ...],
+        row_heights_mm: list[float] | tuple[float, ...],
+    ) -> int:
+        """현재 병합 전 직사각 표의 모든 셀 격자를 명시적으로 적용한다.
+
+        ``TablePropertyDialog``의 셀 크기 적용은 실제 셀을 하나씩 방문해야
+        쪽을 넘는 표의 하단 격자까지 확실히 갱신된다. 이 저수준 도우미는
+        현재 표의 구조와 치수 개수를 먼저 전부 검증한 뒤에만 쓰기를 시작하고,
+        성공·실패 어느 경우에도 호출 당시의 표 안 커서 위치를 복원한다.
+        """
+        if not self.is_cell():
+            raise HangulCommandError("캐럿이 표 셀 안에 있지 않아 표 격자를 적용할 수 없습니다.")
+        if not isinstance(column_widths_mm, (list, tuple)) or not column_widths_mm:
+            raise UsageError("열 너비는 비어 있지 않은 mm 숫자 목록이어야 합니다.")
+        if not isinstance(row_heights_mm, (list, tuple)) or not row_heights_mm:
+            raise UsageError("행 높이는 비어 있지 않은 mm 숫자 목록이어야 합니다.")
+        widths = [
+            self._number(value, "열 너비", minimum=0.01, maximum=500.0)
+            for value in column_widths_mm
+        ]
+        heights = [
+            self._number(value, "행 높이", minimum=0.01, maximum=500.0)
+            for value in row_heights_mm
+        ]
+
+        saved = self.get_pos()
+        if not saved:
+            raise HangulCommandError(
+                "현재 커서 위치를 저장하지 못해 표 격자를 안전하게 적용할 수 없습니다."
+            )
+
+        actions = 0
+        try:
+            addresses = self.table_cell_addresses()
+            coordinates: dict[tuple[int, int], str] = {}
+            for address in addresses:
+                row, col = _parse_a1(address)
+                coordinate = (row, col)
+                if coordinate in coordinates:
+                    raise HangulCommandError(
+                        "표의 실제 셀 주소가 중복되어 격자를 안전하게 적용할 수 없습니다."
+                    )
+                coordinates[coordinate] = address
+
+            rows = max((row for row, _col in coordinates), default=-1) + 1
+            cols = max((col for _row, col in coordinates), default=-1) + 1
+            expected = {(row, col) for row in range(rows) for col in range(cols)}
+            if not coordinates or set(coordinates) != expected:
+                raise UsageError(
+                    "set_table_grid는 병합 전의 완전한 직사각 표에서만 사용할 수 있습니다. "
+                    "열·행 격자를 먼저 지정한 뒤 셀을 병합하세요."
+                )
+            if len(widths) != cols:
+                raise UsageError(
+                    f"열 너비는 표의 실제 열 수({cols})와 같은 {cols}개를 지정하세요."
+                )
+            if len(heights) != rows:
+                raise UsageError(
+                    f"행 높이는 표의 실제 행 수({rows})와 같은 {rows}개를 지정하세요."
+                )
+
+            for row in range(rows):
+                for col in range(cols):
+                    self.goto_addr(coordinates[(row, col)])
+                    self.set_cell_geometry_current(widths[col], heights[row])
+                    actions += 1
+        except Exception as exc:
+            if not self.set_pos(saved):
+                restore_error = HangulCommandError(
+                    "표 격자 적용에 실패했고 원래 커서 위치도 복원하지 못했습니다."
+                )
+                setattr(restore_error, "_hwpctl_table_grid_actions", actions)
+                raise restore_error from exc
+            # Engine은 부분 적용도 하나의 hwpctl Undo 단위로 기록해야 한다.
+            # 원래 예외 유형을 보존하면서 완료된 한/글 액션 수만 전달한다.
+            setattr(exc, "_hwpctl_table_grid_actions", actions)
+            raise
+
+        if not self.set_pos(saved):
+            restore_error = HangulCommandError(
+                "표 격자를 적용했지만 원래 커서 위치를 복원하지 못했습니다."
+            )
+            setattr(restore_error, "_hwpctl_table_grid_actions", actions)
+            raise restore_error
+        return actions
+
     def get_row_height(self) -> float:
         """현재 셀의 행 높이(mm). TablePropertyDialog 기본값에서 읽는다."""
         if not self.is_cell():
@@ -2053,12 +2141,83 @@ class HangulCanvas:
 
     def set_table_inside_margin(
         self, left: float, right: float, top: float, bottom: float
-    ) -> None:
-        """지원하지 않는 pyhwpx 일괄 API를 명시적으로 막는다."""
-        raise HangulCommandError(
-            "set_table_inside_margin은 한글 2022에서 성공을 반환해도 값이 바뀌지 않습니다. "
-            "표 전체 안 여백은 셀을 순회해 set_cell_margin을 적용해야 합니다."
+    ) -> int:
+        """현재 표의 기본 안쪽 여백(``TABLE/INSIDEMARGIN``)을 mm로 지정한다.
+
+        이는 각 셀의 ``CELLMARGIN``을 덮어쓰는 ``set_cell_margin_current``와
+        다르다. 한/글 2022에서는 ``TablePropertyDialog``의 표 전역
+        ``CellMargin*`` 항목이 HWPML의 ``TABLE/INSIDEMARGIN``에 대응한다.
+        표를 개체 선택 상태로 전환하는 동안에도 호출 당시 셀의 커서를 복원한다.
+        """
+        values = (
+            self._number(left, "표 안쪽 여백 left", minimum=0.0, maximum=50.0),
+            self._number(right, "표 안쪽 여백 right", minimum=0.0, maximum=50.0),
+            self._number(top, "표 안쪽 여백 top", minimum=0.0, maximum=50.0),
+            self._number(bottom, "표 안쪽 여백 bottom", minimum=0.0, maximum=50.0),
         )
+        if not self.is_cell():
+            raise HangulCommandError(
+                "캐럿이 표 셀 안에 있지 않아 표 전체 안쪽 여백을 적용할 수 없습니다."
+            )
+        saved = self.get_pos()
+        if saved is None:
+            raise HangulCommandError(
+                "현재 커서 위치를 저장하지 못해 표 전체 안쪽 여백을 안전하게 적용할 수 없습니다."
+            )
+
+        self.assert_no_dialog()
+        ok = False
+        failure: Exception | None = None
+        try:
+            # TablePropertyDialog의 표 전역 CellMargin*은 셀 편집 모드에서
+            # 누락된다. CloseEx → FindCtrl 뒤 표 개체를 대상으로 실행해야 한다.
+            if not self.run("CloseEx"):
+                raise HangulCommandError(
+                    "표 전체 안쪽 여백 적용을 위해 CloseEx로 표 개체 선택 상태로 전환하지 못했습니다."
+                )
+            try:
+                self.com.FindCtrl()
+            except Exception:
+                # 일부 COM 래퍼는 CloseEx 직후 이미 개체를 선택해 FindCtrl을
+                # 따로 노출하지 않는다. 이어지는 GetDefault/Execute가 실제
+                # 표 전역 항목을 받는지로 성공 여부를 판정한다.
+                pass
+            pset = self.com.HParameterSet.HShapeObject
+            self.com.HAction.GetDefault("TablePropertyDialog", pset.HSet)
+            self._set_pset_item(pset.HSet, "ShapeType", 3)
+            self._set_pset_item(pset.HSet, "ShapeCellSize", 0)
+            for name, value in zip(
+                ("CellMarginLeft", "CellMarginRight", "CellMarginTop", "CellMarginBottom"),
+                values,
+            ):
+                self._set_pset_item(pset, name, self._mm_to_hwpunit(value))
+            ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
+        except (UsageError, HangulCommandError) as exc:
+            failure = exc
+        except Exception as exc:
+            failure = HangulCommandError(f"표 전체 안쪽 여백 적용에 실패했습니다: {exc}")
+        finally:
+            try:
+                self.run("Cancel")
+            except Exception:
+                pass
+            restored = self.set_pos(saved)
+
+        if not restored:
+            restore_error = HangulCommandError(
+                "표 전체 안쪽 여백 적용 뒤 원래 커서 위치를 복원하지 못했습니다."
+            )
+            if failure is not None:
+                raise restore_error from failure
+            raise restore_error
+        if failure is not None:
+            raise failure
+        if not ok:
+            raise HangulCommandError(
+                "표 전체 안쪽 여백(TablePropertyDialog) 액션이 실패했습니다."
+            )
+        self.assert_no_dialog()
+        return 1
 
     def table_cell_addresses(self) -> list[str]:
         """현재 표의 실제 셀 주소를 이동 액션과 KeyIndicator로 읽는다."""

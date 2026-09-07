@@ -34,6 +34,7 @@ def test_required_commands_exist() -> None:
         "exit_table",
         "layout_review",
         "set_cell_margin",
+        "set_table_inside_margin",
         "set_col_width",
         "set_table_grid",
         "get_col_width",
@@ -395,6 +396,31 @@ def test_set_cell_margin_parse() -> None:
     assert ns.bottom == 2.0
 
 
+def test_set_table_inside_margin_parse_and_cli_kwargs() -> None:
+    ns = parse_args(
+        [
+            "set_table_inside_margin",
+            "--table",
+            "2",
+            "--left",
+            "4",
+            "--right",
+            "4.5",
+            "--top",
+            "1",
+            "--bottom",
+            "1.5",
+        ]
+    )
+    assert _kwargs_for(ns) == {
+        "table": 2,
+        "left": 4.0,
+        "right": 4.5,
+        "top": 1.0,
+        "bottom": 1.5,
+    }
+
+
 def test_insert_chart_parse() -> None:
     ns = parse_args(["insert_chart", "--table", "0", "--type", "line"])
     assert ns.command == "insert_chart"
@@ -676,6 +702,7 @@ def test_tool_catalog_marks_destructive() -> None:
     assert by_name["list_documents"]["destructive"] is False
     assert by_name["set_table_properties"]["write"] is True
     assert by_name["set_table_position"]["write"] is True
+    assert by_name["set_table_inside_margin"]["write"] is True
     assert by_name["set_page_visibility"]["write"] is True
     assert by_name["restart_page_number"]["write"] is True
     assert by_name["exit_table"]["write"] is False
