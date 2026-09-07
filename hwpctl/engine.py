@@ -101,6 +101,7 @@ class Engine:
             "list_documents": self.list_documents,
             "open": self.open,
             "snapshot": self.snapshot,
+            "set_edit_marks": self.set_edit_marks,
             "format_paragraph_by_text": self.format_paragraph_by_text,
             "recreate_inline_table_before_paragraph": self.recreate_inline_table_before_paragraph,
             "trim_blank_paragraphs_before_body": self.trim_blank_paragraphs_before_body,
@@ -142,6 +143,14 @@ class Engine:
         if command not in handlers:
             raise UsageError(f"알 수 없는 명령입니다: {command}")
         return handlers[command](**kwargs)
+
+    def set_edit_marks(self, control_marks: bool = True, paragraph_marks: bool = True) -> dict[str, Any]:
+        from hwpctl.edit_support import set_edit_marks
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            canvas.assert_no_dialog()
+            result = set_edit_marks(canvas.com, control_marks=control_marks, paragraph_marks=paragraph_marks)
+        return {"ok": True, "command": "set_edit_marks", **result, "autosave": False}
 
     def status(self) -> dict[str, Any]:
         with SingleWriterLock(timeout=self.lock_timeout):

@@ -200,6 +200,11 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "snapshot")
 
     @mcp.tool()
+    async def set_edit_marks(control_marks: bool = True, paragraph_marks: bool = True) -> dict[str, Any]:
+        """조판·문단부호 표시를 토글하지 않고 설정한다. 본문·다른 보기 옵션은 보존."""
+        return await _call(engine, "set_edit_marks", control_marks=control_marks, paragraph_marks=paragraph_marks)
+
+    @mcp.tool()
     async def format_paragraph_by_text(
         text: str,
         font: str = "",

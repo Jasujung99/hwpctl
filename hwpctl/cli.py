@@ -82,6 +82,8 @@ def _kwargs_for(args: Any) -> dict[str, Any]:
 
 def _kwargs_for_inner(args: Any) -> dict[str, Any]:
     cmd = args.command
+    if cmd == "set_edit_marks":
+        return {"control_marks": args.control_marks, "paragraph_marks": args.paragraph_marks}
     if cmd == "list_documents":
         return {}
     if cmd == "open":

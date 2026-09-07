@@ -66,6 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     add_common(sub.add_parser("snapshot", help="제목·본문·표·선택 영역 스냅샷"))
+    p_marks = add_common(sub.add_parser("set_edit_marks", help="조판·문단부호 보기 설정 (토글 아님)"))
+    p_marks.add_argument("--control-marks", action=argparse.BooleanOptionalAction, default=True)
+    p_marks.add_argument("--paragraph-marks", action=argparse.BooleanOptionalAction, default=True)
 
     p_format_paragraph = add_common(
         sub.add_parser(

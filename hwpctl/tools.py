@@ -28,6 +28,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec("open", "새 문서 또는 경로로 열기. 수정본이 있으면 --discard 필요", False, True),
     ToolSpec("snapshot", "제목·본문·표·선택 영역을 읽기", False, False),
+    ToolSpec("set_edit_marks", "조판·문단부호 표시를 명시적으로 설정. 본문 변경 없음", False, True),
     ToolSpec(
         "format_paragraph_by_text",
         "정확히 일치하는 일반 본문 한 문단의 글자·문단 서식 적용. dry_run 가능",
