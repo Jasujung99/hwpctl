@@ -1891,23 +1891,34 @@ class HangulCanvas:
         if margin is None:
             return
         try:
-            pset = self.com.HParameterSet.HShapeObject
-            self.com.HAction.GetDefault("ShapeObjDialog", pset.HSet)
-            text_box = pset.CreateItemSet("ShapeDrawTextBox", "DrawTextBox")
-            left, right, top, bottom = (self._mm_to_hwpunit(value) for value in margin)
+            action = self.com.CreateAction("ShapeObjDialog")
+            if action is None:
+                raise HangulCommandError("글상자 속성 액션을 만들지 못했습니다.")
+            pset = action.CreateSet()
+            action.GetDefault(pset)
+            # Hancom 2022 exposes text-box margins as ListProperties. Creating
+            # an unknown DrawTextBox item set can return success without changing
+            # the document. Automation returns a COPY of child sets, unlike OCX:
+            # https://forum.developer.hancom.com/t/hwpctrl/2354
+            if not pset.ItemExist("ShapeListProperites"):
+                raise HangulCommandError("선택 개체에 글상자 여백 속성이 없습니다.")
+            text_box = pset.Item("ShapeListProperites")
+            from hwpctl.units import mm_to_hwpunit
+            left, right, top, bottom = (mm_to_hwpunit(value) for value in margin)
             for name, value in (
                 ("MarginLeft", left), ("MarginRight", right),
                 ("MarginTop", top), ("MarginBottom", bottom),
             ):
                 self._set_pset_item(text_box, name, value)
-            if not bool(self.com.HAction.Execute("ShapeObjDialog", pset.HSet)):
+            pset.SetItem("ShapeListProperites", text_box)
+            if not bool(action.Execute(pset)):
                 raise HangulCommandError("글상자 안쪽 여백(ShapeObjDialog) 액션이 실패했습니다.")
         except HangulCommandError:
             raise
         except Exception as exc:
             raise HangulCommandError(
                 "글상자 안쪽 여백을 적용하지 못했습니다. "
-                "현재 한/글 2022 설치본이 DrawTextBox 여백 쓰기를 지원하는지 확인하세요."
+                "현재 한/글 2022 설치본이 ListProperties 여백 쓰기를 지원하는지 확인하세요."
             ) from exc
 
     def insert_text_box(
@@ -1947,7 +1958,7 @@ class HangulCanvas:
         margins = self._validate_text_box_margin(margin)
         if fill is not None:
             self._mapping(fill, "글상자 채우기")
-            if str(fill.get("type", "")).strip().lower() == "linear_gradient":
+            if str(fill.get("type", "")).strip().lower() in {"linear_gradient", "radial_gradient"}:
                 self._gradient(fill)
             elif str(fill.get("type", "")).strip().lower() == "solid":
                 raw_color = fill.get("color")
@@ -1955,7 +1966,7 @@ class HangulCanvas:
                     raise UsageError("단색 글상자 채우기의 color는 색 문자열이어야 합니다.")
                 parse_color(raw_color)
             else:
-                raise UsageError("글상자 채우기 type은 solid 또는 linear_gradient여야 합니다.")
+                raise UsageError("글상자 채우기 type은 solid, linear_gradient 또는 radial_gradient여야 합니다.")
         if line is not None:
             self._shape_line_values(line)
         if shadow is not None:
@@ -2019,7 +2030,6 @@ class HangulCanvas:
             anchor = ctrl.GetAnchorPos(0)
             self.com.SetPosBySet(anchor)
             self.com.FindCtrl()
-            self._apply_text_box_margin(margins)
             if not bool(self.com.HAction.Run("ShapeObjTextBoxEdit")):
                 raise HangulCommandError("글상자 편집 모드로 들어가지 못했습니다.")
             entered_text_box = True
@@ -2035,6 +2045,12 @@ class HangulCanvas:
             self.set_align(alignment)
             if text:
                 self.insert_text(text)
+            if margins is not None:
+                # The list is materialized by entering text-box editing. Before
+                # that boundary a new gso may have no ListProperties at all.
+                self.com.SetPosBySet(anchor)
+                self.com.FindCtrl()
+                self._apply_text_box_margin(margins)
         except HangulCommandError:
             if entered_text_box:
                 self._restore_text_box_cursor(original_pos, anchor)
@@ -2670,6 +2686,16 @@ class HangulCanvas:
             )
         after_parent_list = after_parent[0]
         if self.is_cell() and after_parent_list != after_right_list:
+            # MoveParentList lands BEFORE the nested-table control. A second
+            # insertion there reverses sibling order. Cross that anchor exactly
+            # once, without moving to the end of the containing cell (which may
+            # already contain following text or other objects).
+            if not self.run("MoveRight"):
+                raise HangulCommandError("부모 셀의 자식 표 앵커를 지나지 못했습니다.")
+            after_anchor = self.get_pos()
+            if (not after_anchor or after_anchor[0] != after_parent_list
+                    or not self.is_cell() or after_anchor[1:] <= after_parent[1:]):
+                raise HangulCommandError("자식 표 뒤의 부모 셀 캐럿 위치를 검증하지 못했습니다.")
             return
         if not self.is_cell():
             raise HangulCommandError(

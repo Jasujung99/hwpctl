@@ -269,6 +269,69 @@ def test_table_inside_margin_serializes_to_table_hwpml_and_restores_cursor() -> 
         _close_without_saving(app)
 
 
+def test_hierarchical_table_selector_matches_native_control_order():
+    from hwpctl.authoring.paths import table_index_from_hwpml
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("create_table", rows=1, cols=1, header=False, cell_margin=None)
+        engine.dispatch("create_table", rows=1, cols=1, header=False, cell_margin=None)
+        engine.dispatch("insert_paragraph", text="first child", terminate=False)
+        engine.dispatch("exit_table", destination="parent")
+        engine.dispatch("create_table", rows=1, cols=1, header=False, cell_margin=None)
+        engine.dispatch("insert_paragraph", text="second child", terminate=False)
+        engine.dispatch("exit_table", destination="parent")
+        xml = str(app.GetTextFile("HWPML2X", ""))
+        assert ["".join(e.itertext()) for e in ET.fromstring(xml).iter("TABLE")] == [
+            "first childsecond child", "first child", "second child"]
+        for index, expected in enumerate(("first child", "second child")):
+            number = table_index_from_hwpml(xml, {"root": 0, "children": [{"cell": "A1", "index": index}]})
+            engine.dispatch("move_to_cell", table=number, cell="A1")
+            canvas.select_cell_text()
+            assert expected in canvas.get_selected_text()
+            canvas.run("Cancel")
+    finally:
+        _close_without_saving(app)
+
+
+@pytest.mark.parametrize("extension", ["hwp", "hwpx"])
+def test_radial_text_box_margin_save_reopen_is_editable(tmp_path, extension):
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("insert_text_box", text="Synthetic radial label", width_mm=60,
+                        height_mm=25, margin=[1, 2, 3, 4],
+                        fill={"type": "radial_gradient", "stops": ["#FFFFFF", "#123456"]})
+        output = tmp_path / f"synthetic-radial.{extension}"
+        canvas.save_as(str(output))
+        canvas.close_discard()
+        if int(app.XHwpDocuments.Count) == 0:
+            app.XHwpDocuments.Add(False)
+        canvas.open_path(str(output))
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "")))
+        gradients = [e for e in root.iter() if e.tag.upper() == "GRADATION"]
+        assert any(e.get("Type", "").lower() == "radial" for e in gradients)
+        margins = list(root.iter("TEXTMARGIN"))
+        assert margins, str(app.GetTextFile("HWPML2X", ""))
+        from hwpctl.units import mm_to_hwpunit
+        assert tuple(int(margins[0].get(key)) for key in ("Left", "Right", "Top", "Bottom")) == tuple(
+            mm_to_hwpunit(value) for value in (1, 2, 3, 4))
+        assert not list(root.iter("PICTURE"))
+        assert "Synthetic radial label" in "".join(root.itertext())
+        # Select the actual native text-box object, not its rendered appearance.
+        ctrl = app.LastCtrl
+        assert str(ctrl.CtrlID) == "gso"
+        app.SetPosBySet(ctrl.GetAnchorPos(0))
+        app.FindCtrl()
+        assert app.HAction.Run("ShapeObjTextBoxEdit")
+        canvas.insert_text("Editable ")
+        assert "Editable " in str(app.GetTextFile("HWPML2X", ""))
+        canvas.undo_once()
+        assert "Editable " not in str(app.GetTextFile("HWPML2X", ""))
+    finally:
+        _close_without_saving(app)
+
+
 def test_synthetic_faq_save_reopen_edit_and_undo(tmp_path, monkeypatch) -> None:
     """Owned COM only; public authoring, native table, save/reopen and edit proof."""
     from examples.rebuild_faq_002_from_normalized_spec import PublicBuild, load_spec, preflight
