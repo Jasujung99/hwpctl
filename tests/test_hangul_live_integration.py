@@ -317,3 +317,115 @@ def test_synthetic_faq_save_reopen_edit_and_undo(tmp_path, monkeypatch) -> None:
         engine.dispatch("close", force=True)
     finally:
         _close_without_saving(app)
+
+
+def test_floating_table_position_survives_grid_merge_and_edit():
+    """Promoted from floating-merge-probe; compare native POSITION after each step."""
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("create_table", rows=3, cols=3, header=False)
+        engine.dispatch("set_table_position", table=0, position={
+            "mode": "floating", "horizontal_relative_to": "para", "vertical_relative_to": "para",
+            "horizontal_align": "left", "vertical_align": "top", "x_mm": 0, "y_mm": 0,
+            "wrap": "top_and_bottom", "flow_with_text": True, "allow_overlap": False,
+            "outside_margin_mm": [0.5, 0.5, 0.5, 0.5],
+        })
+        def position():
+            root = ET.fromstring(str(app.GetTextFile("HWPML2X", "")))
+            table = next(e for e in root.iter() if e.tag.rsplit("}", 1)[-1].upper() == "TABLE")
+            return dict(next(e for e in table.iter() if e.tag.rsplit("}", 1)[-1].upper() == "POSITION").attrib)
+        expected = position()
+        assert expected["TreatAsChar"].lower() == "false"
+        for command, args in [
+            ("set_table_grid", {"column_widths_mm": [20, 28, 25], "row_heights_mm": [10, 15, 12]}),
+            ("merge_cells", {"cell_range": "A1:B1"}),
+            ("set_cell_margin", {"left": 1.2, "right": 1.2, "top": 0.8, "bottom": 0.8}),
+            ("write_cell", {"cell": "A1", "paragraphs": [{"text": "병합 셀"}, {"text": "두 번째 문단"}]}),
+        ]:
+            engine.dispatch(command, table=0, **args)
+            assert position() == expected, command
+    finally:
+        _close_without_saving(app)
+
+
+@pytest.mark.parametrize("orientation,landscape", [("portrait", False), ("landscape", True)])
+def test_hwpx_writer_orientation_and_edit_in_hangul(tmp_path, orientation, landscape):
+    from hwpctl.hwpx import new_document, set_page_setup, create_table_and_fill, save_document
+    doc = new_document()
+    output = tmp_path / f"{orientation}.hwpx"
+    try:
+        set_page_setup(doc, paper_size="A4", orientation=orientation)
+        create_table_and_fill(doc, 1, 2, [["합성", "표"]], column_widths_mm=[35, 65])
+        save_document(doc, output)
+    finally:
+        doc.close()
+    app, canvas = _new_blank_canvas()
+    try:
+        canvas.open_path(str(output))
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "")))
+        page = next(e for e in root.iter() if e.tag.rsplit("}", 1)[-1].upper() == "PAGEDEF")
+        assert (page.attrib["Landscape"].lower() in {"true", "1"}) == landscape
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("write_cell", table=0, cell="B1", paragraphs=[{"text": "편집 확인"}])
+        assert "편집 확인" in canvas.get_body_text()
+    finally:
+        _close_without_saving(app)
+
+
+def test_grid_fractional_mm_roundtrip_precision():
+    """Reduced synthetic case from grid_precision_live_probe, no source geometry."""
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("create_table", rows=2, cols=3, header=False)
+        widths, heights = [21.013, 32.027, 43.041], [12.017, 15.029]
+        engine.dispatch("set_table_grid", table=0, column_widths_mm=widths, row_heights_mm=heights)
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "")))
+        table = next(e for e in root.iter() if e.tag.rsplit("}", 1)[-1].upper() == "TABLE")
+        cells = [e for e in table.iter() if e.tag.rsplit("}", 1)[-1].upper() == "CELL"]
+        assert len(cells) == 6
+        for cell in cells:
+            row, col = int(cell.attrib["RowAddr"]), int(cell.attrib["ColAddr"])
+            assert abs(int(cell.attrib["Width"]) - round(widths[col] * 7200 / 25.4)) <= 1
+            assert abs(int(cell.attrib["Height"]) - round(heights[row] * 7200 / 25.4)) <= 1
+    finally:
+        _close_without_saving(app)
+
+
+def test_readonly_exports_of_owned_synthetic_document(tmp_path):
+    """Exercise actual SaveAs PDF and capture lifetime, never user reference files."""
+    from hwpctl.reference import export_hwpml_readonly, export_pdf_readonly, export_reference_bundle_readonly
+    source = tmp_path / "synthetic-reference.hwp"
+    # Tiny synthetic RGB PNG generated entirely in the test (no private assets).
+    import struct
+    import zlib
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+    picture = tmp_path / "synthetic.png"
+    picture.write_bytes(b"\x89PNG\r\n\x1a\n" +
+                        chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)) +
+                        chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00\xff\x00\x00" * 2)) + chunk(b"IEND", b""))
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, _ = _isolated_engine(canvas)
+        engine.dispatch("insert_paragraph", text="합성 참조 내보내기")
+        engine.dispatch("insert_image", path=str(picture), size_option=1, width_mm=5, height_mm=5)
+        engine.dispatch("create_table", rows=1, cols=2, header=False)
+        engine.dispatch("write_cell", table=0, cell="A1", paragraphs=[{"text": "실제 표"}])
+        engine.dispatch("save_as", path=str(source))
+    finally:
+        engine = None
+        canvas = None
+        _close_without_saving(app)
+    before = source.read_bytes()
+    xml_path, pdf_path = tmp_path / "capture.hwpml", tmp_path / "capture.pdf"
+    assert export_hwpml_readonly(source, xml_path)["source_unchanged"]
+    assert export_pdf_readonly(source, pdf_path)["source_unchanged"]
+    bundle = export_reference_bundle_readonly(source, tmp_path / "bundle")
+    assert bundle["source_unchanged"] and bundle["assets_complete"]
+    assert len(bundle["assets"]) == 1 and bundle["assets"][0]["extracted"]
+    root = ET.parse(xml_path).getroot()
+    assert any(e.tag.rsplit("}", 1)[-1] == "TABLE" for e in root.iter())
+    assert pdf_path.read_bytes().startswith(b"%PDF-")
+    assert source.read_bytes() == before

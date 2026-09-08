@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 import hashlib
 from pathlib import Path
 from typing import Any, Callable
@@ -62,6 +63,27 @@ def _safe_close(app: Any) -> None:
         app.Quit()
 
 
+@contextmanager
+def _readonly_app(path: Path, dispatch: Callable[[str], Any]):
+    """Shared isolated lifecycle for capture/export; never attach to user windows."""
+    before = _sha256(path)
+    app = None
+    try:
+        app = dispatch("HWPFrame.HwpObject")
+        app.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+        if not app.Open(str(path), "HWP", "readonly:true"):
+            raise RuntimeError("한/글이 참조 문서를 읽기 전용으로 열지 못했습니다.")
+        yield app
+    finally:
+        try:
+            if app is not None:
+                _safe_close(app)
+        finally:
+            # Also check after failed capture/export and failed cleanup.
+            if _sha256(path) != before:
+                raise RuntimeError("읽기 전용 캡처 뒤 원본 SHA-256이 달라졌습니다. 작업을 중단합니다.")
+
+
 def capture_hwpml_readonly(
     source: str | Path,
     *,
@@ -80,22 +102,13 @@ def capture_hwpml_readonly(
 
     before = _sha256(path)
     dispatch = _dispatch or _default_dispatch
-    app = None
     hwpml = ""
     com_page_count = 0
-    try:
-        app = dispatch("HWPFrame.HwpObject")
-        app.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
-        if not app.Open(str(path), "HWP", "readonly:true"):
-            raise RuntimeError("한/글이 참조 문서를 읽기 전용으로 열지 못했습니다.")
+    with _readonly_app(path, dispatch) as app:
         hwpml = str(app.GetTextFile("HWPML2X", ""))
         # 이 값은 headless COM 세션의 즉시 상태일 뿐, PDF의 물리 렌더 쪽수는
         # 아니다. 최종 시각 검증은 PDF 페이지 트리/pdfinfo를 기준으로 한다.
         com_page_count = int(app.PageCount)
-    finally:
-        if app is not None:
-            _safe_close(app)
-
     after = _sha256(path)
     if before != after:
         raise RuntimeError("읽기 전용 캡처 뒤 원본 SHA-256이 달라졌습니다. 작업을 중단합니다.")

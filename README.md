@@ -4,6 +4,9 @@
 [합성 FAQ 작성 예제](examples/FAQ_002_NORMALIZED_SPEC.md) ·
 [통합 검증 기록](docs/INTEGRATION_VERIFICATION.md)
 
+[HWPX 범용 작성·참조 내보내기](docs/HWPX_AUTHORING.md) ·
+[폴더 조사 후속 후보](docs/INTEGRATION_CANDIDATES.md)
+
 열린 **한글 2022** 창을 채팅 클라이언트가 고치게 하는 **단일 작성기**입니다.  
 Grok Build, Cursor, Codex, Gemini CLI, Claude Code는 설정을 갈아끼우기만 하면 됩니다.
 한/글 전용 로직은 클라이언트에 두지 않습니다.
