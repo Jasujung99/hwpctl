@@ -1,0 +1,28 @@
+{
+  "schema": "hwpctl.blank-rebuild/1",
+  "reference": {
+    "label": "Synthetic FAQ — not a captured reference",
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "page": {"paper_width": 210, "paper_height": 297, "left": 20, "right": 20, "top": 20, "bottom": 20, "header": 0, "footer": 0, "gutter": 0, "landscape": false, "apply": "all"},
+  "assets": {},
+  "operations": [
+    {"kind": "paragraph", "runs": [{"text": "합성 FAQ", "bold": true, "size": 16}], "paragraph": {"align": "center"}},
+    {"kind": "paragraph", "text": "질문과 답변을 실제 표와 편집 가능한 문단으로 작성합니다."},
+    {
+      "kind": "table", "rows": 3, "cols": 2,
+      "column_widths_mm": [45, 115], "row_heights_mm": [12, 15, 15],
+      "default_margin_mm": [2, 2, 1, 1], "merges": ["A1:B1"], "exit_cell": "B3", "review": false,
+      "properties": {"page_break": "cell", "repeat_header": false, "cell_spacing_mm": 0},
+      "position": {"mode": "inline", "affect_line_spacing": true, "outside_margin_mm": [0, 0, 0, 0]},
+      "cells": {
+        "A1": {"paragraphs": [{"runs": [{"text": "자주 묻는 질문", "bold": true}], "paragraph": {"align": "center"}}], "fill": "#EEEEEE"},
+        "A2": {"paragraphs": [{"text": "무엇을 확인하나요?"}]},
+        "B2": {"paragraphs": [{"text": "표 구조와 셀 편집을 확인합니다."}]},
+        "A3": {"paragraphs": [{"text": "그림도 가능한가요?"}]},
+        "B3": {"paragraphs": [{"text": "허용된 로고 등은 별도 그림으로 구분합니다."}]}
+      }
+    },
+    {"kind": "paragraph", "text": "표 다음 본문입니다. 시각적 동일성을 주장하는 예제가 아닙니다."}
+  ]
+}

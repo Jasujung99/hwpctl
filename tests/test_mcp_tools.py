@@ -13,6 +13,7 @@ def test_mcp_registers_engine_tools() -> None:
     mcp = build_mcp()
     tools = anyio.run(mcp.list_tools)  # 공개 API (#25)
     names = [t.name for t in tools]
+    assert set(names) == set(tool_names()) | {"list_tools"}
     for name in tool_names():
         assert name in names
     assert "set_cell_margin" in names

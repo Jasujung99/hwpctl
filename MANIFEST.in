@@ -1,0 +1,5 @@
+include examples/rebuild_faq_002_from_normalized_spec.py
+include examples/FAQ_002_NORMALIZED_SPEC.md
+include examples/specs/faq.synthetic.json
+recursive-include docs *.md
+include scripts/validate_public_files.py

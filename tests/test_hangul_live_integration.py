@@ -8,6 +8,7 @@ Windows 한/글 2022 환경에서만 DispatchEx로 별도 빈 문서를 만들�
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 from typing import Any
@@ -263,5 +264,56 @@ def test_table_inside_margin_serializes_to_table_hwpml_and_restores_cursor() -> 
             for element in table.iter()
             if local_name(element) == "CELLMARGIN"
         ] == before_cell_margins
+    finally:
+        _close_without_saving(app)
+
+
+def test_synthetic_faq_save_reopen_edit_and_undo(tmp_path, monkeypatch) -> None:
+    """Owned COM only; public authoring, native table, save/reopen and edit proof."""
+    from examples.rebuild_faq_002_from_normalized_spec import PublicBuild, load_spec, preflight
+    from hwpctl.lock import load_state
+
+    # Retain the global writer lock; isolate only this test's pin/Undo state.
+    monkeypatch.setenv("HWPCTL_STATE", str(tmp_path / "state.json"))
+    app, canvas = _new_blank_canvas()
+    try:
+        engine = Engine(canvas_factory=lambda **kwargs: canvas)
+        spec = load_spec(Path(__file__).resolve().parents[1] / "examples/specs/faq.synthetic.json")
+        output = tmp_path / "faq.hwp"
+        preflight(spec, output, tmp_path / "record.json")
+        PublicBuild(engine=engine, spec=spec).build(output)
+        assert output.is_file() and output.stat().st_size > 0
+        assert load_state().target_hwnd == canvas.window_handle()
+        # Some installations retain Modified after SaveAs. Close only this owned
+        # saved document, then reopen; do not bypass Engine's dirty-document guard.
+        engine.dispatch("close", force=True)
+        if int(app.XHwpDocuments.Count) == 0:
+            app.XHwpDocuments.Add(False)
+        engine.dispatch("open", path=str(output))
+        root = ET.fromstring(str(app.GetTextFile("HWPML2X", "") or ""))
+        tables = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1].upper() == "TABLE"]
+        assert len(tables) == 1
+        cells = [e for e in tables[0].iter() if e.tag.rsplit("}", 1)[-1].upper() == "CELL"]
+        assert len(cells) == 5  # six grid slots, one two-column merged header
+        assert "표 다음 본문입니다." in canvas.get_body_text()
+        engine.dispatch("set_edit_marks", control_marks=True, paragraph_marks=True)
+        engine.dispatch("write_cell", table=0, cell="B2", paragraphs=[{"text": "수정 확인"}])
+        assert "수정 확인" in canvas.get_body_text()
+        engine.dispatch("undo")
+        assert "수정 확인" not in canvas.get_body_text()
+        engine.dispatch("write_cell", table=0, cell="B2", paragraphs=[{"text": "저장 후 셀 편집"}])
+        engine.dispatch("move_to_cell", table=0, cell="B3")
+        engine.dispatch("exit_table")
+        engine.dispatch("insert_paragraph", text="저장 후 문단 편집")
+        edited = tmp_path / "faq-edited.hwp"
+        engine.dispatch("save_as", path=str(edited))
+        assert edited.is_file() and edited.stat().st_size > 0
+        engine.dispatch("close", force=True)
+        if int(app.XHwpDocuments.Count) == 0:
+            app.XHwpDocuments.Add(False)
+        engine.dispatch("open", path=str(edited))
+        assert "저장 후 셀 편집" in canvas.get_body_text()
+        assert "저장 후 문단 편집" in canvas.get_body_text()
+        engine.dispatch("close", force=True)
     finally:
         _close_without_saving(app)

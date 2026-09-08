@@ -117,7 +117,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         "set_cell_fill",
-        "표 셀 범위에 단색 또는 선형 그라데이션 채우기. Undo 1단위",
+        "표 셀 범위에 단색·선형·방사형 그라데이션 채우기. Undo 1단위",
         False,
         True,
     ),

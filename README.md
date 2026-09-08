@@ -1,5 +1,9 @@
 # hwpctl — 한/글 라이브 코파일럿 브리지
 
+[구현 통합 대장·4계층 기준](docs/INTEGRATION_STATUS.md) ·
+[합성 FAQ 작성 예제](examples/FAQ_002_NORMALIZED_SPEC.md) ·
+[통합 검증 기록](docs/INTEGRATION_VERIFICATION.md)
+
 열린 **한글 2022** 창을 채팅 클라이언트가 고치게 하는 **단일 작성기**입니다.  
 Grok Build, Cursor, Codex, Gemini CLI, Claude Code는 설정을 갈아끼우기만 하면 됩니다.
 한/글 전용 로직은 클라이언트에 두지 않습니다.
@@ -167,7 +171,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
 | `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입 |
 | `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
-| `set_cell_fill` | 표 셀 범위의 단색/선형 그라데이션 채우기 |
+| `set_cell_fill` | 표 셀 범위의 단색/선형/방사형 그라데이션 채우기 |
 | `set_format` | 글꼴·문자권별 HFT 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
 | `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
 | `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |

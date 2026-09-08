@@ -416,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_cell_fill = add_common(
-        sub.add_parser("set_cell_fill", help="표 셀 범위에 단색/선형 그라데이션 채우기")
+        sub.add_parser("set_cell_fill", help="표 셀 범위에 단색/선형/방사형 그라데이션 채우기")
     )
     p_cell_fill.add_argument(
         "--fill",

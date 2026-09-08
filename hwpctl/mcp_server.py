@@ -567,9 +567,10 @@ def build_mcp(lock_timeout: float = 8.0):
         table: int | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
-        """표 셀 배경을 단색 또는 선형 그라데이션으로 채운다. fill은 색 문자열 또는
+        """표 셀 배경을 단색·선형·방사형 그라데이션으로 채운다. fill은 색 문자열 또는
         {type:'solid', color:'#RRGGBB'} / {type:'linear_gradient', angle:0,
-        stops:[{offset:0, color:'#...'}, {offset:1, color:'#...'}]} 구조다."""
+        stops:[{offset:0, color:'#...'}, {offset:1, color:'#...'}]} 구조다.
+        radial_gradient도 같은 stops와 선택적 center_x/center_y/step을 받는다."""
         return await _call(
             engine,
             "set_cell_fill",

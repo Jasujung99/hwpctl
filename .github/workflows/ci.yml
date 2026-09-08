@@ -48,6 +48,9 @@ jobs:
       - name: List MCP tools without starting Hangul
         run: python -m hwpctl mcp --list-tools
 
+      - name: Dry-run synthetic FAQ without starting Hangul
+        run: python examples/rebuild_faq_002_from_normalized_spec.py --spec examples/specs/faq.synthetic.json --output output/faq-synthetic.hwp --dry-run
+
       - name: Build wheel and source distribution
         run: python -m build
 
@@ -86,3 +89,6 @@ jobs:
 
       - name: Check HWPX capability without Hangul
         run: python -m hwpctl hwpx_status
+
+      - name: Dry-run synthetic FAQ without Windows COM
+        run: python examples/rebuild_faq_002_from_normalized_spec.py --spec examples/specs/faq.synthetic.json --output output/faq-synthetic.hwp --dry-run
