@@ -1,7 +1,8 @@
 """한/글 2022 실기 회귀 테스트.
 
 기본 pytest/CI에서는 실행하지 않는다. ``HWPCTL_RUN_HANGUL_INTEGRATION=1``을 명시한
-Windows 한/글 2022 환경에서만 DispatchEx로 별도 빈 문서를 만들고 저장 없이 닫는다.
+Windows 한/글 2022 환경에서만 DispatchEx로 별도 합성 문서를 만들고 소유 창만 닫는다.
+저장·재열기/내보내기 검사는 pytest 임시 폴더의 합성 파일만 사용한다.
 사용자가 열어 둔 문서·참조본·구현본은 대상이 아니다.
 """
 
@@ -393,9 +394,21 @@ def test_grid_fractional_mm_roundtrip_precision():
         _close_without_saving(app)
 
 
-def test_readonly_exports_of_owned_synthetic_document(tmp_path):
+def _exercise_readonly_exports_of_owned_synthetic_document(tmp_path):
     """Exercise actual SaveAs PDF and capture lifetime, never user reference files."""
     from hwpctl.reference import export_hwpml_readonly, export_pdf_readonly, export_reference_bundle_readonly
+    from hwpctl.reference.capture import _default_dispatch
+    import win32gui
+    import time
+    owned_handles = []
+    def observed_dispatch(prog_id):
+        created = _default_dispatch(prog_id)
+        try:
+            owned_handles.append(int(created.XHwpWindows.Item(0).WindowHandle))
+        except Exception:
+            _close_without_saving(created)
+            raise
+        return created
     source = tmp_path / "synthetic-reference.hwp"
     # Tiny synthetic RGB PNG generated entirely in the test (no private assets).
     import struct
@@ -408,6 +421,7 @@ def test_readonly_exports_of_owned_synthetic_document(tmp_path):
                         chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00\xff\x00\x00" * 2)) + chunk(b"IEND", b""))
     app, canvas = _new_blank_canvas()
     try:
+        owned_handles.append(int(app.XHwpWindows.Item(0).WindowHandle))
         engine, _ = _isolated_engine(canvas)
         engine.dispatch("insert_paragraph", text="합성 참조 내보내기")
         engine.dispatch("insert_image", path=str(picture), size_option=1, width_mm=5, height_mm=5)
@@ -418,14 +432,56 @@ def test_readonly_exports_of_owned_synthetic_document(tmp_path):
         engine = None
         canvas = None
         _close_without_saving(app)
+        # Release the creator's root proxy before a new DispatchEx session.
+        # Retaining it until function exit can release a dead server proxy after
+        # subsequent export sessions, producing an unraised native RPC diagnostic.
+        app = None
     before = source.read_bytes()
     xml_path, pdf_path = tmp_path / "capture.hwpml", tmp_path / "capture.pdf"
-    assert export_hwpml_readonly(source, xml_path)["source_unchanged"]
-    assert export_pdf_readonly(source, pdf_path)["source_unchanged"]
-    bundle = export_reference_bundle_readonly(source, tmp_path / "bundle")
+    assert export_hwpml_readonly(source, xml_path, _dispatch=observed_dispatch)["source_unchanged"]
+    assert export_pdf_readonly(source, pdf_path, _dispatch=observed_dispatch)["source_unchanged"]
+    bundle = export_reference_bundle_readonly(source, tmp_path / "bundle", _dispatch=observed_dispatch)
     assert bundle["source_unchanged"] and bundle["assets_complete"]
     assert len(bundle["assets"]) == 1 and bundle["assets"][0]["extracted"]
     root = ET.parse(xml_path).getroot()
     assert any(e.tag.rsplit("}", 1)[-1] == "TABLE" for e in root.iter())
     assert pdf_path.read_bytes().startswith(b"%PDF-")
     assert source.read_bytes() == before
+    assert len(owned_handles) == 4 and all(owned_handles)
+    deadline = time.monotonic() + 3
+    while any(win32gui.IsWindow(handle) for handle in owned_handles) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not any(win32gui.IsWindow(handle) for handle in owned_handles), "Owned window remained open"
+
+
+def test_readonly_exports_of_owned_synthetic_document(tmp_path):
+    """Native diagnostics must fail even when COM/pytest returns exit code zero.
+
+    Run three complete create/export/close cycles in ONE fresh child interpreter.
+    Capturing stderr here observes diagnostics; it does not suppress their failure.
+    """
+    import subprocess
+    script = r'''
+import faulthandler
+import gc
+from pathlib import Path
+import runpy
+import sys
+faulthandler.enable()
+exercise = runpy.run_path(sys.argv[1])["_exercise_readonly_exports_of_owned_synthetic_document"]
+for trial in range(3):
+    folder = Path(sys.argv[2]) / str(trial)
+    folder.mkdir()
+    exercise(folder)
+    gc.collect()
+    print("CLEAN_CYCLE", trial, flush=True)
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(Path(__file__).resolve()), str(tmp_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+    )
+    diagnostics = result.stdout + result.stderr
+    assert result.returncode == 0, diagnostics
+    assert "windows fatal exception" not in diagnostics.lower(), diagnostics
+    assert "0x800706ba" not in diagnostics.lower(), diagnostics
+    assert result.stdout.count("CLEAN_CYCLE") == 3, diagnostics
