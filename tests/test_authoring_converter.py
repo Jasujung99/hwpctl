@@ -136,7 +136,8 @@ def test_capture_bundle_embedded_picture_and_digest(tmp_path: Path) -> None:
     (bundle / "assets").mkdir(parents=True)
     image = b"synthetic png bytes"
     (bundle / "assets" / "bin-1.png").write_bytes(image)
-    xml = hwpml(f'<SECTION>{para("before<PICTURE Width=\"300\" Height=\"200\"><IMAGE BinItem=\"1\"/></PICTURE>after")}</SECTION>')
+    picture_paragraph = para('before<PICTURE Width="300" Height="200"><IMAGE BinItem="1"/></PICTURE>after')
+    xml = hwpml(f"<SECTION>{picture_paragraph}</SECTION>")
     (bundle / "reference.hwpml").write_text(xml, encoding="utf-8")
     manifest = {"source_unchanged": True, "hwpml": "reference.hwpml", "assets": [
         {"bin_item": 1, "extracted": True, "path": "assets/bin-1.png", "sha256": hashlib.sha256(image).hexdigest()}]}
