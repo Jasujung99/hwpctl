@@ -44,6 +44,9 @@ identify local snapshots, not permission to publish those files.
   passed; Python 3.10 syntax was parsed for 59 Python source/test/example files;
   a no-isolation wheel/sdist build passed. The isolated build could not
   download build dependencies in the restricted local network environment.
+- The implementation head passed Windows and Linux CI on Python 3.10 and 3.12,
+  including the isolated package build. CI must be rerun after each new head;
+  this does not substitute for Han/글 native verification.
 - The earlier PR head had 15 passing native Hancom tests, including repeated
   COM diagnostics. Those results do **not** validate this branch's new builder.
 - Safe PR #17 head `359cc938f81fdbbbd487da052576ac6795a224ea` separately
@@ -66,9 +69,9 @@ identify local snapshots, not permission to publish those files.
    prove that a chart stays at its ordered v2 body anchor. Do not treat a
    chart object merely appearing as a successful conversion.
 3. The fixed independent synthetic FAQ, notice, complex-table and design
-   round-trip corpus, whole-operation Undo, and final Windows/Linux PR head CI
-   have not passed for this increment. The final full diff review and review
-   thread resolution must follow the verified head.
+   round-trip corpus and whole-operation Undo have not passed for this
+   increment. The final full diff review and review thread resolution must
+   follow a verified head.
 4. The converter now fails closed for unverified character border/fill, tab
    stops and special spacing controls. FAQ page-number controls still require
    an exact source mapping; a reported conversion loss is not completion.
