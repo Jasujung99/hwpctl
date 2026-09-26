@@ -52,11 +52,37 @@ def test_analyzer_is_static_and_preserves_text():
     result.require_supported()
 
 
+def test_analyzer_accepts_exact_multisection_and_nested_table_structure():
+    inner = '<TABLE RowCount="1" ColCount="1"><ROW><CELL RowAddr="0" ColAddr="0" RowSpan="1" ColSpan="1" Width="50"/></ROW></TABLE>'
+    outer = (
+        '<TABLE RowCount="1" ColCount="1"><ROW><CELL RowAddr="0" ColAddr="0" '
+        'RowSpan="1" ColSpan="1" Width="100"><PARALIST><P><TEXT>'
+        + inner + '</TEXT></P></PARALIST></CELL></ROW></TABLE>'
+    )
+    xml = (
+        '<HWPML><BODY><SECTION><P><TEXT>before'
+        + outer + 'middle' + outer + 'after</TEXT></P></SECTION>'
+        '<SECTION><P><TEXT>second</TEXT></P></SECTION></BODY></HWPML>'
+    )
+    result = analyze_hwpml(xml)
+    assert result.section_count == 2
+    assert result.table_count == 4
+    assert all(grid.status == "exact" for grid in result.table_grids)
+    assert result.document.visible_text == "beforemiddleaftersecond"
+    assert len(result.document.sections[0].blocks[0].tables) == 2
+    result.require_supported()
+
+
 def test_analyzer_reports_loss_before_authoring():
     xml = '<HWPML><BODY><SECTION><P><TEXT CharShape="99"><FIELD/><TABLE ColCount="2"><ROW><CELL ColAddr="0" ColSpan="2" Width="100"/></ROW></TABLE><TABLE ColCount="2"/></TEXT></P></SECTION><SECTION/></BODY></HWPML>'
     result = analyze_hwpml(xml)
     assert result.table_count == 2
-    assert {"section_count_not_one", "multiple_or_nested_tables", "control:FIELD", "unresolved:CharShape", "grid_underdetermined"} <= set(result.blockers)
+    assert result.section_count == 2
+    assert len(result.document.sections) == 2
+    assert len(result.document.sections[0].blocks[0].tables) == 2
+    assert {"control:FIELD", "unresolved:CharShape", "grid_underdetermined"} <= set(result.blockers)
+    assert "section_count_not_one" not in result.blockers
+    assert "multiple_or_nested_tables" not in result.blockers
     with pytest.raises(ValueError, match="explicit handling"):
         result.require_supported()
 

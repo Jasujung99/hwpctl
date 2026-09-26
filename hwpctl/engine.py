@@ -21,7 +21,7 @@ from hwpctl.hangul import (
     parse_a1,
 )
 from hwpctl.layout import plan_table_layout
-from hwpctl.lock import SingleWriterLock, WriterState, load_state, save_state
+from hwpctl.lock import SingleWriterLock, WriterState, load_state, save_state, writer_transaction, writer_transaction_active
 from hwpctl.tools import tool_catalog
 
 BODY_LIMIT = 8000
@@ -96,6 +96,17 @@ class Engine:
         return canvas
 
     def dispatch(self, command: str, **kwargs: Any) -> dict[str, Any]:
+        if isinstance(kwargs.get("table"), dict):
+            from hwpctl.authoring.paths import table_index_from_hwpml
+            def resolved():
+                canvas = self._connect()
+                hwpml = str(canvas.com.GetTextFile("HWPML2X", "") or "")
+                kwargs["table"] = table_index_from_hwpml(hwpml, kwargs["table"])
+                return self.dispatch(command, **kwargs)
+            if writer_transaction_active():
+                return resolved()
+            with writer_transaction(timeout=self.lock_timeout):
+                return resolved()
         handlers = {
             "status": self.status,
             "list_documents": self.list_documents,
@@ -128,6 +139,10 @@ class Engine:
             "insert_chart": self.insert_chart,
             "insert_image": self.insert_image,
             "insert_text_box": self.insert_text_box,
+            "insert_shape": self.insert_shape,
+            "insert_section": self.insert_section,
+            "build_document": self.build_document,
+            "reference_to_spec": self.reference_to_spec,
             "set_cell_fill": self.set_cell_fill,
             "set_format": self.set_format,
             "set_style": self.set_style,
@@ -154,6 +169,44 @@ class Engine:
             canvas.assert_no_dialog()
             result = set_edit_marks(canvas.com, control_marks=control_marks, paragraph_marks=paragraph_marks)
         return {"ok": True, "command": "set_edit_marks", **result, "autosave": False}
+
+    def build_document(self, spec: str | dict, output: str, dry_run: bool = False) -> dict[str, Any]:
+        from hwpctl.authoring.runtime import build_document
+        return build_document(spec, output, dry_run=dry_run, lock_timeout=self.lock_timeout)
+
+    def reference_to_spec(self, input: str, output_dir: str, dry_run: bool = False) -> dict[str, Any]:
+        from hwpctl.authoring.converter import reference_to_spec
+        return reference_to_spec(input, output_dir, dry_run=dry_run)
+
+    def insert_section(self) -> dict[str, Any]:
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            canvas.assert_no_dialog()
+            pos = canvas.get_pos()
+            if pos is None or pos[0] != 0:
+                raise UsageError("A section break requires a body paragraph")
+            if not canvas.run("BreakSection"):
+                raise HangulCommandError("Section break failed")
+            self._record_undo("insert_section", 1)
+        return {"ok": True, "command": "insert_section", "undo_units": 1}
+
+    def insert_shape(self, shape_kind: str, width_mm: float, height_mm: float,
+                     fill: Any = None, line: Any = None, shadow: Any = None,
+                     position: Any = None) -> dict[str, Any]:
+        from hwpctl.native_objects import insert_shape
+        if shape_kind not in {"rectangle", "ellipse", "line"}:
+            raise UsageError("shape_kind must be rectangle, ellipse or line")
+        args = dict(shape_kind=shape_kind,
+                    width_mm=_normalize_dimension(width_mm, "width_mm"),
+                    height_mm=_normalize_dimension(height_mm, "height_mm"),
+                    fill=_normalize_fill(fill, allow_empty=True), line=_normalize_line(line),
+                    shadow=_normalize_shadow(shadow, label="shape"),
+                    position=_normalize_table_position(position or {"mode": "inline"}))
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            actions = insert_shape(canvas, **args)
+            self._record_undo("insert_shape", actions)
+        return {"ok": True, "command": "insert_shape", "undo_units": 1, **args}
 
     def status(self) -> dict[str, Any]:
         with SingleWriterLock(timeout=self.lock_timeout):
@@ -876,12 +929,20 @@ class Engine:
         right: float = 3.5,
         top: float = 2.0,
         bottom: float = 2.0,
+        has_margin: bool = True,
     ) -> dict[str, Any]:
+        if type(has_margin) is not bool:
+            raise UsageError("has_margin must be boolean")
         for value in (left, right, top, bottom):
             if value < 0 or value > 50:
                 raise UsageError("셀 안 여백은 0~50mm 범위로 지정하세요.")
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
+            def apply_margin():
+                if has_margin:
+                    canvas.set_cell_margin_current(left, right, top, bottom)
+                else:
+                    canvas.set_cell_margin_current(left, right, top, bottom, has_margin=False)
             if table is not None:
                 canvas.get_into_nth_table(table)
             if cell_range:
@@ -894,7 +955,7 @@ class Engine:
                 try:
                     for addr in addrs:
                         canvas.goto_addr(addr)
-                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        apply_margin()
                         steps += 1
                 except Exception:
                     if steps:
@@ -906,7 +967,7 @@ class Engine:
                 try:
                     for addr in canvas.table_cell_addresses():
                         canvas.goto_addr(addr)
-                        canvas.set_cell_margin_current(left, right, top, bottom)
+                        apply_margin()
                         steps += 1
                 except Exception:
                     if steps:
@@ -914,7 +975,7 @@ class Engine:
                     raise
                 scope = f"table:{table}"
             else:
-                canvas.set_cell_margin_current(left, right, top, bottom)
+                apply_margin()
                 steps = 1
                 scope = "current-cell"
             self._record_undo("set_cell_margin", steps)
@@ -1348,6 +1409,7 @@ class Engine:
         size_option: int = 3,
         width_mm: float = 0.0,
         height_mm: float = 0.0,
+        position: Any = None,
     ) -> dict[str, Any]:
         """그림 파일을 본문이나 표 칸에 넣는다. 원본 그림 파일은 건드리지 않는다."""
         src = (path or "").strip().strip('"')
@@ -1363,6 +1425,7 @@ class Engine:
         if size_option == 1 and not (width_mm > 0 and height_mm > 0):
             raise UsageError("size_option=1 이면 width_mm 과 height_mm 을 모두 지정해야 합니다.")
         full = str(target.resolve())
+        placement = None if position is None else _normalize_table_position(position)
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
             if table is not None:
@@ -1375,13 +1438,16 @@ class Engine:
                     "size_option 2/3 은 표 칸 안에서만 쓸 수 있습니다. "
                     "--table 과 --cell 로 칸을 지정하거나 size_option 0/1 을 쓰세요."
                 )
-            canvas.insert_picture(
+            ctrl = canvas.insert_picture(
                 full,
                 size_option=size_option,
                 width_mm=width_mm,
                 height_mm=height_mm,
             )
-            self._record_undo("insert_image", 1)
+            if placement is not None:
+                from hwpctl.native_objects import position_control
+                position_control(canvas, ctrl, placement)
+            self._record_undo("insert_image", 1 if placement is None else 2)
             return {
                 "ok": True,
                 "command": "insert_image",
@@ -1414,6 +1480,8 @@ class Engine:
         font_slots: Any = None,
         size: float | None = None,
         color: str = "",
+        paragraphs: Any = None,
+        cursor_after: bool = False,
     ) -> dict[str, Any]:
         """새 편집 가능한 글상자를 만든다.
 
@@ -1422,6 +1490,11 @@ class Engine:
         """
         if not isinstance(text, str):
             raise UsageError("글상자 텍스트는 문자열이어야 합니다.")
+        if type(cursor_after) is not bool:
+            raise UsageError("cursor_after must be boolean")
+        if paragraphs is not None and text:
+            raise UsageError("text and paragraphs are mutually exclusive")
+        normalized_paragraphs = None if paragraphs is None else _normalize_cell_paragraphs(paragraphs)
         width = _normalize_dimension(width_mm, "width_mm")
         height = _normalize_dimension(height_mm, "height_mm")
         normalized_fill = _normalize_fill(fill, allow_empty=True)
@@ -1445,6 +1518,15 @@ class Engine:
         )
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
+            extra = {}
+            if normalized_paragraphs is not None:
+                def write_content():
+                    for index, paragraph in enumerate(normalized_paragraphs):
+                        self._write_paragraph_spec(canvas, paragraph,
+                            terminate=index < len(normalized_paragraphs) - 1, actions=[0])
+                extra["content_writer"] = write_content
+            if cursor_after:
+                extra["cursor_after"] = True
             action_result = canvas.insert_text_box(
                 text=text,
                 width_mm=width,
@@ -1462,6 +1544,7 @@ class Engine:
                 font_slots=normalized_font_slots,
                 size=size,
                 color=_normalize_optional_color(color),
+                **extra,
             )
             actions = _action_count(action_result)
             self._record_undo("insert_text_box", actions)
@@ -1647,21 +1730,28 @@ class Engine:
     def set_table_properties(
         self,
         table: int,
-        page_break: str = "cell",
-        repeat_header: bool = True,
-        cell_spacing_mm: float = 0.0,
+        page_break: str | None = "cell",
+        repeat_header: bool | None = True,
+        cell_spacing_mm: float | None = 0.0,
     ) -> dict[str, Any]:
         """표의 페이지 경계 나눔·제목 행 반복·셀 간격을 네이티브로 설정한다."""
         if isinstance(table, bool) or not isinstance(table, int) or table < 0:
             raise UsageError("table 은 0 이상의 표 번호여야 합니다.")
         normalized = _normalize_table_properties(
-            page_break=page_break,
-            repeat_header=repeat_header,
-            cell_spacing_mm=cell_spacing_mm,
+            page_break="cell" if page_break is None else page_break,
+            repeat_header=True if repeat_header is None else repeat_header,
+            cell_spacing_mm=0 if cell_spacing_mm is None else cell_spacing_mm,
         )
+        for key, value in (("page_break", page_break), ("repeat_header", repeat_header), ("cell_spacing_mm", cell_spacing_mm)):
+            if value is None:
+                normalized[key] = None
         with SingleWriterLock(timeout=self.lock_timeout):
             canvas = self._connect()
-            action_result = canvas.set_table_properties(table=table, **normalized)
+            if None in normalized.values():
+                from hwpctl.native_objects import table_properties_partial
+                action_result = table_properties_partial(canvas, table=table, **normalized)
+            else:
+                action_result = canvas.set_table_properties(table=table, **normalized)
             actions = _action_count(action_result)
             self._record_undo("set_table_properties", actions)
             return {
@@ -2875,6 +2965,7 @@ def _normalize_table_position(value: Any) -> dict[str, Any]:
         "flow_with_text": flow_with_text,
         "allow_overlap": allow_overlap,
         "outside_margin_mm": list(margins),
+        **({"affect_line_spacing": affect_line_spacing} if "affect_line_spacing" in value else {}),
     }
 
 
@@ -3174,17 +3265,27 @@ def _normalize_text_box_position(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise UsageError("글상자 position은 문자열 또는 JSON 객체여야 합니다.")
     mode = str(value.get("mode", "inline")).strip().lower()
-    if mode == "inline":
+    if mode == "inline" and set(value) == {"mode"}:
         return {"mode": "inline"}
-    if mode != "floating":
+    if mode != "floating" and mode != "inline":
         raise UsageError("글상자 position mode는 inline 또는 floating이어야 합니다.")
-    if "x_mm" not in value or "y_mm" not in value:
+    if mode == "floating" and ("x_mm" not in value or "y_mm" not in value):
         raise UsageError("floating 글상자에는 x_mm와 y_mm 좌표가 필요합니다.")
-    x_mm = _finite_number(value["x_mm"], "글상자 x_mm")
-    y_mm = _finite_number(value["y_mm"], "글상자 y_mm")
-    if not -1000 <= x_mm <= 1000 or not -1000 <= y_mm <= 1000:
-        raise UsageError("글상자 좌표는 -1000~1000mm 범위여야 합니다.")
-    return {"mode": "floating", "x_mm": x_mm, "y_mm": y_mm}
+    # Preserve the long-standing short form and its public return value. Rich
+    # placement uses the same strict vocabulary as tables and pictures.
+    if mode == "floating" and set(value) <= {"mode", "x_mm", "y_mm"}:
+        x_mm = _finite_number(value["x_mm"], "글상자 x_mm")
+        y_mm = _finite_number(value["y_mm"], "글상자 y_mm")
+        if not -1000 <= x_mm <= 1000 or not -1000 <= y_mm <= 1000:
+            raise UsageError("글상자 좌표는 -1000~1000mm 범위여야 합니다.")
+        return {"mode": "floating", "x_mm": x_mm, "y_mm": y_mm}
+    rich = dict(value)
+    if mode == "floating":
+        rich.setdefault("wrap", "square")
+        rich.setdefault("horizontal_relative_to", "paper")
+        rich.setdefault("vertical_relative_to", "paper")
+        rich.setdefault("allow_overlap", True)
+    return _normalize_table_position(rich)
 
 
 def _normalize_align(value: str, *, default: str = "") -> str:

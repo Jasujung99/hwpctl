@@ -54,6 +54,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         True,
     ),
+    ToolSpec("insert_section", "현재 본문 위치에서 다음 구역 시작. Undo 1단위", False, True),
     ToolSpec("create_table", "표 생성. 첫 행 배경색·기본 칸 안여백(3.5/2.0mm). Undo 1단위", False, True),
     ToolSpec(
         "set_table_properties",
@@ -87,7 +88,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         True,
     ),
-    ToolSpec("set_cell_margin", "표 칸 안쪽 여백(mm). 표 전체·범위·현재 셀", False, True),
+    ToolSpec("set_cell_margin", "표 칸 안쪽 여백(mm)과 명시/상속 상태. 표 전체·범위·현재 셀", False, True),
     ToolSpec(
         "set_table_inside_margin",
         "표 기본 안쪽 여백(TABLE/INSIDEMARGIN, mm). 셀별 여백은 보존",
@@ -108,13 +109,14 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("set_valign", "셀 세로 정렬(top/center/bottom). Undo 1단위", False, True),
     ToolSpec("set_cell_border", "셀 테두리(CellBorderFill). TypeHorz 미지원", False, True),
     ToolSpec("insert_chart", "선택한 표 데이터로 한/글 네이티브 차트 삽입 (PNG 아님)", False, True),
-    ToolSpec("insert_image", "그림 파일(PNG/JPG 등)을 본문·표 칸에 삽입. Undo 1단위", False, True),
+    ToolSpec("insert_image", "그림 파일을 본문·표 칸에 삽입하고 inline/floating 위치 지정. Undo 1단위", False, True),
     ToolSpec(
         "insert_text_box",
-        "편집 가능한 글상자 삽입 (크기·채우기·테두리·도형/글자 그림자·HFT 글꼴). Undo 1단위",
+        "편집 가능한 글상자 삽입 (내부 문단·크기·채우기·위치·서식). Undo 1단위",
         False,
         True,
     ),
+    ToolSpec("insert_shape", "편집 가능한 사각형·타원·선 삽입. Undo 1단위", False, True),
     ToolSpec(
         "set_cell_fill",
         "표 셀 범위에 단색·선형·방사형 그라데이션 채우기. Undo 1단위",
@@ -145,6 +147,8 @@ TOOLS: tuple[ToolSpec, ...] = (
         True,
     ),
     ToolSpec("set_pagedef", "용지 크기·여백·가로/세로 지정. Undo 1단위", False, True),
+    ToolSpec("reference_to_spec", "HWPML/HWPX/캡처 번들을 작성 명세와 손실 보고서로 변환", False, True),
+    ToolSpec("build_document", "명세 전체를 검사한 뒤 소유 세션에서 새 HWP/HWPX 생성", False, True),
     ToolSpec("save_as", "새 경로로 저장. 기존 대상은 --overwrite 필수, 원본은 거부", True, True),
     ToolSpec("save", "원본 경로에 저장. --overwrite 필수. 자동저장 없음", True, True),
     ToolSpec("close", "문서 닫기. --force 필수", True, True),

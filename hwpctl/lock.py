@@ -10,6 +10,8 @@ import json
 import os
 import sys
 import time
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -24,6 +26,29 @@ else:
 
 LOCK_FILENAME = "hwpctl.lock"
 STATE_FILENAME = "state.json"
+_transaction = threading.local()
+
+
+def writer_transaction_active() -> bool:
+    lease = getattr(_transaction, "lease", None)
+    return bool(lease and lease[0] == os.getpid() and lease[2]._fh is not None)
+
+
+@contextmanager
+def writer_transaction(timeout: float = 8.0):
+    """One synchronous build lease; only this thread's nested commands borrow it.
+
+    Ordinary SingleWriterLock instances remain mutually exclusive, including on
+    the same thread. No process-wide bypass or environment override is used.
+    """
+    if getattr(_transaction, "lease", None) is not None:
+        raise RuntimeError("Nested writer transactions are not allowed")
+    with SingleWriterLock(timeout=timeout) as lock:
+        _transaction.lease = (os.getpid(), str(lock.path.resolve()), lock)
+        try:
+            yield lock
+        finally:
+            _transaction.lease = None
 
 
 def default_runtime_dir() -> Path:
@@ -129,6 +154,7 @@ class SingleWriterLock:
         self.path = path or default_lock_path()
         self.timeout = timeout
         self._fh: TextIO | None = None
+        self._borrowed = False
 
     def __enter__(self) -> SingleWriterLock:
         self.acquire()
@@ -138,7 +164,11 @@ class SingleWriterLock:
         self.release()
 
     def acquire(self, timeout: float | None = None) -> None:
-        if self._fh is not None:
+        if self._fh is not None or self._borrowed:
+            return
+        lease = getattr(_transaction, "lease", None)
+        if lease and lease[0] == os.getpid() and lease[1] == str(self.path.resolve()) and lease[2]._fh is not None:
+            self._borrowed = True
             return
         wait = self.timeout if timeout is None else timeout
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +201,9 @@ class SingleWriterLock:
                 time.sleep(0.05)
 
     def release(self) -> None:
+        if self._borrowed:
+            self._borrowed = False
+            return
         fh = self._fh
         self._fh = None
         if fh is None:

@@ -37,13 +37,8 @@ def analyze_hwpml(hwpml: str) -> ReferenceAnalysis:
     sections = [node for node in root.iter() if _tag(node) == "SECTION"]
     tables = [node for node in root.iter() if _tag(node) == "TABLE"]
     blockers = set(document.unsupported)
-    if len(sections) != 1:
-        blockers.add("section_count_not_one")
-    # The comparison model currently holds one table per paragraph. Do not hide
-    # a second table or a nested control behind successful normalization.
-    for paragraph in (node for node in root.iter() if _tag(node) == "P"):
-        if sum(_tag(node) == "TABLE" for node in paragraph.iter()) > 1:
-            blockers.add("multiple_or_nested_tables")
+    if not sections:
+        blockers.add("section_count_zero")
     grids = []
     for table in tables:
         try:

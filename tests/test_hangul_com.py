@@ -691,12 +691,15 @@ def test_exit_table_uses_parent_list_for_multiline_final_cell() -> None:
     def leave_parent_list(action: str) -> bool:
         if action == "MoveParentList":
             com.CurFieldState = 0
+            com.position = [0, 1, 0]  # Before the table anchor in the body.
+        elif action == "MoveRight" and com.CurFieldState == 0:
+            com.position = [0, 1, 1]  # Past that anchor, preserving order.
         return original_run(action)
 
     canvas.run = leave_parent_list  # type: ignore[method-assign]
     canvas.exit_table()
 
-    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList", "MoveRight"]
     assert canvas.is_cell() is False
 
 

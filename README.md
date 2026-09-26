@@ -153,6 +153,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `trim_blank_paragraphs_before_body` | 정확한 답변 앞의 연속 빈 문단을 지정 개수만 남김 |
 | `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). 서식은 제목에만. Undo 1단위 |
 | `insert_paragraph` | 본문 문단·글자 런·문단 레이아웃. `--no-terminate`로 문단 경계를 호출자가 제어. Undo 1단위 |
+| `insert_section` | 현재 본문 위치에서 다음 구역 시작 |
 | `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
 | `set_table_properties` | 표의 쪽 나눔(`none`/`table`/`cell`)·제목 행 반복·셀 간격 |
 | `set_table_position` | 표의 글자처럼 취급/떠 있는 위치·바깥 여백 |
@@ -161,7 +162,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `move_to_cell` | 지정 표의 A1 셀로 이동. 문서 변경·Undo 없음 |
 | `exit_table` | 현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동. 이동 뒤 문맥 검증 |
 | `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
-| `set_cell_margin` | 표 칸 **안쪽 여백**(mm). 표 전체·`--range`·현재 셀 |
+| `set_cell_margin` | 표 칸 **안쪽 여백**(mm). `--no-has-margin`은 셀별 여백을 해제하고 표 기본값 상속 |
 | `set_table_inside_margin` | 표 기본 안쪽 여백(`TABLE/INSIDEMARGIN`, mm). 셀별 여백은 보존 |
 | `set_col_width` | 열 너비를 mm·비율로 설정 |
 | `set_table_grid` | 병합 전 표의 열·행 격자를 모든 실제 셀에 정밀 적용 |
@@ -172,8 +173,9 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
 | `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
 | `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
-| `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입 |
-| `insert_text_box` | 편집 가능한 글상자. 단색/선형 그라데이션, 테두리, 도형·글자 그림자 |
+| `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입. floating 위치 지정 가능 |
+| `insert_text_box` | 편집 가능한 글상자. 구조화 문단, 채우기·테두리·그림자·위치 지정 가능 |
+| `insert_shape` | 편집 가능한 사각형·타원·선 삽입 |
 | `set_cell_fill` | 표 셀 범위의 단색/선형/방사형 그라데이션 채우기 |
 | `set_format` | 글꼴·문자권별 HFT 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
 | `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
@@ -184,6 +186,8 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `set_page_visibility` | 현재 쪽의 머리말·꼬리말·바탕쪽·테두리·채우기·쪽 번호 숨김 |
 | `restart_page_number` | 현재 위치부터 네이티브 쪽 번호 다시 시작 |
 | `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
+| `reference_to_spec` | HWPML/HWPX/캡처 번들을 v2 작성 명세와 손실 보고서로 변환 |
+| `build_document` | v1/v2 명세를 검사한 뒤 새 소유 한/글 세션에서 HWP/HWPX 생성 |
 | `save_as` | **새 경로** 저장. 기존 대상은 **`--overwrite` 필수**, 원본 경로는 거부 |
 | `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
 | `close` | 닫기. **`--force` 필수** |
@@ -197,6 +201,29 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 ```bash
 hwpctl mcp --list-tools
 ```
+
+문서 변환과 작성은 명세 전체를 먼저 검사할 수 있습니다. `--dry-run`은 결과 파일이나
+한/글 창을 만들지 않습니다. 실제 변환의 출력 디렉터리와 작성 결과 경로는 새
+경로여야 합니다.
+
+> PR #24의 통합 단계에서는 명세 검사·dry-run과 보수적인 손실 보고가
+> 검증됐지만, 새 작성기의 한/글 저장·재열기 및 ChartML 보존은 아직
+> 완료 게이트를 통과하지 않았습니다. 변환 손실이 있으면 실행 명세를
+> 내보내지 않습니다. 현재 상태와 남은 검증은
+> [Authoring completion gate](docs/AUTHORING_COMPLETION.md)에 기록합니다.
+
+```powershell
+hwpctl reference_to_spec C:\source\sample.hwpx C:\output\converted --dry-run
+hwpctl reference_to_spec C:\source\sample.hwpx C:\output\converted
+hwpctl build_document C:\output\converted\spec.json C:\output\rebuilt.hwpx --dry-run
+hwpctl build_document C:\output\converted\spec.json C:\output\rebuilt.hwpx
+```
+
+표를 고를 때 기존 `--table 0` 번호를 계속 쓸 수 있습니다. 중첩 표는
+`{"root":0,"children":[{"cell":"A1","index":0}]}`처럼 부모 표, 부모 셀,
+그 셀 안에서의 자식 표 번호를 지정합니다. `set_table_properties`에는 `--page-break
+keep`, `--keep-repeat-header`, `--keep-cell-spacing`으로 특정 속성을 유지할 수
+있습니다.
 
 모델이 「사업계획서, 4열 8행 표, 첫 행 회색」을 이렇게 매핑하면 됩니다.
 

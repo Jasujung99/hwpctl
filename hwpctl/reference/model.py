@@ -209,6 +209,16 @@ class TextRun:
 
 
 @dataclass(frozen=True)
+class InlineItem:
+    """문단 안 텍스트·표·제어 개체의 원래 순서."""
+
+    kind: str
+    run: TextRun | None = None
+    table: "Table | None" = None
+    signature: Any = ()
+
+
+@dataclass(frozen=True)
 class ParagraphBlock:
     """문단 하나. 표가 있으면 본문 텍스트와 표를 함께 보존한다."""
 
@@ -216,6 +226,7 @@ class ParagraphBlock:
     page_break: str | None
     runs: tuple[TextRun, ...]
     table: "Table | None" = None
+    content: tuple[InlineItem, ...] = ()
 
     @property
     def visible_text(self) -> str:
@@ -227,11 +238,17 @@ class ParagraphBlock:
 
     @property
     def kind(self) -> str:
-        return "table" if self.table is not None else "paragraph"
+        return "table" if self.tables else "paragraph"
+
+    @property
+    def tables(self) -> tuple["Table", ...]:
+        if self.content:
+            return tuple(item.table for item in self.content if item.table is not None)
+        return (self.table,) if self.table is not None else ()
 
     @property
     def is_blank(self) -> bool:
-        return self.table is None and not self.visible_text
+        return not self.content and self.table is None and not self.visible_text
 
 
 @dataclass(frozen=True)
@@ -262,27 +279,53 @@ class Table:
 
 
 @dataclass(frozen=True)
+class Section:
+    page: Any
+    blocks: tuple[ParagraphBlock, ...]
+
+
+@dataclass(frozen=True)
 class NormalizedDocument:
     """HWPML의 비공개 원문을 메모리에서만 가진 정규 구조."""
 
     page: Any
     blocks: tuple[ParagraphBlock, ...]
     unsupported: frozenset[str]
+    sections: tuple[Section, ...] | None = None
+
+    @property
+    def all_sections(self) -> tuple[Section, ...]:
+        # 기존 외부 코드가 세 필드로 만든 모델도 하나의 구역으로 처리한다.
+        return self.sections if self.sections is not None else (Section(self.page, self.blocks),)
 
     @property
     def visible_text(self) -> str:
-        return "".join(_block_text(block) for block in self.blocks)
+        return "".join(
+            _block_text(block)
+            for section in self.all_sections
+            for block in section.blocks
+        )
 
 
 def _block_text(block: ParagraphBlock) -> str:
-    text = block.visible_text
-    if block.table is None:
-        return text
-    return text + "".join(
-        _block_text(paragraph)
-        for cell in block.table.cells
-        for paragraph in cell.paragraphs
-    )
+    if not block.content:
+        return block.visible_text + "".join(
+            _block_text(paragraph)
+            for table in block.tables
+            for cell in table.cells
+            for paragraph in cell.paragraphs
+        )
+    parts: list[str] = []
+    for item in block.content:
+        if item.run is not None:
+            parts.append(item.run.text)
+        elif item.table is not None:
+            parts.extend(
+                _block_text(paragraph)
+                for cell in item.table.cells
+                for paragraph in cell.paragraphs
+            )
+    return "".join(parts)
 
 
 class _Normalizer:
@@ -363,21 +406,72 @@ class _Normalizer:
             parts.append(child.tail or "")
         return "".join(parts)
 
-    def _runs(self, paragraph: ET.Element) -> tuple[TextRun, ...]:
-        runs: list[TextRun] = []
-        for text in _children(paragraph, "TEXT"):
-            content = self._visible(text)
-            if content:
-                runs.append(TextRun(content, self._character_shape(text, paragraph)))
-        return tuple(runs)
+    def _inline_items(self, paragraph: ET.Element) -> tuple[InlineItem, ...]:
+        items: list[InlineItem] = []
+        run_start = 0
+
+        def add_text(value: str, formatting: Any) -> None:
+            if not value:
+                return
+            # 한 TEXT 안의 CHAR 래퍼가 런을 조각내지 않도록 합친다. 서로 다른
+            # TEXT 요소의 경계는 별도의 런으로 유지한다.
+            if len(items) > run_start and items[-1].kind == "run" and items[-1].run is not None and items[-1].run.formatting == formatting:
+                previous = items.pop().run
+                assert previous is not None
+                value = previous.text + value
+            items.append(InlineItem("run", run=TextRun(value, formatting)))
+
+        def visit(node: ET.Element, formatting: Any) -> None:
+            name = _local_name(node.tag)
+            if name == "TABLE":
+                items.append(InlineItem("table", table=self.table(node)))
+                return
+            if name == "LINEBREAK":
+                add_text("\n", formatting)
+                return
+            if name == "TAB":
+                add_text("\t", formatting)
+                return
+            if name in {"FWSPACE", "NBSPACE", "FIXEDWIDTHSPACE"}:
+                add_text(" ", formatting)
+                return
+            if name in {"MARKPENBEGIN", "MARKPENEND"}:
+                return
+            if name in _TEXT_SKIP_TAGS or name in _DRAWING_TAGS:
+                items.append(InlineItem(name.casefold(), signature=_element_signature(node, self.fonts)))
+                return
+            if name == "CHAR" and not (node.text or len(node)) and node.attrib:
+                items.append(InlineItem("char", signature=_element_signature(node, self.fonts)))
+                return
+            if name not in {"TEXT", "CHAR"}:
+                # Unknown controls remain visible to structural comparison and
+                # analyzer review instead of vanishing as empty text.
+                items.append(InlineItem(name.casefold(), signature=_element_signature(node, self.fonts)))
+                return
+            add_text(node.text or "", formatting)
+            for child in node:
+                visit(child, formatting)
+                add_text(child.tail or "", formatting)
+
+        for child in paragraph:
+            name = _local_name(child.tag)
+            if name == "TEXT":
+                run_start = len(items)
+                visit(child, self._character_shape(child, paragraph))
+            elif name not in {"LINSEGARRAY", "LINES", "RANGETAGLIST"}:
+                visit(child, ())
+        return tuple(items)
 
     def block(self, paragraph: ET.Element) -> ParagraphBlock:
-        table_node = next(iter(_descendants(paragraph, "TABLE")), None)
+        content = self._inline_items(paragraph)
+        runs = tuple(item.run for item in content if item.run is not None)
+        first_table = next((item.table for item in content if item.table is not None), None)
         return ParagraphBlock(
             paragraph_formatting=self._paragraph_shape(paragraph),
             page_break=_attr(paragraph, "PageBreak", "pageBreak"),
-            runs=self._runs(paragraph),
-            table=self.table(table_node) if table_node is not None else None,
+            runs=runs,
+            table=first_table,
+            content=content,
         )
 
     def table(self, table: ET.Element) -> Table:
@@ -417,8 +511,8 @@ class _Normalizer:
             cells=tuple(cells),
         )
 
-    def page(self) -> Any:
-        page = _first_descendant(self.root, "PAGEDEF")
+    def page(self, section: ET.Element) -> Any:
+        page = _first_descendant(section, "PAGEDEF")
         if page is None:
             return ()
         margin = _first_child(page, "PAGEMARGIN")
@@ -441,9 +535,18 @@ class _Normalizer:
 
     def document(self) -> NormalizedDocument:
         body = _first_descendant(self.root, "BODY")
-        section = _first_descendant(body, "SECTION") if body is not None else None
-        blocks = tuple(self.block(item) for item in _children(section, "P")) if section is not None else ()
-        return NormalizedDocument(page=self.page(), blocks=blocks, unsupported=self.unsupported())
+        section_nodes = _children(body, "SECTION") if body is not None else []
+        sections = tuple(
+            Section(self.page(section), tuple(self.block(item) for item in _children(section, "P")))
+            for section in section_nodes
+        )
+        first = sections[0] if sections else Section((), ())
+        return NormalizedDocument(
+            page=first.page,
+            blocks=first.blocks,
+            unsupported=self.unsupported(),
+            sections=sections,
+        )
 
 
 def normalize_hwpml(hwpml: str) -> NormalizedDocument:
@@ -462,8 +565,10 @@ def normalize_hwpml(hwpml: str) -> NormalizedDocument:
 
 __all__ = [
     "Cell",
+    "InlineItem",
     "NormalizedDocument",
     "ParagraphBlock",
+    "Section",
     "Table",
     "TextRun",
     "normalize_hwpml",

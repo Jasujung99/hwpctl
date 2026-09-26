@@ -1913,6 +1913,23 @@ def test_insert_text_box_dispatches_normalized_visual_specs_and_undo(engine) -> 
     assert fake.undone == fake.text_box_actions
 
 
+def test_insert_text_box_rich_position_preserves_explicit_placement(engine) -> None:
+    eng, fake = engine
+    position = {"mode": "floating", "x_mm": 12, "y_mm": 9,
+                "horizontal_relative_to": "page", "vertical_relative_to": "paper",
+                "horizontal_align": "right", "vertical_align": "bottom",
+                "wrap": "behind_text", "flow_with_text": False,
+                "allow_overlap": False, "outside_margin_mm": [1, 2, 3, 4]}
+    eng.insert_text_box("label", width_mm=30, height_mm=12, position=position)
+    call = next(value for name, value in fake.calls if name == "insert_text_box")
+    actual = call["position"]
+    assert all(actual[key] == value for key, value in position.items())
+    assert actual.get("affect_line_spacing", False) is False
+    with pytest.raises(UsageError, match="지원하지 않는 필드"):
+        eng.insert_text_box("label", width_mm=30, height_mm=12,
+                            position={**position, "invented": True})
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

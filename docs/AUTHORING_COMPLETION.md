@@ -1,86 +1,75 @@
-# Authoring completion work — not a release sign-off
+# Authoring completion gate — still open
 
-This work extends PR #24. The full v2 conversion/build acceptance gate is **not
-complete**. Passing tests below do not authorize merging #24, safe #17 or bridge
-#12 as a completed authoring release. Existing integration documents describe the
-previous phase, not completion of this expanded scope.
+PR #24 is an integration branch, not a completed authoring release. The fixed
+acceptance scope remains HWPML/HWPX/reference conversion, ordered v2 native
+authoring, synthetic HWP/HWPX save/reopen/edit/Undo, and full PR review. Do not
+merge #24, safe #17, or bridge #12 on the basis of the partial evidence below.
 
-## Frozen starting points
+The frozen source set for this increment remains: hwpctl #24
+`b1118bfa8527f93e1d0354fbc1d694911d17b45b`, hwpctl main
+`09fe92884ccf03bfdf3c9bbef18251382e861c99`, safe #17
+`c805c928191aa606cbb73e84eed0e6bf6b009ebd`, bridge #12
+`9e9f5e39fc1ba44573b24aec377572966b8383fe`, old native
+`fbdc2dc2e89000e3c481c0abb95da2e31d039522` and old research clone
+`40c061a`. Private prototype hashes remain in the earlier PR history; they
+identify local snapshots, not permission to publish those files.
 
-| Repository / candidate | Starting commit or SHA-256 |
-| --- | --- |
-| hwpctl #24 | `b1118bfa8527f93e1d0354fbc1d694911d17b45b` |
-| hwpctl main | `09fe92884ccf03bfdf3c9bbef18251382e861c99` |
-| safe #17 | `c805c928191aa606cbb73e84eed0e6bf6b009ebd` |
-| bridge #12 | `9e9f5e39fc1ba44573b24aec377572966b8383fe` |
-| old native branch | `fbdc2dc2e89000e3c481c0abb95da2e31d039522` |
-| old research clone | `40c061a` (local abbreviated object ID) |
-| legacy FAQ converter file | `A7ED89D61A3D57AB71216A9B9682D1A3FDE1D8C1F1B83BF905820494A4E6A299` |
-| legacy notice authoring file | `0F661186E2B66AC805BC5B673167DC2C1CBFDCB09C9CBF8DEB3F918CC5BA86F2` |
-| private editable design prototype file | `5C748EAF49E548DCFBF00ADB30136609BA71E71DCA3D7834B878219893F89C4F` |
+## Current implementation
 
-Hashes identify local source snapshots, not permission to publish their content.
-No private document, image, asset alias or default user path is added here.
-Function-level reconciliation of the old clone/native branch remains pending;
-these branches have not been replayed on the basis of commit IDs alone.
+- `hwpctl.authoring.model` upgrades v1 and recursively validates ordered v2
+  sections, paragraphs, runs, cell content, nested/merged tables, pictures,
+  editable shapes/text boxes, charts and page controls before COM is opened.
+  `compiler.py` emits existing public `Engine.dispatch` commands with v2 and
+  source locations. Omitted table properties remain distinct from explicit
+  values. A synthetic v2 example is at `examples/specs/authoring-v2.synthetic.json`.
+- `reference_to_spec` accepts HWPML, HWPX and read-only bundles. It reports
+  source-to-target provenance, exact raw-HU grid constraints, embedded assets,
+  conversion and losses; a report with losses does not publish an executable
+  spec. Supported primitive drawing, placement, borders and fills are covered
+  by synthetic converter tests. ChartML is reported as loss, not silently
+  replaced with a different chart.
+- `build_document` preflights the entire spec and input hashes, keeps dry-run
+  COM-free, uses a writer transaction and only publishes a fresh output after
+  successful native save and owned-session cleanup. It proves a new Hwp PID,
+  window, one blank document and COM document identity before writing or
+  closing. Any changed/uncertain owner is left untouched and returned as a
+  failure. The user foreground window and global pin/Undo state are not used.
+- Engine, CLI, MCP schema and tool catalog expose the two commands and the
+  required native primitives without replacing existing entry points.
 
-## Implemented and locally verified in this increment
+## Verification completed on this working branch
 
-- The v1 FAQ model, validation and public-command driver now live in
-  `hwpctl.authoring.legacy`. The old example imports the same classes/functions
-  and remains a CLI entry point. It still has the v1 feature boundary; this move
-  does not magically supply v2 conversion or owned-session safety.
-- Existing text-box margins are accepted by the v1 driver. The native adapter
-  now edits `ShapeListProperites` after creating the text list and commits the
-  copied child parameter set back to its parent. The previous item-set name was
-  invalid; a successful action alone was insufficient evidence of changed margins.
-  Hancom explains Automation's copy semantics in
-  [the developer forum](https://forum.developer.hancom.com/t/hwpctrl/2354).
-- Text-box radial fill reuses the existing gradient implementation; it no longer
-  fails the adapter's obsolete linear-only input gate.
-- Nested-table parent exit crosses the child-table anchor after `MoveParentList`.
-  It stays in the immediate parent cell rather than inserting the next sibling
-  before the first. Failure restores the original cursor through the existing
-  exit-table boundary.
-- Internal `authoring.geometry` solves both axes from raw integer HU cell/span
-  constraints and checks cell coverage/overlap. Missing or contradictory tracks
-  stay unresolved; no outer size, first-row inference or proportional repair is
-  used. This is geometry evidence, not native layout or conversion acceptance.
-- Internal `authoring.paths` resolves recursive parent-cell/child-table paths in
-  HWPML. Synthetic native siblings confirm XML order matches native table indexes
-  in that case. This helper is not yet exposed as a CLI/MCP table selector.
-- `authoring.model` is an internal v2 **envelope only**: copies ordered sections,
-  keeps omitted/explicit fields distinct and wraps v1 operations without loss.
-  It is not full recursive validation and must not be used as build preflight.
+- Local default suite: **433 passed, 21 skipped**. Opt-in native cases are
+  skipped, not counted as passes. Synthetic v2 dry-run and public-file checks
+  passed; a no-isolation wheel/sdist build passed. The isolated build could not
+  download build dependencies in the restricted local network environment.
+- The earlier PR head had 15 passing native Hancom tests, including repeated
+  COM diagnostics. Those results do **not** validate this branch's new builder.
+- Safe PR #17 head `359cc938f81fdbbbd487da052576ac6795a224ea` separately
+  passed its Windows 3.11/3.12 CI, fake tests and two synthetic COM contracts.
+  It remains unmerged; manual screen verification was not run.
 
-## Evidence
+## Blocking acceptance items
 
-All new tests use independently written synthetic input. Local Windows results:
+1. On this host, independent Python `DispatchEx`, direct `CoCreateInstance`,
+   and 32-bit PowerShell COM activation all stalled before the first command.
+   The user restarted Han/글, and a retry with separate execution permission
+   still stalled. An existing Hwp process recorded an `HwpAppModule.dll`
+   access violation. No existing/uncertain user process was terminated. Native
+   HWP/HWPX save, reopen, editable object order, page flow and Undo for the
+   new builder are therefore **not verified**.
+2. HWPX ChartML carries series, axes and styling through `chartIDRef` without
+   a verified source-table/range relation. The public table-driven
+   `insert_chart` cannot prove preservation of an arbitrary source chart.
+   The converter fails closed. Also, its current table-selection route cannot
+   prove that a chart stays at its ordered v2 body anchor. Do not treat a
+   chart object merely appearing as a successful conversion.
+3. The fixed independent synthetic FAQ, notice, complex-table and design
+   round-trip corpus, whole-operation Undo, and final Windows/Linux PR head CI
+   have not passed for this increment. The final full diff review and review
+   thread resolution must follow the verified head.
 
-- Default regression suite: **376 passed, 18 skipped** (opt-in tests excluded).
-- Native Hancom 2022 integration suite: **15 passed**. Includes the existing
-  three-cycle read-only export/owned-window cleanup diagnostic test.
-- New native cases: sibling nested-table order and native selection; radial
-  text-box HWP/HWPX save/reopen, persisted margins `(283, 567, 850, 1134)` HU for
-  `(1, 2, 3, 4)` mm, native text editing and Undo of that text edit.
-- These checks do not claim visual equality, whole-build Undo coverage, or safe
-  foreground/preview screen validation. No personal profile or existing user
-  document was selected.
-
-## Required before the agreed merge gate
-
-Still implement and validate, not merely reclassify as unsupported:
-
-1. Full recursive v2 body/cell model, v1 transformation and compiler.
-2. HWPML/HWPX/bundle conversion, embedded assets and loss/provenance report.
-3. Multi-section/page flow, inherited margins/headers, all fixed design objects,
-   floating placement and charts through public Engine operations.
-4. Owned build lifecycle, whole-spec preflight, failure location, output/source
-   protection and cleanup; public `reference_to_spec` / `build_document` and
-   Engine/CLI/MCP/catalog consistency.
-5. The full fixed synthetic source/expected corpus, failure paths, whole-operation
-   Undo, Windows/Linux CI, package/public-file checks and review of final heads.
-6. After those pass: squash #24 → safe #17 → bridge #12 without bypassing checks;
-   update bridge to the actual merged engine commit and verify main CI.
-
-No unrelated newly discovered feature has been added to the fixed scope.
+The initial source snapshots and private prototypes were used only for
+function-level understanding; no personal document or asset is published.
+The agreed merge order remains #24 → safe #17 → bridge #12, with squash merges
+only after the above blockers are actually resolved.

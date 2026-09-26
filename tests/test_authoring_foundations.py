@@ -110,6 +110,8 @@ def test_invalid_source_does_not_guess_target(xml):
 def test_model_copies_source_and_keeps_explicit_false_and_omission_distinct(tmp_path):
     content = [{"kind": "table", "properties": {"repeat_header": False}},
                {"kind": "table", "properties": {}}]
+    for table in content:
+        table.update(rows=1, cols=1, column_widths_mm=[20], row_heights_mm=[10], cells={})
     raw = {"schema": SCHEMA, "sections": [{"content": content}, {"content": []}]}
     spec = parse_spec(raw, base_dir=tmp_path)
     content.clear()
@@ -131,6 +133,7 @@ def test_v1_upgrade_preserves_operation_order_and_input():
         {"kind": "paragraph", "text": "before"}, {"kind": "table", "cells": {}},
         {"kind": "paragraph", "text": "after"}]}
     upgraded = upgrade_v1(raw)
-    assert upgraded["sections"][0]["content"] == raw["operations"]
+    assert upgraded["sections"][0]["content"] == [
+        raw["operations"][0], {**raw["operations"][1], "review": True}, raw["operations"][2]]
     upgraded["sections"][0]["content"][0]["text"] = "changed"
     assert raw["operations"][0]["text"] == "before"

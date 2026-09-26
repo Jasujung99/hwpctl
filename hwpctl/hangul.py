@@ -1945,6 +1945,8 @@ class HangulCanvas:
         face: str = "",
         height_pt: float | None = None,
         text_color: str = "",
+        content_writer: Any = None,
+        cursor_after: bool = False,
     ) -> int:
         """현재 캐럿에 편집 가능한 한/글 글상자를 만든다.
 
@@ -2004,17 +2006,13 @@ class HangulCanvas:
             action.GetDefault(pset)
             self._set_pset_item(pset, "Width", self._mm_to_hwpunit(width))
             self._set_pset_item(pset, "Height", self._mm_to_hwpunit(height))
-            self._set_pset_item(pset, "TreatAsChar", 1 if mode == "inline" else 0)
-            if mode == "floating":
-                self._set_pset_item(pset, "VertRelTo", self._enum("VertRel", "Paper", 0))
-                self._set_pset_item(pset, "VertAlign", self._enum("VAlign", "Top", 0))
-                self._set_pset_item(pset, "VertOffset", self._mm_to_hwpunit(y_mm))
-                self._set_pset_item(pset, "HorzRelTo", self._enum("HorzRel", "Paper", 0))
-                self._set_pset_item(pset, "HorzAlign", self._enum("HAlign", "Left", 1))
-                self._set_pset_item(pset, "HorzOffset", self._mm_to_hwpunit(x_mm))
-                self._set_pset_item(pset, "TextWrap", self._enum("TextWrapType", "Square", 0))
-                self._set_pset_item(pset, "FlowWithText", 1)
-                self._set_pset_item(pset, "AllowOverlap", 1)
+            from hwpctl.native_objects import apply_position
+            # The legacy short form was paper-relative and overlap-enabled;
+            # fully structured positions carry their own explicit values.
+            placement = ({"horizontal_relative_to": "paper", "vertical_relative_to": "paper",
+                          "allow_overlap": True, "wrap": "square", **pos}
+                         if mode == "floating" else pos)
+            apply_position(self, pset, placement)
             if fill is not None:
                 self._apply_fill(pset.CreateItemSet("ShapeDrawFillAttr", "DrawFillAttr"), fill)
             if line is not None:
@@ -2045,6 +2043,8 @@ class HangulCanvas:
             self.set_align(alignment)
             if text:
                 self.insert_text(text)
+            if content_writer is not None:
+                content_writer()
             if margins is not None:
                 # The list is materialized by entering text-box editing. Before
                 # that boundary a new gso may have no ListProperties at all.
@@ -2065,6 +2065,9 @@ class HangulCanvas:
                 "다음 명령이 글상자 안에 쓰이지 않도록 작업을 중단했습니다."
             )
         self.assert_no_dialog()
+        if cursor_after:
+            from hwpctl.native_objects import after_control
+            after_control(self, ctrl)
         return 1
 
     def _restore_text_box_cursor(self, original_pos: tuple | None, anchor: Any | None) -> bool:
@@ -2088,7 +2091,7 @@ class HangulCanvas:
         width_mm: float = 0.0,
         height_mm: float = 0.0,
         embedded: bool = True,
-    ) -> None:
+    ) -> Any:
         """캐럿 위치에 그림 파일을 넣는다 (한/글 ``InsertPicture``).
 
         ``size_option`` 0=원본 크기, 1=width/height 지정, 2=셀 크기에 맞춤,
@@ -2111,6 +2114,8 @@ class HangulCanvas:
             )
         self.assert_no_dialog()
 
+        return ctrl
+
     def _mm_to_hwpunit(self, mm: float) -> int:
         try:
             return int(self.com.MiliToHwpUnit(mm))
@@ -2118,11 +2123,11 @@ class HangulCanvas:
             return int(round(mm * 7200 / 25.4))  # 1 inch = 25.4mm = 7200 HwpUnit
 
     def set_cell_margin_current(
-        self, left: float, right: float, top: float, bottom: float
+        self, left: float, right: float, top: float, bottom: float, *, has_margin: bool = True
     ) -> None:
         """캐럿이 있는 셀(또는 다중선택 셀들)의 안쪽 여백을 mm 로 지정."""
         self.assert_no_dialog()
-        if self.px:
+        if self.px and has_margin:
             if not self.px.set_cell_margin(
                 left=left, right=right, top=top, bottom=bottom, as_="mm"
             ):
@@ -2143,11 +2148,12 @@ class HangulCanvas:
             pset.HSet.SetItem("ShapeType", 3)
             pset.HSet.SetItem("ShapeCellSize", 0)
             cell = pset.ShapeTableCell
-            cell.HasMargin = 1
-            cell.MarginLeft = self._mm_to_hwpunit(left)
-            cell.MarginRight = self._mm_to_hwpunit(right)
-            cell.MarginTop = self._mm_to_hwpunit(top)
-            cell.MarginBottom = self._mm_to_hwpunit(bottom)
+            cell.HasMargin = int(has_margin)
+            if has_margin:
+                cell.MarginLeft = self._mm_to_hwpunit(left)
+                cell.MarginRight = self._mm_to_hwpunit(right)
+                cell.MarginTop = self._mm_to_hwpunit(top)
+                cell.MarginBottom = self._mm_to_hwpunit(bottom)
             ok = bool(self.com.HAction.Execute("TablePropertyDialog", pset.HSet))
         except Exception as exc:
             raise HangulCommandError(f"셀 안 여백 적용에 실패했습니다: {exc}") from exc
@@ -2620,6 +2626,12 @@ class HangulCanvas:
                 # 단계만 올라간 뒤 다시 확인한다. 표의 다른 셀로 이동하는 대신
                 # 부모 목록으로만 나가므로 다음 본문을 셀 안에 쓰지 않는다.
                 if self.run("MoveParentList") and not self.is_cell():
+                    before_anchor = self.get_pos()
+                    if not self.run("MoveRight"):
+                        raise HangulCommandError("Cannot advance past body table anchor")
+                    after_anchor = self.get_pos()
+                    if not before_anchor or not after_anchor or after_anchor[0] != 0 or after_anchor[1:] <= before_anchor[1:]:
+                        raise HangulCommandError("Body table boundary could not be verified")
                     return
                 raise HangulCommandError(
                     "MoveRight 뒤에도 캐럿이 표 셀 안에 있습니다. "

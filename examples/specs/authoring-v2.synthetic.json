@@ -1,0 +1,30 @@
+{
+  "schema": "hwpctl.blank-rebuild/2",
+  "assets": {},
+  "sections": [
+    {
+      "page": {"landscape": true},
+      "content": [
+        {"kind": "paragraph", "content": [
+          {"kind": "run", "text": "Synthetic "},
+          {"kind": "run", "text": "sound lab", "bold": true}
+        ]},
+        {"kind": "table", "id": "scores", "rows": 2, "cols": 2,
+         "column_widths_mm": [35, 35], "row_heights_mm": [12, 12],
+         "properties": {"repeat_header": true},
+         "cells": {
+           "A1": {"content": [{"kind": "paragraph", "text": "Item"}]},
+           "B1": {"content": [{"kind": "paragraph", "text": "Score"}]},
+           "A2": {"content": [{"kind": "paragraph", "text": "First"}]},
+           "B2": {"content": [{"kind": "paragraph", "text": "7"}]}
+         }},
+        {"kind": "chart", "table_id": "scores", "cell_range": "A1:B2", "chart_type": "column"},
+        {"kind": "shape", "shape_kind": "rectangle", "width_mm": 30,
+         "height_mm": 12, "fill": {"type": "solid", "color": "#2244AA"}},
+        {"kind": "text_box", "width_mm": 30, "height_mm": 12,
+         "paragraphs": [{"text": "Editable label"}]}
+      ]
+    },
+    {"content": [{"kind": "paragraph", "text": "Second section"}]}
+  ]
+}

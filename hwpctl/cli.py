@@ -41,7 +41,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         payload = _run_engine(args)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
+        return 0 if payload.get("ok", True) else 1
     except HwpctlError as exc:
         print(exc.message, file=sys.stderr)
         if debug:
@@ -135,9 +135,9 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
     if cmd == "set_table_properties":
         return {
             "table": args.table,
-            "page_break": args.page_break,
-            "repeat_header": args.repeat_header,
-            "cell_spacing_mm": args.cell_spacing_mm,
+            "page_break": None if args.page_break == "keep" else args.page_break,
+            "repeat_header": None if args.keep_repeat_header else args.repeat_header,
+            "cell_spacing_mm": None if args.keep_cell_spacing else args.cell_spacing_mm,
         }
     if cmd == "set_table_position":
         return {
@@ -148,6 +148,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {
             "table": args.table,
             "cell_range": args.cell_range,
+            "has_margin": args.has_margin,
             "left": args.left,
             "right": args.right,
             "top": args.top,
@@ -205,10 +206,13 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "size_option": args.size_option,
             "width_mm": args.width_mm,
             "height_mm": args.height_mm,
+            "position": parse_json_or_raw(args.position),
         }
     if cmd == "insert_text_box":
         return {
             "text": args.text,
+            "paragraphs": parse_json_or_raw(args.paragraphs),
+            "cursor_after": args.cursor_after,
             "width_mm": args.width_mm,
             "height_mm": args.height_mm,
             "fill": parse_json_or_raw(args.fill),
@@ -224,6 +228,16 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "size": args.size,
             "align": args.align,
             "color": args.color,
+        }
+    if cmd == "insert_shape":
+        return {
+            "shape_kind": args.shape_kind,
+            "width_mm": args.width_mm,
+            "height_mm": args.height_mm,
+            "fill": parse_json_or_raw(args.fill),
+            "line": parse_json_or_raw(args.line),
+            "shadow": parse_json_or_raw(args.shadow),
+            "position": parse_json_or_raw(args.position),
         }
     if cmd == "insert_chart":
         return {
@@ -305,6 +319,12 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "landscape": args.landscape,
             "apply": args.apply,
         }
+    if cmd == "insert_section":
+        return {}
+    if cmd == "reference_to_spec":
+        return {"input": args.input, "output_dir": args.output_dir, "dry_run": args.dry_run}
+    if cmd == "build_document":
+        return {"spec": args.spec, "output": args.output, "dry_run": args.dry_run}
     if cmd == "save_as":
         return {"path": args.path, "format": args.format, "overwrite": args.overwrite}
     if cmd == "save":
