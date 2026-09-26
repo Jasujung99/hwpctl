@@ -13,7 +13,7 @@ import hashlib
 import json
 from typing import Any, Iterable
 
-from hwpctl.reference.model import Cell, NormalizedDocument, ParagraphBlock, Table, normalize_hwpml
+from hwpctl.reference.model import Cell, InlineItem, NormalizedDocument, ParagraphBlock, Table, normalize_hwpml
 
 
 _SCHEMA = "hwpctl.reference-compare/1"
@@ -64,20 +64,59 @@ def _table_anchor(table: Table) -> tuple[Any, ...]:
 
 
 def _block_visible_text(block: ParagraphBlock) -> str:
-    if block.table is None:
-        return block.visible_text
-    return block.visible_text + "".join(
-        _block_visible_text(paragraph)
-        for cell in block.table.cells
-        for paragraph in cell.paragraphs
+    parts: list[str] = []
+    for item in _block_items(block):
+        if item.run is not None:
+            parts.append(item.run.text)
+        elif item.table is not None:
+            parts.extend(
+                _block_visible_text(paragraph)
+                for cell in item.table.cells
+                for paragraph in cell.paragraphs
+            )
+    return "".join(parts)
+
+
+def _block_items(block: ParagraphBlock) -> tuple[InlineItem, ...]:
+    if block.content:
+        return block.content
+    # Preserve the original three-field ParagraphBlock API for callers that
+    # construct models directly rather than going through HWPML normalization.
+    return tuple(InlineItem("run", run=run) for run in block.runs) + (
+        (InlineItem("table", table=block.table),) if block.table is not None else ()
     )
+
+
+def _object_sequence(block: ParagraphBlock) -> tuple[Any, ...]:
+    sequence: list[Any] = []
+    pending_text: list[str] = []
+
+    def flush_text() -> None:
+        if pending_text:
+            sequence.append(("text", _text_summary("".join(pending_text))["sha256"]))
+            pending_text.clear()
+
+    for item in _block_items(block):
+        if item.run is not None:
+            pending_text.append(item.run.text)
+            continue
+        flush_text()
+        if item.table is not None:
+            sequence.append(("table", _table_anchor(item.table)))
+        else:
+            sequence.append((item.kind, item.signature))
+    flush_text()
+    return tuple(sequence)
 
 
 def _block_anchor(block: ParagraphBlock) -> tuple[Any, ...]:
     if block.is_blank:
         return ("blank",)
-    if block.table is not None:
-        return ("table", _text_summary(_block_visible_text(block))["sha256"], _table_anchor(block.table))
+    if block.tables:
+        # Match the same paragraph even if its in-paragraph object order moved;
+        # _compare_block then reports the order change directly.
+        anchors = sorted((_table_anchor(table) for table in block.tables), key=repr)
+        return ("table", _text_summary(block.visible_text)["sha256"], tuple(anchors))
     return ("paragraph", _text_summary(block.visible_text)["sha256"])
 
 
@@ -218,6 +257,7 @@ def _compare_table(
     candidate: Table,
     location: dict[str, Any],
     differences: _Differences,
+    ambiguous_out: list[str],
 ) -> None:
     _format_difference(differences, "table_dimensions", location, (reference.rows, reference.columns), (candidate.rows, candidate.columns))
     _format_difference(differences, "table_formatting", location, reference.formatting, candidate.formatting)
@@ -254,7 +294,7 @@ def _compare_table(
             candidate_cell.paragraphs,
             {**cell_location, "container": "cell"},
             differences,
-            [],
+            ambiguous_out,
         )
 
     reference_edges, reference_conflicts = _physical_borders(reference)
@@ -278,6 +318,7 @@ def _compare_block(
     candidate: ParagraphBlock,
     location: dict[str, Any],
     differences: _Differences,
+    ambiguous_out: list[str],
 ) -> None:
     if reference.kind != candidate.kind:
         differences.add(
@@ -305,8 +346,15 @@ def _compare_block(
     reference_runs = tuple((run.text_digest, run.formatting) for run in reference.runs)
     candidate_runs = tuple((run.text_digest, run.formatting) for run in candidate.runs)
     _format_difference(differences, "run_formatting", location, reference_runs, candidate_runs)
-    if reference.table is not None and candidate.table is not None:
-        _compare_table(reference.table, candidate.table, location, differences)
+    _format_difference(
+        differences, "object_sequence", location,
+        _object_sequence(reference), _object_sequence(candidate),
+    )
+    for index, (reference_table, candidate_table) in enumerate(zip(reference.tables, candidate.tables)):
+        _compare_table(
+            reference_table, candidate_table,
+            {**location, "table_index": index}, differences, ambiguous_out,
+        )
 
 
 def _compare_block_sequence(
@@ -347,18 +395,18 @@ def _compare_block_sequence(
             candidate[candidate_index],
             {**location, "reference_block": reference_index, "candidate_block": candidate_index},
             differences,
+            ambiguous_out,
         )
 
 
 def _count_tables(blocks: Iterable[ParagraphBlock]) -> int:
     count = 0
     for block in blocks:
-        if block.table is None:
-            continue
-        count += 1
-        count += _count_tables(
-            paragraph for cell in block.table.cells for paragraph in cell.paragraphs
-        )
+        for table in block.tables:
+            count += 1
+            count += _count_tables(
+                paragraph for cell in table.cells for paragraph in cell.paragraphs
+            )
     return count
 
 
@@ -377,17 +425,30 @@ def compare_structure(
 
     differences = _Differences(max_differences)
     ambiguous: list[str] = []
-    _format_difference(differences, "page_setup", {"scope": "document"}, reference.page, candidate.page)
-    _compare_block_sequence(
-        reference.blocks,
-        candidate.blocks,
-        {"scope": "body"},
-        differences,
-        ambiguous,
-    )
+    reference_sections = reference.all_sections
+    candidate_sections = candidate.all_sections
+    for index in range(len(reference_sections)):
+        if index >= len(candidate_sections):
+            differences.add("missing_section", {"section": index})
+    for index in range(len(candidate_sections)):
+        if index >= len(reference_sections):
+            differences.add("extra_section", {"section": index})
+    for index, (reference_section, candidate_section) in enumerate(zip(reference_sections, candidate_sections)):
+        _format_difference(
+            differences, "page_setup", {"scope": "section", "section": index},
+            reference_section.page, candidate_section.page,
+        )
+        _compare_block_sequence(
+            reference_section.blocks,
+            candidate_section.blocks,
+            {"scope": "section", "section": index},
+            differences,
+            ambiguous,
+        )
 
     unsupported = sorted(reference.unsupported | candidate.unsupported)
     coverage = {
+        "sections": "compared",
         "page_setup": "compared",
         "text": "compared",
         "paragraph_formatting": "compared",
@@ -417,10 +478,12 @@ def compare_structure(
         "structural_complete": structural_complete,
         "coverage": coverage,
         "summary": {
-            "reference_blocks": len(reference.blocks),
-            "candidate_blocks": len(candidate.blocks),
-            "reference_tables": _count_tables(reference.blocks),
-            "candidate_tables": _count_tables(candidate.blocks),
+            "reference_sections": len(reference_sections),
+            "candidate_sections": len(candidate_sections),
+            "reference_blocks": sum(len(section.blocks) for section in reference_sections),
+            "candidate_blocks": sum(len(section.blocks) for section in candidate_sections),
+            "reference_tables": sum(_count_tables(section.blocks) for section in reference_sections),
+            "candidate_tables": sum(_count_tables(section.blocks) for section in candidate_sections),
             "reference_visible_text": _text_summary(reference.visible_text),
             "candidate_visible_text": _text_summary(candidate.visible_text),
             "ambiguous_block_signatures": len(set(ambiguous)),

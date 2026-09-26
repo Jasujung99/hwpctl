@@ -691,12 +691,15 @@ def test_exit_table_uses_parent_list_for_multiline_final_cell() -> None:
     def leave_parent_list(action: str) -> bool:
         if action == "MoveParentList":
             com.CurFieldState = 0
+            com.position = [0, 1, 0]  # Before the table anchor in the body.
+        elif action == "MoveRight" and com.CurFieldState == 0:
+            com.position = [0, 1, 1]  # Past that anchor, preserving order.
         return original_run(action)
 
     canvas.run = leave_parent_list  # type: ignore[method-assign]
     canvas.exit_table()
 
-    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList", "MoveRight"]
     assert canvas.is_cell() is False
 
 
@@ -753,12 +756,14 @@ def test_exit_table_parent_uses_one_parent_list_only_when_moveright_stays_put() 
         if action == "MoveParentList":
             com.position[0] = 202
             com.CurFieldState = 1
+        elif action == "MoveRight" and com.position[0] == 202:
+            com.position[2] = 8
         return original_run(action)
 
     canvas.run = leave_after_parent_list  # type: ignore[method-assign]
     canvas.exit_table(destination="parent")
 
-    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList"]
+    assert com.HAction.calls == ["MoveListEnd", "MoveRight", "MoveParentList", "MoveRight"]
     assert canvas.is_cell() is True
 
 
@@ -931,6 +936,37 @@ def test_set_cell_fill_radial_gradient_writes_center_and_step_fields() -> None:
     assert fill.items["GradationCenterY"] == 0
     assert fill.items["GradationStep"] == 100
     assert fill.items["GradationStepCenter"] == 50
+
+
+def test_text_box_margin_commits_copied_child_parameter_set():
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    class CopiedSet:
+        def __init__(self):
+            self.items = {}
+
+        def ItemExist(self, name):
+            return name in self.items
+
+        def Item(self, name):
+            return deepcopy(self.items[name])
+
+        def SetItem(self, name, value):
+            self.items[name] = value
+
+    child = CopiedSet()
+    parent = CopiedSet()
+    parent.items["ShapeListProperites"] = child
+    executed = []
+    action = SimpleNamespace(CreateSet=lambda: parent, GetDefault=lambda value: None,
+                             Execute=lambda value: executed.append(value) or True)
+    canvas = make_canvas(SimpleNamespace(CreateAction=lambda name: action))
+    canvas._apply_text_box_margin((1, 2, 3, 4))
+    assert executed == [parent]
+    assert child.items == {}  # Item returns a detached copy, as actual Automation does.
+    assert parent.items["ShapeListProperites"].items == {
+        "MarginLeft": 283, "MarginRight": 567, "MarginTop": 850, "MarginBottom": 1134}
 
 
 def test_adapter_rejects_oversized_gradient_before_cellfill_execute() -> None:

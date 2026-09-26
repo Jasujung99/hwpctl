@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from typing import Any, Sequence
 
 from hwpctl import __version__
@@ -12,6 +13,23 @@ from hwpctl.tools import TOOLS, tool_names
 
 class KoreanHelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
     pass
+
+
+def parse_table_selector(raw: str) -> int | dict[str, Any]:
+    """기존 번호 또는 부모 표→셀→자식 표 경로를 CLI에서 받는다."""
+    value = raw.strip()
+    if re.fullmatch(r"[0-9]+", value):
+        return int(value)
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError("표 번호 또는 중첩 표 경로 JSON이 필요합니다.") from exc
+    from hwpctl.authoring.paths import normalize_table_path
+    from hwpctl.errors import UsageError
+    try:
+        return normalize_table_path(parsed)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(exc.message) from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -183,30 +201,34 @@ def build_parser() -> argparse.ArgumentParser:
     p_table_properties = add_common(
         sub.add_parser("set_table_properties", help="표의 쪽 나눔·제목 행 반복·셀 간격 지정")
     )
-    p_table_properties.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_properties.add_argument("--table", type=parse_table_selector, required=True, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_table_properties.add_argument(
         "--page-break",
-        choices=["none", "table", "cell"],
+        choices=["none", "table", "cell", "keep"],
         default="cell",
-        help="쪽 경계에서 표 나눔 방식 (기본 cell)",
+        help="쪽 경계에서 표 나눔 방식. keep은 현재 값을 보존 (기본 cell)",
     )
-    p_table_properties.add_argument(
+    repeat_header_group = p_table_properties.add_mutually_exclusive_group()
+    repeat_header_group.add_argument(
         "--repeat-header",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="쪽마다 첫 행을 제목 행으로 반복 (기본 true)",
     )
-    p_table_properties.add_argument(
+    repeat_header_group.add_argument("--keep-repeat-header", action="store_true", help="제목 행 반복 값을 보존")
+    cell_spacing_group = p_table_properties.add_mutually_exclusive_group()
+    cell_spacing_group.add_argument(
         "--cell-spacing-mm",
         type=float,
         default=0.0,
         help="셀 사이 간격(mm, 기본 0)",
     )
+    cell_spacing_group.add_argument("--keep-cell-spacing", action="store_true", help="셀 사이 간격 값을 보존")
 
     p_table_position = add_common(
         sub.add_parser("set_table_position", help="표의 inline/floating 위치와 바깥 여백 지정")
     )
-    p_table_position.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_position.add_argument("--table", type=parse_table_selector, required=True, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_table_position.add_argument(
         "--position",
         required=True,
@@ -218,7 +240,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_margin = add_common(sub.add_parser("set_cell_margin", help="표 칸 안쪽 여백(mm) 지정"))
-    p_margin.add_argument("--table", type=int, default=None, help="표 번호(0부터). 범위 없으면 표 전체 칸")
+    p_margin.add_argument("--table", type=parse_table_selector, default=None, help="표 번호 또는 중첩 표 경로 JSON. 범위 없으면 표 전체 칸")
+    p_margin.add_argument("--has-margin", action=argparse.BooleanOptionalAction, default=True, help="셀별 여백 명시 여부. --no-has-margin이면 표 기본 여백을 상속")
     p_margin.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
     p_margin.add_argument("--left", type=float, default=3.5, help="좌측 여백(mm)")
     p_margin.add_argument("--right", type=float, default=3.5, help="우측 여백(mm)")
@@ -231,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="표 기본 안쪽 여백(TABLE/INSIDEMARGIN, mm) 지정",
         )
     )
-    p_table_margin.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_table_margin.add_argument("--table", type=parse_table_selector, required=True, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_table_margin.add_argument("--left", type=float, default=3.5, help="좌측 여백(mm)")
     p_table_margin.add_argument("--right", type=float, default=3.5, help="우측 여백(mm)")
     p_table_margin.add_argument("--top", type=float, default=2.0, help="상단 여백(mm)")
@@ -240,36 +263,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_col = add_common(sub.add_parser("set_col_width", help="표 열 너비를 mm 또는 비율로 지정"))
     p_col.add_argument("--widths", required=True, help="너비 목록. 예: 30 또는 1,2,1")
     p_col.add_argument("--unit", choices=["mm", "ratio"], default="mm")
-    p_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_col.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_col.add_argument("--column", type=int, default=None, help="열 번호(1부터, mm 단일값 전용)")
 
     p_grid = add_common(
         sub.add_parser("set_table_grid", help="병합 전 표의 열·행 격자를 mm로 정밀 지정")
     )
-    p_grid.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_grid.add_argument("--table", type=parse_table_selector, required=True, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_grid.add_argument("--column-widths-mm", required=True, help="열 너비 목록(mm). 예: 30,50,30")
     p_grid.add_argument("--row-heights-mm", required=True, help="행 높이 목록(mm). 예: 10,12,10")
 
     p_get_col = add_common(sub.add_parser("get_col_width", help="표 열 너비(mm) 읽기"))
-    p_get_col.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_get_col.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_get_col.add_argument("--column", type=int, default=None, help="열 번호(1부터)")
 
     p_row_height = add_common(sub.add_parser("set_row_height", help="표 행 높이(mm) 지정"))
     p_row_height.add_argument("--height", type=float, required=True, help="행 높이(mm)")
-    p_row_height.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_row_height.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_row_height.add_argument("--row", type=int, default=None, help="행 번호(1부터)")
 
     p_get_row = add_common(sub.add_parser("get_row_height", help="표 행 높이(mm) 읽기"))
-    p_get_row.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_get_row.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_get_row.add_argument("--row", type=int, default=None, help="행 번호(1부터)")
 
     p_merge = add_common(sub.add_parser("merge_cells", help="셀 범위 합치기"))
     p_merge.add_argument("--range", dest="cell_range", required=True, help="셀 범위. 예: A1:B2")
-    p_merge.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_merge.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
 
     p_valign = add_common(sub.add_parser("set_valign", help="표 셀 세로 정렬"))
     p_valign.add_argument("align", choices=["top", "center", "bottom"])
-    p_valign.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_valign.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_valign.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
 
     p_border = add_common(sub.add_parser("set_cell_border", help="표 셀 테두리 지정"))
@@ -281,14 +304,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_border.add_argument("--line-type", default="Solid", help="HwpLineType 이름")
     p_border.add_argument("--width", default="0.12mm", help="HwpLineWidth 값")
     p_border.add_argument("--color", default="#000000", help="테두리 색")
-    p_border.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_border.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_border.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
 
     p_image = add_common(
         sub.add_parser("insert_image", help="그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입")
     )
     p_image.add_argument("path", help="넣을 그림 파일 경로")
-    p_image.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_image.add_argument("--table", type=parse_table_selector, default=None, help="표 번호(0부터) 또는 중첩 표 경로 JSON")
     p_image.add_argument("--cell", default="", help="넣을 칸. 예: A2")
     p_image.add_argument(
         "--size-option",
@@ -300,11 +323,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_image.add_argument("--width", dest="width_mm", type=float, default=0.0, help="너비(mm)")
     p_image.add_argument("--height", dest="height_mm", type=float, default=0.0, help="높이(mm)")
+    p_image.add_argument("--position", default="", help="그림 위치 JSON. 예: '{\"mode\":\"floating\",\"x_mm\":10,\"y_mm\":20}'")
 
     p_text_box = add_common(
         sub.add_parser("insert_text_box", help="편집 가능한 글상자 삽입")
     )
     p_text_box.add_argument("text", help="글상자 안의 텍스트. 빈 글상자는 ''로 지정")
+    p_text_box.add_argument("--paragraphs", default="", help="글상자 내부 문단 JSON 배열. text와 함께 사용 불가")
+    p_text_box.add_argument("--cursor-after", action="store_true", help="삽입 뒤 커서를 글상자 다음으로 이동")
     p_text_box.add_argument("--width", dest="width_mm", type=float, required=True, help="너비(mm)")
     p_text_box.add_argument("--height", dest="height_mm", type=float, required=True, help="높이(mm)")
     p_text_box.add_argument(
@@ -350,10 +376,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_text_box.add_argument("--align", default="center", choices=["left", "center", "right", "justify"])
     p_text_box.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
 
+    p_shape = add_common(sub.add_parser("insert_shape", help="편집 가능한 일반 도형 삽입"))
+    p_shape.add_argument("shape_kind", choices=["rectangle", "ellipse", "line"])
+    p_shape.add_argument("--width", dest="width_mm", type=float, required=True, help="너비(mm)")
+    p_shape.add_argument("--height", dest="height_mm", type=float, required=True, help="높이(mm)")
+    p_shape.add_argument("--fill", default="", help="단색 또는 구조화 채우기 JSON")
+    p_shape.add_argument("--line", default="", help="테두리 JSON")
+    p_shape.add_argument("--shadow", default="", help="그림자 JSON")
+    p_shape.add_argument("--position", default="", help="inline 또는 floating 위치 JSON")
+
     p_chart = add_common(
         sub.add_parser("insert_chart", help="표 데이터로 한/글 네이티브 차트 삽입 (그림 아님)")
     )
-    p_chart.add_argument("--table", type=int, default=None, help="데이터 표 번호(0부터)")
+    p_chart.add_argument("--table", type=parse_table_selector, default=None, help="데이터 표 번호 또는 중첩 표 경로 JSON")
     p_chart.add_argument("--range", dest="cell_range", default="", help="데이터 셀 범위. 예: A1:B10")
     p_chart.add_argument(
         "--type",
@@ -371,7 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_fill = add_common(sub.add_parser("fill_cells", help="표 셀 채우기"))
-    p_fill.add_argument("--table", type=int, default=0, help="표 번호 (0부터)")
+    p_fill.add_argument("--table", type=parse_table_selector, default=0, help="표 번호 또는 중첩 표 경로 JSON")
     p_fill.add_argument(
         "--cells",
         default="",
@@ -388,7 +423,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_write_cell = add_common(
         sub.add_parser("write_cell", help="표 셀 내용을 구조화 문단·글자 런으로 교체")
     )
-    p_write_cell.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_write_cell.add_argument("--table", type=parse_table_selector, required=True, help="표 번호 또는 중첩 표 경로 JSON")
     p_write_cell.add_argument("--cell", required=True, help="셀 주소. 예: A1")
     p_write_cell.add_argument(
         "--paragraphs",
@@ -399,7 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_move_to_cell = add_common(
         sub.add_parser("move_to_cell", help="지정 표 셀로 커서를 이동 (문서 변경 없음)")
     )
-    p_move_to_cell.add_argument("--table", type=int, required=True, help="표 번호(0부터)")
+    p_move_to_cell.add_argument("--table", type=parse_table_selector, required=True, help="표 번호 또는 중첩 표 경로 JSON")
     p_move_to_cell.add_argument("--cell", required=True, help="셀 주소. 예: A1")
 
     p_exit_table = add_common(
@@ -423,7 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="단색 색상 또는 JSON 채우기. 예: #D9D9D9 / '{\"type\":\"linear_gradient\",...}'",
     )
-    p_cell_fill.add_argument("--table", type=int, default=None, help="표 번호(0부터)")
+    p_cell_fill.add_argument("--table", type=parse_table_selector, default=None, help="표 번호 또는 중첩 표 경로 JSON")
     p_cell_fill.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D4")
 
     p_layout = add_common(
@@ -432,7 +467,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="표를 채운 뒤 항상 실행: 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정",
         )
     )
-    p_layout.add_argument("--table", type=int, default=None, help="표 번호(0부터). 없으면 모든 표")
+    p_layout.add_argument("--table", type=parse_table_selector, default=None, help="표 번호 또는 중첩 표 경로 JSON. 없으면 모든 표")
     p_layout.add_argument(
         "--dry-run",
         action="store_true",
@@ -458,7 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="글자 그림자 JSON. 예: '{\"color\":\"#000000\",\"offset_x_mm\":1,\"offset_y_mm\":1}' (alpha 미지원)",
     )
-    p_fmt.add_argument("--table", type=int, default=None)
+    p_fmt.add_argument("--table", type=parse_table_selector, default=None)
     p_fmt.add_argument("--row", type=int, default=None, help="1부터. 표의 해당 행")
     p_fmt.add_argument("--range", dest="cell_range", default="", help="셀 범위. 예: A1:D1")
 
@@ -573,6 +608,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="current",
         help="현재 구역, 모든 구역, 새 구역 적용",
     )
+
+    add_common(sub.add_parser("insert_section", help="현재 본문 위치에서 새 구역 시작"))
+
+    p_ref_spec = add_common(sub.add_parser("reference_to_spec", help="HWPML/HWPX/캡처 번들을 작성 명세로 변환"))
+    p_ref_spec.add_argument("input", help="원본 HWPML/HWPX 파일 또는 읽기 전용 캡처 번들 디렉터리")
+    p_ref_spec.add_argument("output_dir", help="새 출력 디렉터리 (dry-run이면 생성 안 함)")
+    p_ref_spec.add_argument("--dry-run", action="store_true", help="파일 생성 없이 변환 가능성과 손실 보고서 반환")
+
+    p_build = add_common(sub.add_parser("build_document", help="작성 명세로 새 HWP/HWPX 문서 생성"))
+    p_build.add_argument("spec", help="v1/v2 명세 JSON 파일 경로")
+    p_build.add_argument("output", help="존재하지 않는 .hwp 또는 .hwpx 결과 경로")
+    p_build.add_argument("--dry-run", action="store_true", help="명세·자산·명령만 검사. 한/글 창 생성 안 함")
 
     p_save_as = add_common(
         sub.add_parser("save_as", help="새 경로로 저장 (기존 파일은 --overwrite 필수)")

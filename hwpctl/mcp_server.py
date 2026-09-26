@@ -55,6 +55,8 @@ INSTRUCTIONS = (
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
     "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
     "표 뒤에 일반 본문을 넣을 때는 마지막 셀에서 exit_table을 호출해 표 밖인지 확인한다. "
+    "reference_to_spec은 참조 입력의 변환 손실을 보고하고, build_document는 명세를 검사해 "
+    "새 소유 한/글 세션에서 결과를 작성한다. 두 명령의 dry_run은 창·파일을 만들지 않는다. "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
     "insert_title, create_table(rows=8, cols=4, header_fill=gray). "
     "hwpx_status/hwpx_inspect 는 한글·COM·잠금 없이 .hwpx XML 을 읽는다."
@@ -318,6 +320,11 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
+    async def insert_section() -> dict[str, Any]:
+        """현재 본문 위치에서 새 구역을 시작한다. Undo 한 단위."""
+        return await _call(engine, "insert_section")
+
+    @mcp.tool()
     async def create_table(
         rows: int,
         cols: int,
@@ -340,10 +347,10 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def set_table_properties(
-        table: int,
-        page_break: str = "cell",
-        repeat_header: bool = True,
-        cell_spacing_mm: float = 0.0,
+        table: int | dict[str, Any],
+        page_break: str | None = "cell",
+        repeat_header: bool | None = True,
+        cell_spacing_mm: float | None = 0.0,
     ) -> dict[str, Any]:
         """표의 쪽 경계 나눔, 제목 행 반복, 셀 사이 간격을 한/글 네이티브 속성으로
         설정한다. page_break는 none/table/cell, cell_spacing_mm 단위는 mm다.
@@ -359,7 +366,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def set_table_position(
-        table: int,
+        table: int | dict[str, Any],
         position: dict[str, Any],
     ) -> dict[str, Any]:
         """표 위치를 설정한다. position은 inline 또는 floating JSON 객체다.
@@ -369,12 +376,13 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def set_cell_margin(
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell_range: str = "",
         left: float = 3.5,
         right: float = 3.5,
         top: float = 2.0,
         bottom: float = 2.0,
+        has_margin: bool = True,
     ) -> dict[str, Any]:
         """표 칸 안쪽 여백(mm). table 만 주면 그 표 전체 칸, cell_range 는 해당 칸만,
         둘 다 없으면 캐럿이 있는 셀."""
@@ -387,11 +395,12 @@ def build_mcp(lock_timeout: float = 8.0):
             right=right,
             top=top,
             bottom=bottom,
+            has_margin=has_margin,
         )
 
     @mcp.tool()
     async def set_table_inside_margin(
-        table: int,
+        table: int | dict[str, Any],
         left: float = 3.5,
         right: float = 3.5,
         top: float = 2.0,
@@ -413,7 +422,7 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def set_col_width(
         widths: list[float],
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         column: int | None = None,
         unit: str = "mm",
     ) -> dict[str, Any]:
@@ -429,7 +438,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def set_table_grid(
-        table: int,
+        table: int | dict[str, Any],
         column_widths_mm: list[float],
         row_heights_mm: list[float],
     ) -> dict[str, Any]:
@@ -445,7 +454,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def get_col_width(
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         column: int | None = None,
     ) -> dict[str, Any]:
         """현재 열 또는 table의 column(1부터) 너비를 mm로 읽는다."""
@@ -454,7 +463,7 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def set_row_height(
         height: float,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         row: int | None = None,
     ) -> dict[str, Any]:
         """현재 행 또는 table의 row(1부터) 높이를 mm로 지정한다."""
@@ -468,7 +477,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def get_row_height(
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         row: int | None = None,
     ) -> dict[str, Any]:
         """현재 행 또는 table의 row(1부터) 높이를 mm로 읽는다."""
@@ -477,7 +486,7 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def merge_cells(
         cell_range: str,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """cell_range(예: A1:B2)를 셀블록으로 선택해 합친다."""
         return await _call(
@@ -490,7 +499,7 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def set_valign(
         align: str,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
         """셀 세로 정렬. align은 top, center, bottom."""
@@ -508,7 +517,7 @@ def build_mcp(lock_timeout: float = 8.0):
         line_type: str = "Solid",
         width: str = "0.12mm",
         color: str = "#000000",
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
         """셀 테두리. sides는 all 또는 left,right,top,bottom; TypeHorz는 미지원."""
@@ -525,7 +534,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def fill_cells(
-        table: int = 0,
+        table: int | dict[str, Any] = 0,
         cells: Any = None,
         assignments: dict[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -535,7 +544,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def write_cell(
-        table: int,
+        table: int | dict[str, Any],
         cell: str,
         paragraphs: list[dict[str, Any]],
     ) -> dict[str, Any]:
@@ -551,7 +560,7 @@ def build_mcp(lock_timeout: float = 8.0):
         )
 
     @mcp.tool()
-    async def move_to_cell(table: int, cell: str) -> dict[str, Any]:
+    async def move_to_cell(table: int | dict[str, Any], cell: str) -> dict[str, Any]:
         """지정 표의 A1 셀로만 커서를 이동한다. 문서 내용이나 Undo 이력은 바꾸지 않는다."""
         return await _call(engine, "move_to_cell", table=table, cell=cell)
 
@@ -564,7 +573,7 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def set_cell_fill(
         fill: Any,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
         """표 셀 배경을 단색·선형·방사형 그라데이션으로 채운다. fill은 색 문자열 또는
@@ -581,7 +590,7 @@ def build_mcp(lock_timeout: float = 8.0):
 
     @mcp.tool()
     async def layout_review(
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """표 편집 뒤 항상 호출한다. 셀 줄바꿈·행 높이·본문 폭·쪽 수를 읽고 고친다.
@@ -591,11 +600,12 @@ def build_mcp(lock_timeout: float = 8.0):
     @mcp.tool()
     async def insert_image(
         path: str,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell: str = "",
         size_option: int = 3,
         width_mm: float = 0.0,
         height_mm: float = 0.0,
+        position: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 넣는다. 문서에 포함(embedded)된다.
         size_option: 0=원본, 1=width_mm/height_mm 지정, 2=셀 맞춤, 3=셀 맞춤·비율 유지(기본).
@@ -609,6 +619,7 @@ def build_mcp(lock_timeout: float = 8.0):
             size_option=size_option,
             width_mm=width_mm,
             height_mm=height_mm,
+            position=position,
         )
 
     @mcp.tool()
@@ -629,6 +640,8 @@ def build_mcp(lock_timeout: float = 8.0):
         font_slots: dict[str, Any] | None = None,
         size: float | None = None,
         color: str = "",
+        paragraphs: list[dict[str, Any]] | None = None,
+        cursor_after: bool = False,
     ) -> dict[str, Any]:
         """편집 가능한 글상자를 넣는다. fill은 단색 색상 또는 structured fill,
         shadow는 {color, alpha(0~255), offset_x_mm, offset_y_mm}, text_shadow는
@@ -654,11 +667,30 @@ def build_mcp(lock_timeout: float = 8.0):
             font_slots=font_slots,
             size=size,
             color=color,
+            paragraphs=paragraphs,
+            cursor_after=cursor_after,
+        )
+
+    @mcp.tool()
+    async def insert_shape(
+        shape_kind: Literal["rectangle", "ellipse", "line"],
+        width_mm: float,
+        height_mm: float,
+        fill: Any = None,
+        line: Any = None,
+        shadow: Any = None,
+        position: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """편집 가능한 사각형·타원·선을 삽입한다. 크기 단위는 mm다."""
+        return await _call(
+            engine, "insert_shape", shape_kind=shape_kind, width_mm=width_mm,
+            height_mm=height_mm, fill=fill, line=line, shadow=shadow,
+            position=position,
         )
 
     @mcp.tool()
     async def insert_chart(
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         cell_range: str = "",
         chart_type: str = "line",
         chart_index: int = 0,
@@ -688,7 +720,7 @@ def build_mcp(lock_timeout: float = 8.0):
         color: str = "",
         fill: Any = None,
         text_shadow: Any = None,
-        table: int | None = None,
+        table: int | dict[str, Any] | None = None,
         row: int | None = None,
         cell_range: str = "",
     ) -> dict[str, Any]:
@@ -808,6 +840,18 @@ def build_mcp(lock_timeout: float = 8.0):
             landscape=landscape,
             apply=apply,
         )
+
+    @mcp.tool()
+    async def reference_to_spec(input: str, output_dir: str, dry_run: bool = False) -> dict[str, Any]:
+        """HWPML/HWPX 또는 읽기 전용 캡처 번들을 v2 작성 명세로 변환한다.
+        dry_run은 파일을 만들지 않고 변환 손실을 보고한다."""
+        return await _call(engine, "reference_to_spec", input=input, output_dir=output_dir, dry_run=dry_run)
+
+    @mcp.tool()
+    async def build_document(spec: str, output: str, dry_run: bool = False) -> dict[str, Any]:
+        """전체 명세와 자산을 검사한 뒤 새 소유 한/글 세션으로 HWP/HWPX를 만든다.
+        dry_run은 명령 계획만 반환하고 창과 파일을 만들지 않는다."""
+        return await _call(engine, "build_document", spec=spec, output=output, dry_run=dry_run)
 
     @mcp.tool()
     async def save_as(

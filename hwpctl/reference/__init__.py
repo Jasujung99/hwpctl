@@ -10,10 +10,20 @@ from __future__ import annotations
 
 from hwpctl.reference.capture import ReferenceCapture, capture_hwpml_readonly
 from hwpctl.reference.manifest import canonical_json
+from hwpctl.reference.export import export_hwpml_readonly, export_pdf_readonly, export_reference_bundle_readonly
+from hwpctl.reference.analysis import ReferenceAnalysis, analyze_hwpml
+from hwpctl.reference.grid import GridEvidence, solve_grid_tracks
 from hwpctl.reference.model import NormalizedDocument, normalize_hwpml
 from hwpctl.reference.structural import compare_hwpml, compare_structure
 
 __all__ = [
+    "ReferenceAnalysis",
+    "analyze_hwpml",
+    "GridEvidence",
+    "solve_grid_tracks",
+    "export_reference_bundle_readonly",
+    "export_hwpml_readonly",
+    "export_pdf_readonly",
     "NormalizedDocument",
     "ReferenceCapture",
     "canonical_json",

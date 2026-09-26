@@ -39,6 +39,23 @@ def test_mcp_registers_engine_tools() -> None:
     assert "list_tools" in names
 
 
+def test_authoring_and_object_mcp_contracts() -> None:
+    tools = {tool.name: tool for tool in anyio.run(build_mcp().list_tools)}
+    assert set(tools["reference_to_spec"].inputSchema["required"]) == {"input", "output_dir"}
+    assert tools["reference_to_spec"].inputSchema["properties"]["dry_run"]["default"] is False
+    assert set(tools["build_document"].inputSchema["required"]) == {"spec", "output"}
+    assert tools["build_document"].inputSchema["properties"]["dry_run"]["default"] is False
+    assert tools["insert_section"].inputSchema["properties"] == {}
+    shape = tools["insert_shape"].inputSchema
+    assert set(shape["required"]) == {"shape_kind", "width_mm", "height_mm"}
+    assert "position" in shape["properties"]
+    assert "position" in tools["insert_image"].inputSchema["properties"]
+    assert {"paragraphs", "cursor_after"} <= set(tools["insert_text_box"].inputSchema["properties"])
+    assert "has_margin" in tools["set_cell_margin"].inputSchema["properties"]
+    table_types = tools["move_to_cell"].inputSchema["properties"]["table"]["anyOf"]
+    assert {entry["type"] for entry in table_types} == {"integer", "object"}
+
+
 def test_visual_format_tools_match_catalog_and_publish_full_mcp_schema() -> None:
     """CLI/MCP에 새 이름만 추가하고 실제 인자를 빼먹는 회귀를 막는다."""
     mcp = build_mcp()

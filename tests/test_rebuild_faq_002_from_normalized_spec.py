@@ -21,6 +21,23 @@ assert MODULE_SPEC is not None and MODULE_SPEC.loader is not None
 driver = importlib.util.module_from_spec(MODULE_SPEC)
 sys.modules[MODULE_SPEC.name] = driver
 MODULE_SPEC.loader.exec_module(driver)
+compatibility_driver = driver
+from hwpctl.authoring import legacy as driver
+
+
+def test_legacy_example_preserves_public_imports():
+    assert compatibility_driver.BuildSpec is driver.BuildSpec
+    assert compatibility_driver.PublicBuild is driver.PublicBuild
+    assert compatibility_driver.load_spec is driver.load_spec
+
+
+def test_text_box_margin_uses_existing_public_command():
+    box = driver._parse_text_box({"kind": "text_box", "text": "Synthetic",
+        "width_mm": 40, "height_mm": 20, "margin": [1, 2, 3, 4]}, index=0)
+    assert box.args["margin"] == [1, 2, 3, 4]
+    with pytest.raises(driver.SpecError, match="margin"):
+        driver._parse_text_box({"kind": "text_box", "text": "Synthetic",
+            "width_mm": 40, "height_mm": 20, "margin": [-1, 2, 3, 4]}, index=0)
 
 
 def _spec() -> dict[str, object]:

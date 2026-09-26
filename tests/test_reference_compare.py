@@ -200,3 +200,110 @@ def test_run_segmentation_is_reported_separately_from_visible_text() -> None:
     assert report["status"] == "different"
     assert "run_formatting" in kinds
     assert "visible_text" not in kinds
+
+
+def test_second_section_page_setup_and_body_are_compared() -> None:
+    first = _document(_paragraph("first"))
+    reference = first.replace(
+        "</SECTION></BODY>",
+        '</SECTION><SECTION><PAGEDEF Width="70000" Height="50000"/>'
+        + _paragraph("second") + "</SECTION></BODY>",
+    )
+    candidate = reference.replace('Width="70000"', 'Width="71000"')
+    normalized = normalize_hwpml(reference)
+
+    assert len(normalized.sections) == 2
+    assert normalized.blocks == normalized.sections[0].blocks  # legacy first-section view
+    assert normalized.visible_text == "firstsecond"
+    report = compare_hwpml(reference, candidate)
+    assert report["status"] == "different"
+    assert report["summary"]["reference_sections"] == 2
+    assert {item["kind"] for item in report["differences"]} == {"page_setup"}
+    assert report["differences"][0]["location"]["section"] == 1
+
+
+def test_missing_second_section_is_not_hidden_by_first_section_match() -> None:
+    first = _document(_paragraph("first"))
+    extended = first.replace(
+        "</SECTION></BODY>",
+        '</SECTION><SECTION>' + _paragraph("second") + '</SECTION></BODY>',
+    )
+    report = compare_hwpml(extended, first)
+    assert report["status"] == "different"
+    assert report["summary"]["reference_sections"] == 2
+    assert report["summary"]["candidate_sections"] == 1
+    assert any(item["kind"] == "missing_section" and item["location"]["section"] == 1
+               for item in report["differences"])
+
+
+def test_multiple_tables_and_text_in_one_paragraph_preserve_order() -> None:
+    def table(label: str) -> str:
+        return (
+            '<TABLE RowCount="1" ColCount="1"><ROW>'
+            + _cell(0, 0, label) + '</ROW></TABLE>'
+        )
+    first, second = table("A"), table("B")
+    reference = _document(
+        '<P ParaShape="1"><TEXT CharShape="1">before'
+        + first + 'between' + second + 'after</TEXT></P>'
+    )
+    candidate = _document(
+        '<P ParaShape="1"><TEXT CharShape="1">before'
+        + second + 'between' + first + 'after</TEXT></P>'
+    )
+    block = normalize_hwpml(reference).blocks[0]
+    assert [item.kind for item in block.content] == ["run", "table", "run", "table", "run"]
+    assert len(block.tables) == 2
+    assert normalize_hwpml(reference).visible_text == "beforeAbetweenBafter"
+    report = compare_hwpml(reference, candidate)
+    assert report["status"] == "different"
+    assert report["summary"]["reference_tables"] == 2
+    assert "object_sequence" in {item["kind"] for item in report["differences"]}
+
+
+def test_nested_table_geometry_is_compared_at_child_location() -> None:
+    def document(inner_width: int) -> str:
+        inner = (
+            '<P ParaShape="1"><TEXT CharShape="1"><TABLE RowCount="1" ColCount="1"><ROW>'
+            + _cell(0, 0, "inner", width=inner_width)
+            + '</ROW></TABLE></TEXT></P>'
+        )
+        outer = _cell(0, 0, "", nested_table=inner)
+        return _document(_table(outer))
+
+    report = compare_hwpml(document(3600), document(3601))
+    assert report["status"] == "different"
+    assert report["summary"]["reference_tables"] == 2
+    geometry = [item for item in report["differences"] if item["kind"] == "cell_geometry"]
+    assert len(geometry) == 1
+    assert geometry[0]["location"]["container"] == "cell"
+
+
+def test_ambiguous_repeated_cell_paragraphs_keep_structural_result_inconclusive() -> None:
+    repeated = '<P ParaShape="1"><TEXT CharShape="1">repeat</TEXT></P>' * 2
+    cell = (
+        '<CELL RowAddr="0" ColAddr="0" RowSpan="1" ColSpan="1" '
+        'Width="7200" Height="3600"><PARALIST>' + repeated + '</PARALIST></CELL>'
+    )
+    document = _document(_table(cell))
+    report = compare_hwpml(document, document)
+    assert report["status"] == "inconclusive"
+    assert report["structural_complete"] is False
+    assert report["summary"]["ambiguous_block_signatures"] == 1
+
+
+def test_drawing_objects_are_ordered_even_while_visual_comparison_is_inconclusive() -> None:
+    reference = _document(
+        '<P ParaShape="1"><TEXT CharShape="1">X'
+        '<PICTURE BinItem="1"/><PICTURE BinItem="2"/>Y</TEXT></P>'
+    )
+    candidate = reference.replace(
+        '<PICTURE BinItem="1"/><PICTURE BinItem="2"/>',
+        '<PICTURE BinItem="2"/><PICTURE BinItem="1"/>',
+    )
+    block = normalize_hwpml(reference).blocks[0]
+    assert [item.kind for item in block.content] == ["run", "picture", "picture", "run"]
+    report = compare_hwpml(reference, candidate)
+    assert report["status"] == "different"
+    assert "object_sequence" in {item["kind"] for item in report["differences"]}
+    assert report["coverage"]["drawings"] == "unsupported"

@@ -60,9 +60,72 @@ def test_required_commands_exist() -> None:
         "close_all",
         "hwpx_status",
         "hwpx_inspect",
+        "insert_section",
+        "insert_shape",
+        "reference_to_spec",
+        "build_document",
     ):
         assert required in names
     assert "mcp" in known_commands()
+
+
+def test_document_authoring_entrypoints_and_table_path_cli() -> None:
+    reference = parse_args([
+        "reference_to_spec", "C:/source/reference.hwpx", "C:/output/converted", "--dry-run",
+    ])
+    assert _kwargs_for(reference) == {
+        "input": "C:/source/reference.hwpx", "output_dir": "C:/output/converted", "dry_run": True,
+    }
+    build = parse_args(["build_document", "C:/output/spec.json", "C:/output/final.hwp"])
+    assert _kwargs_for(build) == {
+        "spec": "C:/output/spec.json", "output": "C:/output/final.hwp", "dry_run": False,
+    }
+    path = '{"root":0,"children":[{"cell":"a1","index":1}]}'
+    nested = parse_args(["move_to_cell", "--table", path, "--cell", "B2"])
+    assert _kwargs_for(nested)["table"] == {
+        "root": 0, "children": [{"cell": "A1", "index": 1}],
+    }
+    with pytest.raises(SystemExit):
+        parse_args(["move_to_cell", "--table", '{"root":true}', "--cell", "A1"])
+
+
+def test_new_object_arguments_and_partial_table_properties_cli() -> None:
+    shape = parse_args([
+        "insert_shape", "ellipse", "--width", "45", "--height", "25",
+        "--position", '{"mode":"floating","x_mm":10,"y_mm":20}',
+    ])
+    assert _kwargs_for(shape)["position"]["mode"] == "floating"
+    image = parse_args([
+        "insert_image", "C:/assets/picture.png", "--position",
+        '{"mode":"inline"}',
+    ])
+    assert _kwargs_for(image)["position"] == {"mode": "inline"}
+    box = parse_args([
+        "insert_text_box", "", "--width", "40", "--height", "20",
+        "--paragraphs", '[{"text":"제목"}]', "--cursor-after",
+    ])
+    assert _kwargs_for(box)["paragraphs"] == [{"text": "제목"}]
+    assert _kwargs_for(box)["cursor_after"] is True
+    margins = parse_args(["set_cell_margin", "--table", "0", "--no-has-margin"])
+    assert _kwargs_for(margins)["has_margin"] is False
+    properties = parse_args([
+        "set_table_properties", "--table", "0", "--page-break", "keep",
+        "--keep-repeat-header", "--keep-cell-spacing",
+    ])
+    assert _kwargs_for(properties) == {
+        "table": 0, "page_break": None, "repeat_header": None,
+        "cell_spacing_mm": None,
+    }
+
+
+def test_cli_reports_blocked_conversion_as_failure(monkeypatch, capsys) -> None:
+    from hwpctl import cli
+    monkeypatch.setattr(cli, "_run_engine", lambda _args: {
+        "ok": False, "command": "reference_to_spec", "report": {"losses": ["unsupported"]},
+    })
+    code = cli.main(["reference_to_spec", "input.hwpx", "new-output", "--dry-run"])
+    assert code != 0
+    assert '"losses"' in capsys.readouterr().out
 
 
 def test_status_parse() -> None:

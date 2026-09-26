@@ -51,6 +51,9 @@ jobs:
       - name: Dry-run synthetic FAQ without starting Hangul
         run: python examples/rebuild_faq_002_from_normalized_spec.py --spec examples/specs/faq.synthetic.json --output output/faq-synthetic.hwp --dry-run
 
+      - name: Dry-run ordered v2 authoring without starting Hangul
+        run: python -m hwpctl build_document examples/specs/authoring-v2.synthetic.json output/authoring-v2.hwpx --dry-run
+
       - name: Build wheel and source distribution
         run: python -m build
 
@@ -92,3 +95,6 @@ jobs:
 
       - name: Dry-run synthetic FAQ without Windows COM
         run: python examples/rebuild_faq_002_from_normalized_spec.py --spec examples/specs/faq.synthetic.json --output output/faq-synthetic.hwp --dry-run
+
+      - name: Dry-run ordered v2 authoring without Windows COM
+        run: python -m hwpctl build_document examples/specs/authoring-v2.synthetic.json output/authoring-v2.hwpx --dry-run
