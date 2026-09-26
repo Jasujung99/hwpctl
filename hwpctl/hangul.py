@@ -1111,6 +1111,14 @@ class HangulCanvas:
         except Exception as exc:
             raise HangulCommandError(f"글자 모양을 적용하지 못했습니다: {exc}") from exc
         if not ok:
+            if "FaceName" in kwargs:
+                # 한/글은 실행 뒤에 설치한 글꼴을 글꼴 목록에 올리지 않아 CharShape 전체가
+                # 실패한다. 원인을 모르고 반복 호출하지 않도록 글꼴명을 함께 알려 준다.
+                raise HangulCommandError(
+                    "글자 모양(CharShape) 액션이 실패했습니다. "
+                    f"글꼴 '{kwargs['FaceName']}'을(를) 한/글이 인식하지 못했을 수 있습니다. "
+                    "글꼴 이름을 확인하고, 한/글 실행 뒤 설치한 글꼴이면 한/글을 다시 시작하세요."
+                )
             raise HangulCommandError("글자 모양(CharShape) 액션이 실패했습니다.")
 
     def set_align(self, align: str) -> None:
@@ -1302,6 +1310,27 @@ class HangulCanvas:
             self.run("TableLeftCell")
         if not self.is_cell():
             raise HangulCommandError(f"{n}번 표 안으로 들어가지 못했습니다.")
+        # 같은 문단에 표가 여럿이면 FindCtrl이 뒤 표를 고를 수 있다. 엉뚱한 표에
+        # 조용히 쓰지 않도록 캐럿이 든 표가 요청한 표인지 앵커로 확인한다.
+        entered = self._anchor_key(getattr(self.com, "ParentCtrl", None))
+        wanted = self._anchor_key(ctrl)
+        if entered is not None and wanted is not None and entered != wanted:
+            self.run("Cancel")
+            raise HangulCommandError(
+                f"{n}번 표로 이동했지만 다른 표(앵커 {entered})에 들어갔습니다. "
+                "같은 문단에 표가 여러 개 있으면 표마다 문단을 나누어 주세요."
+            )
+
+    @staticmethod
+    def _anchor_key(ctrl: Any) -> tuple[int, int, int] | None:
+        """컨트롤 앵커(List, Para, Pos). COM 스텁 등 읽을 수 없으면 None."""
+        if ctrl is None:
+            return None
+        try:
+            pos = ctrl.GetAnchorPos(0)
+            return (int(pos.Item("List")), int(pos.Item("Para")), int(pos.Item("Pos")))
+        except Exception:
+            return None
 
     def goto_addr(self, addr: str) -> None:
         if self.px:
@@ -1663,7 +1692,7 @@ class HangulCanvas:
     def _apply_radial_gradient(self, fill_pset: Any, fill: Any) -> None:
         self._apply_gradient(fill_pset, fill)
 
-    def _apply_solid_fill(self, fill_pset: Any, color: str) -> None:
+    def _apply_solid_fill(self, fill_pset: Any, color: str, alpha: Any = None) -> None:
         rgb = parse_color(color)
         color_value = self._rgb_value(rgb)
         self._set_pset_item(
@@ -1673,12 +1702,19 @@ class HangulCanvas:
         )
         self._set_pset_item(fill_pset, "WinBrushFaceColor", color_value)
         self._set_pset_item(fill_pset, "WinBrushHatchColor", color_value)
+        # HatchStyle("None")은 -1이다. 0은 가로줄 무늬(Horizontal)라 폴백으로 쓰면 안 된다.
         self._set_pset_item(
             fill_pset,
             "WinBrushFaceStyle",
-            self._enum("HatchStyle", "None", 0),
+            self._enum("HatchStyle", "None", -1),
         )
         self._set_pset_item(fill_pset, "WindowsBrush", 1)
+        if alpha is not None:
+            value = self._number(alpha, "채우기 alpha", minimum=0, maximum=255)
+            if not value.is_integer():
+                raise UsageError("채우기 alpha는 0~255 정수여야 합니다.")
+            # DrawFillAttr.WinBrushAlpha: 0=불투명, 255=투명 (HWPX winBrush@alpha).
+            self._set_pset_item(fill_pset, "WinBrushAlpha", int(value))
 
     def _apply_fill(self, fill_pset: Any, fill: Any) -> None:
         spec = self._mapping(fill, "채우기")
@@ -1687,7 +1723,7 @@ class HangulCanvas:
             color = spec.get("color")
             if not isinstance(color, str):
                 raise UsageError("단색 채우기의 color는 색 문자열이어야 합니다.")
-            self._apply_solid_fill(fill_pset, color)
+            self._apply_solid_fill(fill_pset, color, spec.get("alpha"))
             return
         if kind == "linear_gradient":
             self._apply_linear_gradient(fill_pset, spec)
@@ -1841,12 +1877,16 @@ class HangulCanvas:
             color = spec.get("color")
             if not isinstance(color, str):
                 raise UsageError("단색 셀 채우기의 color는 색 문자열이어야 합니다.")
-            self.cell_fill(color)
-            return 1
-        if kind not in {"linear_gradient", "radial_gradient"}:
+            if spec.get("alpha") is None:
+                self.cell_fill(color)
+                return 1
+            # 투명도는 pyhwpx cell_fill/HCellBorderFill 속성으로 노출되지 않아
+            # DrawFillAttr 아이템셋에 WinBrushAlpha를 직접 싣는다.
+        elif kind not in {"linear_gradient", "radial_gradient"}:
             raise UsageError("셀 채우기 type은 solid, linear_gradient 또는 radial_gradient여야 합니다.")
-        # Validate before touching the document; this also enforces the 10-stop limit.
-        self._gradient(spec)
+        else:
+            # Validate before touching the document; this also enforces the 10-stop limit.
+            self._gradient(spec)
         self.assert_no_dialog()
         ok = False
         try:
@@ -1856,19 +1896,22 @@ class HangulCanvas:
             pset = action.CreateSet()
             action.GetDefault(pset)
             fill_pset = pset.CreateItemSet("FillAttr", "DrawFillAttr")
-            self._apply_gradient(fill_pset, spec)
+            if kind == "solid":
+                self._apply_solid_fill(fill_pset, spec["color"], spec["alpha"])
+            else:
+                self._apply_gradient(fill_pset, spec)
             ok = bool(action.Execute(pset))
         except HangulCommandError:
             raise
         except Exception as exc:
-            raise HangulCommandError(f"셀 그라데이션을 적용하지 못했습니다: {exc}") from exc
+            raise HangulCommandError(f"셀 배경을 적용하지 못했습니다: {exc}") from exc
         finally:
             try:
                 self.run("Cancel")
             except Exception:
                 pass
         if not ok:
-            raise HangulCommandError("셀 그라데이션(CellFill) 액션이 실패했습니다.")
+            raise HangulCommandError("셀 배경(CellFill) 액션이 실패했습니다.")
         self.assert_no_dialog()
         return 1
 
@@ -2525,6 +2568,17 @@ class HangulCanvas:
                 "캐럿이 표 셀 안에 있지 않아 셀 내용을 선택할 수 없습니다."
             )
         self.run("SelectAll")
+
+    def clear_cell_text(self) -> None:
+        """현재 셀 내용을 지우고 블록 선택까지 해제한다.
+
+        SelectAll 뒤 InsertText("")는 블록을 지우지 못하고 선택을 남긴다. 그 상태에서
+        CharShape를 실행하면 옛 텍스트에 적용되어, 새로 쓰는 첫 런(여러 칸 표에서는 첫
+        문단 전체)의 서식이 사라지고 글꼴은 옛 셀 끝 글자의 것을 물려받는다.
+        """
+        self.select_cell_text()
+        self.run("Delete")
+        self.run("Cancel")
 
     def open_path(self, path: str) -> None:
         if self.px:

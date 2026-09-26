@@ -495,8 +495,7 @@ class Engine:
                     actions += 1
 
                 canvas.goto_addr("A1")
-                canvas.select_cell_text()
-                canvas.insert_text("")
+                canvas.clear_cell_text()
                 actions += 1
                 paragraph_actions = [0]
                 for index, paragraph_spec in enumerate(table["paragraphs"]):
@@ -795,12 +794,11 @@ class Engine:
             canvas = self._connect()
             canvas.get_into_nth_table(table)
             canvas.goto_addr(address)
-            canvas.select_cell_text()
             actions = [0]
             try:
-                # InsertText는 선택된 셀 텍스트를 원자적으로 교체한다. 빈 문자열도
-                # 기존 내용을 지우는 편집 액션이므로 Undo 계산에 포함한다.
-                canvas.insert_text("")
+                # 기존 내용을 지우고 블록 선택을 해제한 뒤 써야 첫 런 서식이 적용된다.
+                # 지우기도 편집 액션이므로 Undo 계산에 포함한다.
+                canvas.clear_cell_text()
                 actions[0] += 1
                 for index, spec in enumerate(specs):
                     self._write_paragraph_spec(
@@ -3093,6 +3091,28 @@ def _normalize_dimension(value: Any, label: str) -> float:
     return number
 
 
+def _normalize_fill_alpha(value: dict[str, Any]) -> int | None:
+    """단색 채우기 투명도를 한/글 WinBrushAlpha(0=불투명, 255=투명) 정수로 정규화한다.
+
+    ``alpha``는 그 값을 그대로, ``opacity``는 불투명도 백분율(100=불투명)로 받는다.
+    """
+    has_alpha = value.get("alpha") is not None
+    has_opacity = value.get("opacity") is not None
+    if has_alpha and has_opacity:
+        raise UsageError("채우기에는 alpha와 opacity 중 하나만 지정하세요.")
+    if has_alpha:
+        alpha = _finite_number(value["alpha"], "채우기 alpha")
+        if not alpha.is_integer() or not 0 <= alpha <= 255:
+            raise UsageError("채우기 alpha는 0(불투명)~255(투명) 정수여야 합니다.")
+        return int(alpha)
+    if has_opacity:
+        opacity = _finite_number(value["opacity"], "채우기 opacity")
+        if not 0 <= opacity <= 100:
+            raise UsageError("채우기 opacity는 0~100(%) 범위여야 합니다.")
+        return int(round(255 * (100 - opacity) / 100))
+    return None
+
+
 def _normalize_fill(value: Any, *, allow_empty: bool) -> dict[str, Any] | None:
     """공개 채우기 사양을 한/글 COM과 무관한 구조로 정규화한다."""
     if value is None or value == "":
@@ -3121,7 +3141,11 @@ def _normalize_fill(value: Any, *, allow_empty: bool) -> dict[str, Any] | None:
         color = value.get("color")
         if color is None:
             raise UsageError("solid 채우기에는 color가 필요합니다.")
-        return {"type": "solid", "color": _canonical_color(color, "채우기 색")}
+        solid: dict[str, Any] = {"type": "solid", "color": _canonical_color(color, "채우기 색")}
+        alpha = _normalize_fill_alpha(value)
+        if alpha is not None:
+            solid["alpha"] = alpha
+        return solid
 
     angle = _finite_number(value.get("angle", 0), "그라데이션 angle") % 360
     raw_stops = value.get("stops")
