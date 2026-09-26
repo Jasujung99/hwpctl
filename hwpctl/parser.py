@@ -77,6 +77,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor.add_argument(
         "--font", action="append", default=[], dest="fonts", help="사용할 글꼴 이름(여러 번 지정 가능)"
     )
+    p_render = add_common(sub.add_parser("render_page", help="고정 문서의 한 쪽을 BMP/PPM으로 렌더"))
+    p_render.add_argument("output", help="새 .bmp 또는 .ppm 경로")
+    p_render.add_argument("--page", type=int, default=1, help="1부터 시작하는 쪽 번호")
+    p_render.add_argument("--dpi", type=int, default=150, help="해상도(36~600)")
+    p_render.add_argument("--overwrite", action="store_true", help="기존 이미지 덮어쓰기")
+    p_compare = add_common(
+        sub.add_parser("compare_render", help="원본·결과 쪽 이미지의 영역별 글자 줄 위치를 mm로 비교")
+    )
+    p_compare.add_argument("reference", help="원본 쪽 이미지(.bmp/.ppm)")
+    p_compare.add_argument("candidate", help="결과 쪽 이미지(.bmp/.ppm)")
+    p_compare.add_argument("--regions", required=True, help="영역 JSON 목록 또는 그 JSON 파일 경로")
+    p_compare.add_argument("--paper-mm", required=True, help="종이 크기 JSON. 예: [297, 210]")
+    p_compare.add_argument("--reference-background", default="", help="원본의 글자 없는 배경 이미지")
+    p_compare.add_argument("--candidate-background", default="", help="결과의 글자 없는 배경 이미지")
+    p_compare.add_argument("--threshold", type=int, default=60, help="잉크 판정 RGB 차이 합")
+    p_compare.add_argument("--candidate-threshold", type=int, default=None, help="결과 이미지 전용 임계값")
 
     p_open = add_common(
         sub.add_parser("open", help="활성 창 재고정, 파일 열기 또는 새 문서 만들기")

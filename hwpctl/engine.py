@@ -111,6 +111,8 @@ class Engine:
             "status": self.status,
             "list_documents": self.list_documents,
             "doctor": self.doctor,
+            "render_page": self.render_page,
+            "compare_render": self.compare_render,
             "open": self.open,
             "snapshot": self.snapshot,
             "set_edit_marks": self.set_edit_marks,
@@ -240,6 +242,97 @@ class Engine:
         else:
             raise UsageError("fonts는 글꼴 이름 문자열 목록이어야 합니다.")
         return run_doctor(fonts=names, target_hwnd=int(load_state().target_hwnd or 0) or None)
+
+    def render_page(
+        self,
+        output: str,
+        page: int = 1,
+        dpi: int = 150,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """고정 문서의 한 쪽을 BMP 또는 PPM으로 렌더한다. 문서는 바꾸지 않는다."""
+        from hwpctl.visual import read_bitmap, write_ppm
+
+        target = Path(str(output or "")).expanduser()
+        suffix = target.suffix.lower()
+        if suffix not in {".bmp", ".ppm"}:
+            raise UsageError("render_page 출력은 .bmp 또는 .ppm 이어야 합니다.")
+        if target.exists() and not overwrite:
+            raise DestructiveGuardError(f"이미 있는 파일입니다. 덮어쓰려면 overwrite=true: {target}")
+        if not target.parent.is_dir():
+            raise UsageError(f"출력 폴더가 없습니다: {target.parent}")
+        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+            raise UsageError("page는 1 이상의 쪽 번호여야 합니다.")
+        if isinstance(dpi, bool) or not isinstance(dpi, int) or not 36 <= dpi <= 600:
+            raise UsageError("dpi는 36~600 정수여야 합니다.")
+        bmp = target if suffix == ".bmp" else target.with_suffix(".render.bmp")
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            page_count = canvas.doc_info().page_count
+            if page_count and page > page_count:
+                raise UsageError(f"{page}쪽이 없습니다(전체 {page_count}쪽).")
+            canvas.render_page_image(str(bmp.resolve()), page - 1, dpi)
+        bitmap = read_bitmap(bmp)
+        if suffix == ".ppm":
+            write_ppm(target, bitmap)
+            bmp.unlink(missing_ok=True)
+        return {
+            "ok": True,
+            "command": "render_page",
+            "path": str(target),
+            "page": page,
+            "dpi": dpi,
+            "width": bitmap.width,
+            "height": bitmap.height,
+        }
+
+    def compare_render(
+        self,
+        reference: str,
+        candidate: str,
+        regions: Any,
+        paper_mm: Any,
+        reference_background: str = "",
+        candidate_background: str = "",
+        threshold: int = 60,
+        candidate_threshold: int | None = None,
+    ) -> dict[str, Any]:
+        """원본·결과 쪽 이미지의 영역별 글자 줄 위치를 mm로 비교한다. COM을 쓰지 않는다."""
+        from hwpctl.visual import compare_regions
+
+        if not isinstance(regions, list) or not regions:
+            raise UsageError("regions는 {name, x_mm, y_mm, w_mm, h_mm} 객체 목록이어야 합니다.")
+        normalized = []
+        for index, region in enumerate(regions):
+            if not isinstance(region, dict):
+                raise UsageError(f"regions[{index}]는 객체여야 합니다.")
+            item = {"name": str(region.get("name", f"region{index + 1}"))}
+            for key in ("x_mm", "y_mm", "w_mm", "h_mm"):
+                item[key] = _finite_number(region.get(key), f"regions[{index}].{key}")
+            if item["w_mm"] <= 0 or item["h_mm"] <= 0:
+                raise UsageError(f"regions[{index}]의 w_mm/h_mm은 양수여야 합니다.")
+            normalized.append(item)
+        if not isinstance(paper_mm, (list, tuple)) or len(paper_mm) != 2:
+            raise UsageError("paper_mm은 [가로, 세로] mm 두 값이어야 합니다.")
+        paper = [_finite_number(v, "paper_mm") for v in paper_mm]
+        for label, path in (("reference", reference), ("candidate", candidate),
+                            ("reference_background", reference_background),
+                            ("candidate_background", candidate_background)):
+            if path and not Path(path).is_file():
+                raise UsageError(f"{label} 파일이 없습니다: {path}")
+        try:
+            return compare_regions(
+                reference,
+                candidate,
+                normalized,
+                paper_mm=paper,
+                reference_background=reference_background or None,
+                candidate_background=candidate_background or None,
+                threshold=int(threshold),
+                candidate_threshold=None if candidate_threshold is None else int(candidate_threshold),
+            )
+        except ValueError as exc:
+            raise UsageError(str(exc)) from exc
 
     def list_documents(self) -> dict[str, Any]:
         """모든 실행 중 한/글 문서를 활성화 없이 읽기 전용으로 열거한다."""

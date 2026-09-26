@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from pathlib import Path
 from typing import Any, Sequence
 
 from argparse import ArgumentTypeError
@@ -88,6 +89,22 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {}
     if cmd == "doctor":
         return {"fonts": args.fonts}
+    if cmd == "render_page":
+        return {"output": args.output, "page": args.page, "dpi": args.dpi, "overwrite": args.overwrite}
+    if cmd == "compare_render":
+        regions_arg = args.regions
+        if regions_arg and not regions_arg.lstrip().startswith("[") and Path(regions_arg).is_file():
+            regions_arg = Path(regions_arg).read_text(encoding="utf-8")
+        return {
+            "reference": args.reference,
+            "candidate": args.candidate,
+            "regions": parse_json_or_raw(regions_arg),
+            "paper_mm": parse_json_or_raw(args.paper_mm),
+            "reference_background": args.reference_background,
+            "candidate_background": args.candidate_background,
+            "threshold": args.threshold,
+            "candidate_threshold": args.candidate_threshold,
+        }
     if cmd == "open":
         return {"path": args.path, "new": args.new, "discard": args.discard}
     if cmd == "format_paragraph_by_text":

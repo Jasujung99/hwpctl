@@ -2507,6 +2507,30 @@ class HangulCanvas:
                 "대화상자가 뜨는 버전(한글 2020 이하)에서는 자동화가 지원되지 않습니다."
             )
 
+    def render_page_image(self, path: str, page_index: int, dpi: int) -> None:
+        """한 쪽을 24비트 BMP로 렌더한다(``CreatePageImage``).
+
+        캐럿이 표 셀·글상자 안에 있으면 한/글은 쪽 전체가 아니라 그 목록만 그린다.
+        본문 처음으로 옮겨 렌더하고 캐럿을 되돌린다.
+        """
+        self.assert_no_dialog()
+        saved = self.get_pos()
+        try:
+            try:
+                self.run("Cancel")
+                self.com.SetPos(0, 0, 0)
+            except Exception:
+                pass
+            try:
+                ok = self.com.CreatePageImage(path, int(page_index), int(dpi), 24, "bmp")
+            except Exception as exc:
+                raise HangulCommandError(f"쪽 이미지를 만들지 못했습니다: {exc}") from exc
+            if not ok:
+                raise HangulCommandError("쪽 이미지(CreatePageImage) 생성이 실패했습니다.")
+        finally:
+            if saved is not None:
+                self.set_pos(saved)
+
     def get_pos(self) -> tuple | None:
         try:
             pos = self.px.get_pos() if self.px else self.com.GetPos()
