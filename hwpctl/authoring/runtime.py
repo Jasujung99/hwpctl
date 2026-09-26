@@ -161,6 +161,7 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
     location = "session.create"
     command_name = "create_owned_session"
     stage = None
+    staged = None
     with writer_transaction(timeout=lock_timeout):
         try:
             # Recheck after waiting for another writer; never start native work
@@ -219,7 +220,7 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
             if app is not None and owned:
                 try:
                     _require_owned_document(app, canvas, hwnd=owner_hwnd, pid=owner_pid,
-                                            identity=owner_identity, staged=staged / ("document" + destination.suffix.lower()) if stage else None)
+                                            identity=owner_identity, staged=staged)
                     returned = app.XHwpDocuments.Close(False)
                     if returned is False:
                         raise HangulCommandError("Owned document close returned false")

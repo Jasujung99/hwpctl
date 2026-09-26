@@ -196,6 +196,7 @@ class FakeOwned(OwnedEngine):
             raise RuntimeError("synthetic command failure")
         if command == "save_as":
             Path(kwargs["path"]).write_bytes(b"synthetic saved document")
+            self.canvas.com.Active_XHwpDocument.FullName = kwargs["path"]
         return {"ok": True}
 
 
@@ -249,6 +250,24 @@ def test_owned_document_switch_skips_discard_and_publish(tmp_path, monkeypatch):
     result = build_document(document([{"kind": "paragraph", "text": "new"}]),
                             str(tmp_path / "new.hwp"), _dispatch_factory=lambda: app,
                             _canvas_factory=Canvas, _engine_factory=SwitchedDocumentEngine)
+    assert not result["ok"] and result["saved"] and not result["completed"]
+    assert result["cleanup"]["skipped_changed_owner"] is True
+    assert not app.closed and not app.quit
+    assert not (tmp_path / "new.hwp").exists()
+
+
+def test_saved_document_path_must_match_owned_staging_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "writer.lock"))
+    app = App()
+    class WrongSavePath(FakeOwned):
+        def dispatch(self, command, **kwargs):
+            reply = super().dispatch(command, **kwargs)
+            if command == "save_as":
+                self.canvas.com.Active_XHwpDocument.FullName = str(tmp_path / "another.hwp")
+            return reply
+    result = build_document(document([{"kind": "paragraph", "text": "new"}]),
+                            str(tmp_path / "new.hwp"), _dispatch_factory=lambda: app,
+                            _canvas_factory=Canvas, _engine_factory=WrongSavePath)
     assert not result["ok"] and result["saved"] and not result["completed"]
     assert result["cleanup"]["skipped_changed_owner"] is True
     assert not app.closed and not app.quit
