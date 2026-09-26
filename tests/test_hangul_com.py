@@ -1823,3 +1823,75 @@ def test_list_tables_uses_actual_cell_addresses_when_com_lacks_dimension_helpers
     tables = canvas.list_tables()
 
     assert tables == [{"index": 0, "rows": 2, "cols": 2, "preview": [["", ""], ["", ""]]}]
+
+
+
+def test_set_cell_fill_solid_alpha_uses_drawfill_winbrush_alpha() -> None:
+    com = StubCom()
+    assert make_canvas(com).set_cell_fill({"type": "solid", "color": "#C3D69B", "alpha": 130}) == 1
+    fill = com.cell_fill_action.hset.items["FillAttr"]
+    assert fill.items["WinBrushFaceColor"] == com.RGBColor(0xC3, 0xD6, 0x9B)
+    assert fill.items["WinBrushAlpha"] == 130
+    assert fill.items["WindowsBrush"] == 1
+    assert com.cell_fill_action.executed == 1
+    assert "Cancel" in com.HAction.calls
+
+
+def test_clear_cell_text_deletes_selection_and_leaves_block_mode() -> None:
+    """InsertText("")는 블록을 남겨 다음 CharShape가 옛 텍스트에 적용된다."""
+    com = StubCom(cur_field_state=1)
+    make_canvas(com).clear_cell_text()
+    assert com.HAction.calls == ["SelectAll", "Delete", "Cancel"]
+
+
+def test_set_font_failure_names_the_font() -> None:
+    com = StubCom(execute_ok=False)
+    with pytest.raises(HangulCommandError) as exc:
+        make_canvas(com).set_font(face="학교안심 알림장 OTF B", height_pt=24)
+    assert "학교안심 알림장 OTF B" in exc.value.message
+    assert "다시 시작" in exc.value.message
+
+
+class _AnchorPos:
+    def __init__(self, list_id: int, para: int, pos: int) -> None:
+        self._items = {"List": list_id, "Para": para, "Pos": pos}
+
+    def Item(self, name: str) -> int:
+        return self._items[name]
+
+
+class _TableCtrl:
+    CtrlID = "tbl"
+
+    def __init__(self, anchor: tuple[int, int, int]) -> None:
+        self.anchor = anchor
+        self.Next = None
+
+    def GetAnchorPos(self, _kind: int) -> _AnchorPos:
+        return _AnchorPos(*self.anchor)
+
+
+def _com_with_tables(anchors: list[tuple[int, int, int]], entered_index: int) -> StubCom:
+    com = StubCom(cur_field_state=1)
+    ctrls = [_TableCtrl(anchor) for anchor in anchors]
+    for first, second in zip(ctrls, ctrls[1:]):
+        first.Next = second
+    com.HeadCtrl = ctrls[0]
+    com.SetPos = lambda *args: True
+    com.FindCtrl = lambda: "tbl"
+    com.ParentCtrl = ctrls[entered_index]
+    return com
+
+
+def test_get_into_nth_table_accepts_the_requested_table() -> None:
+    com = _com_with_tables([(0, 1, 0), (0, 1, 8)], entered_index=0)
+    make_canvas(com).get_into_nth_table(0)
+    assert "ShapeObjTableSelCell" in com.HAction.calls
+
+
+def test_get_into_nth_table_refuses_when_findctrl_picks_another_table() -> None:
+    """같은 문단의 두 표: 앞 표를 요청했는데 뒤 표에 들어가면 조용히 쓰지 않는다."""
+    com = _com_with_tables([(0, 1, 0), (0, 1, 8)], entered_index=1)
+    with pytest.raises(HangulCommandError, match="다른 표"):
+        make_canvas(com).get_into_nth_table(0)
+    assert com.HAction.calls[-1] == "Cancel"

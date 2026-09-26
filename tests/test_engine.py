@@ -341,6 +341,9 @@ class FakeCanvas:
     def select_cell_text(self) -> None:
         self.calls.append(("select_cell_text", None))
 
+    def clear_cell_text(self) -> None:
+        self.calls.append(("clear_cell_text", None))
+
     def open_path(self, path: str) -> None:
         self.path = path
         self.modified = False
@@ -670,9 +673,11 @@ def test_write_cell_replaces_contents_with_structured_paragraphs_in_one_undo_uni
     assert out["undo_units"] == 1
     assert ("get_into_nth_table", 0) in fake.calls
     assert ("goto_addr", "B2") in fake.calls
-    assert ("select_cell_text", None) in fake.calls
+    # 셀 비우기는 선택 해제까지 하는 clear_cell_text로 해야 첫 런 서식이 살아남는다.
+    assert ("clear_cell_text", None) in fake.calls
+    assert fake.calls.index(("clear_cell_text", None)) < fake.calls.index(("insert_text", "제목"))
     texts = [value for name, value in fake.calls if name == "insert_text"]
-    assert texts == ["", "제목", "설명"]
+    assert texts == ["제목", "설명"]
     # 두 문단 사이에만 BreakPara가 있고 셀 끝에 빈 문단을 만들지 않는다.
     assert fake.calls.count(("break_paragraph", None)) == 1
     assert load_state().undo_stack == [out["hangul_actions"]]
@@ -2213,3 +2218,39 @@ def test_suggested_save_as_keeps_stem() -> None:
     path = suggested_save_as_path("C:/docs/plan.hwp")
     assert "plan-edited-" in path
     assert path.endswith(".hwp")
+
+
+
+def test_set_cell_fill_solid_accepts_opacity_or_alpha(engine) -> None:
+    """단색 셀 채우기 투명도: opacity(불투명도 %)는 WinBrushAlpha(0=불투명)로 바뀐다."""
+    eng, fake = engine
+
+    out = eng.set_cell_fill(
+        {"type": "solid", "color": "#C3D69B", "opacity": 49}, table=0, cell_range="A1"
+    )
+    assert out["fill"] == {"type": "solid", "color": "#C3D69B", "alpha": 130}
+    assert [v for n, v in fake.calls if n == "set_cell_fill"][-1]["alpha"] == 130
+
+    out = eng.set_cell_fill({"type": "solid", "color": "#D9D9D9", "alpha": 0}, table=0, cell_range="A1")
+    assert out["fill"]["alpha"] == 0
+    # 투명도를 주지 않으면 기존 출력 모양을 그대로 유지한다.
+    assert eng.set_cell_fill("#123456", table=0, cell_range="A1")["fill"] == {
+        "type": "solid",
+        "color": "#123456",
+    }
+
+
+@pytest.mark.parametrize(
+    "fill",
+    [
+        {"type": "solid", "color": "#FFFFFF", "alpha": 10, "opacity": 50},
+        {"type": "solid", "color": "#FFFFFF", "alpha": 256},
+        {"type": "solid", "color": "#FFFFFF", "alpha": 1.5},
+        {"type": "solid", "color": "#FFFFFF", "opacity": 101},
+    ],
+)
+def test_set_cell_fill_rejects_bad_transparency_before_canvas(engine, fill) -> None:
+    eng, fake = engine
+    with pytest.raises(UsageError):
+        eng.set_cell_fill(fill, table=0, cell_range="A1")
+    assert not any(name == "set_cell_fill" for name, _ in fake.calls)
