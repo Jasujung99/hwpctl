@@ -1,9 +1,10 @@
-# Authoring completion gate — still open
+# Authoring status — experimental foundation
 
-PR #24 is an integration branch, not a completed authoring release. The fixed
-acceptance scope remains HWPML/HWPX/reference conversion, ordered v2 native
-authoring, synthetic HWP/HWPX save/reopen/edit/Undo, and full PR review. Do not
-merge #24, safe #17, or bridge #12 on the basis of the partial evidence below.
+PR #24 integrates the reusable authoring/conversion foundation as experimental
+functionality. The integration scope was narrowed on 2026-09-26 to finish the
+current changes after automated regression and PR review. Complete native and
+reference fidelity is not claimed. Unfinished requirements remain open in
+[authoring follow-up #25](https://github.com/Jasujung99/hwpctl/issues/25).
 
 The frozen source set for this increment remains: hwpctl #24
 `b1118bfa8527f93e1d0354fbc1d694911d17b45b`, hwpctl main
@@ -53,12 +54,12 @@ identify local snapshots, not permission to publish those files.
   passed its Windows 3.11/3.12 CI, fake tests and two synthetic COM contracts.
   It remains unmerged; manual screen verification was not run.
 
-## Blocking acceptance items
+## Known limitations and unfinished work
 
 1. On this host, independent Python `DispatchEx`, direct `CoCreateInstance`,
    and 32-bit PowerShell COM activation all stalled before the first command.
    The user restarted Han/글, and a retry with separate execution permission
-   still stalled. An existing Hwp process recorded an `HwpAppModule.dll`
+   still stalled; the closeout smoke also timed out after 25 seconds. An existing Hwp process recorded an `HwpAppModule.dll`
    access violation. No existing/uncertain user process was terminated. Native
    HWP/HWPX save, reopen, editable object order, page flow and Undo for the
    new builder are therefore **not verified**.
@@ -70,13 +71,13 @@ identify local snapshots, not permission to publish those files.
    chart object merely appearing as a successful conversion.
 3. The fixed independent synthetic FAQ, notice, complex-table and design
    round-trip corpus and whole-operation Undo have not passed for this
-   increment. The final full diff review and review thread resolution must
-   follow a verified head.
+   increment. Automated CI does not certify these native behaviors.
 4. The converter now fails closed for unverified character border/fill, tab
    stops and special spacing controls. FAQ page-number controls still require
    an exact source mapping; a reported conversion loss is not completion.
 
 The initial source snapshots and private prototypes were used only for
 function-level understanding; no personal document or asset is published.
-The agreed merge order remains #24 → safe #17 → bridge #12, with squash merges
-only after the above blockers are actually resolved.
+The integration uses squash merges in the order #24 → safe #17 → bridge #12.
+Main CI is checked between repositories. Issue #25 remains open after these
+merges; neither a merge nor an experimental entry point means that work is done.

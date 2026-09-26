@@ -1,4 +1,4 @@
-# HWPX 범용 작성·검사 (1차 통합)
+# HWPX 작성·검사와 실험적 v2 작성 경로
 
 로컬 `origin/fixtures/gongo-doc1`의 `dfa1011` → `e8eaf9c` → `bdf7497`에서
 범용 변경만 선별했다. 공고 전용 `gongo.py`, 원본 HWP/PNG, 생성 바이너리는
@@ -6,7 +6,22 @@
 
 ## 공식 진입점
 
-아래는 라이브러리 API다. 새 CLI/MCP 작성 명령이나 범용 importer를 추가하지 않았다.
+공개 CLI/MCP의 `reference_to_spec`은 HWPML/HWPX/캡처 번들을 v2 명세와 손실
+보고서로 변환한다. `build_document`는 v1/v2 명세를 사전 검사하고 기존
+`Engine.dispatch` 명령으로 새 소유 문서를 작성한다. 두 명령은 실험 기능이다.
+ChartML·일부 서식 변환과 새 작성기의 네이티브 저장·재열기 실기는 미완료이며,
+[작성 상태](AUTHORING_COMPLETION.md)와 [후속 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)를 참고한다.
+
+```powershell
+hwpctl reference_to_spec sample.hwpx converted --dry-run
+hwpctl build_document examples/specs/authoring-v2.synthetic.json output/synthetic.hwpx --dry-run
+```
+
+`--dry-run`은 한/글 창을 만들지 않는다. 실제 변환은 새 디렉터리만 사용하며 손실이
+있으면 실행 명세를 게시하지 않는다. 실제 작성은 새 HWP/HWPX 출력만 허용한다.
+v1 FAQ 예제는 호환 진입점으로 유지한다. 참조 관찰 모델과 작성 명세는 별개다.
+
+아래는 독립적으로 사용할 수 있는 기존 `hwpctl.hwpx` 라이브러리 API다.
 
 ```python
 from hwpctl.hwpx import (
