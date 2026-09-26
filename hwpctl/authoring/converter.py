@@ -205,7 +205,16 @@ class _Converter:
         for key, default in {"SHADECOLOR": "none", "USEFONTSPACE": "0", "SYMMARK": "NONE"}.items():
             if key in attrs and attrs[key].upper() != default.upper():
                 self.entry(location, None, "loss", f"unsupported character property {key}={attrs[key]}")
-        out: dict[str, Any] = {}
+        border_ref = attrs.get("BORDERFILLIDREF")
+        if border_ref is not None and not self._empty_border(border_ref):
+            self.entry(location, None, "loss", f"non-empty or unresolved character border/fill {border_ref}")
+        # Native character settings can carry across adjacent runs. A source
+        # style without a toggle child means that toggle is off, not "leave
+        # the previous run's value in place".
+        out: dict[str, Any] = {"bold": False, "italic": False,
+                               "superscript": False, "subscript": False,
+                               "underline": False, "strikeout": False,
+                               "kerning": False}
         if "HEIGHT" in attrs:
             try:
                 out["size"] = _hu(attrs["HEIGHT"], location + ".Height", positive=True) / 100
@@ -270,6 +279,10 @@ class _Converter:
         for key, default in defaults.items():
             if key in attrs and attrs[key].upper() != default:
                 self.entry(location, None, "loss", f"unsupported paragraph property {key}={attrs[key]}")
+        if "TABPRIDREF" in attrs:
+            # No public writer command preserves an arbitrary tab-stop set.
+            # A referenced definition is not a proof of default tab behavior.
+            self.entry(location, None, "loss", f"unmapped paragraph tab-stop reference {attrs['TABPRIDREF']}")
         align = attrs.get("ALIGN")
         for child in style:
             tag = _tag(child)
@@ -507,12 +520,14 @@ class _Converter:
                 self.entry(source + "/" + _tag(child), None, "loss", "unsupported shape-object child")
 
     def _page(self, section: ET.Element, location: str) -> dict[str, Any]:
-        page = _child(section, "PAGEDEF")
-        if page is None:
-            page = _descendant(section, "PAGEPR")
-        if page is None:
+        page_tag = "PAGEDEF" if self.kind == "hwpml" else "PAGEPR"
+        pages = [node for node in section.iter() if _tag(node) == page_tag]
+        if not pages:
             self.entry(location, location + ".page", "inherited", "no explicit page definition")
             return {}
+        if len(pages) > 1:
+            self.entry(location, None, "loss", "multiple page definitions in one section")
+        page = pages[0]
         attrs = _attrs(page)
         margin = _child(page, "PAGEMARGIN")
         if margin is None:
@@ -627,8 +642,16 @@ class _Converter:
                 if _attrs(child):
                     self.entry(here, None, "loss", f"text child attributes require explicit mapping: {sorted(_attrs(child))}")
                 append_text(child.text, here)
-            elif tag in {"LINEBREAK", "TAB", "NBSPACE", "FWSPACE", "FIXEDWIDTHSPACE"}:
-                append_text({"LINEBREAK": "\n", "TAB": "\t"}.get(tag, " "), here)
+            elif tag in {"LINEBREAK", "TAB"}:
+                append_text({"LINEBREAK": "\n", "TAB": "\t"}[tag], here)
+            elif tag in {"NBSPACE", "FWSPACE", "FIXEDWIDTHSPACE"}:
+                # These controls are not interchangeable with U+0020. Keep
+                # the closest Unicode text in the loss report, but do not
+                # publish an executable spec without native proof.
+                value = {"NBSPACE": "\u00a0", "FWSPACE": "\u3000",
+                         "FIXEDWIDTHSPACE": " "}[tag]
+                append_text(value, here)
+                self.entry(here, None, "loss", f"native spacing control {tag} is not verified")
             elif tag in {"TABLE", "TBL"}:
                 result.append(self._table(child, here, target + f"[{len(result)}]", depth + 1))
             elif tag in {"PICTURE", "PIC"}:
@@ -694,6 +717,8 @@ class _Converter:
             for key in set(run_attrs) - {"CHARSHAPE", "CHARPRIDREF"}:
                 self.entry(here, None, "loss", f"unsupported text run property {key}")
             char_id = _attr(child, "CharShape") if self.kind == "hwpml" else _attr(child, "charPrIDRef")
+            if char_id is None:
+                self.entry(here, None, "loss", "missing character style reference")
             style = self._run_style(char_id, here + ".character-style") if char_id is not None else {}
             parts.extend(self._inline_children(child, here, target + ".content", style, depth=depth))
         if parts and all(part["kind"] == "run" for part in parts):

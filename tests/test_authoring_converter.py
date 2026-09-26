@@ -61,6 +61,37 @@ def test_two_sections_and_mixed_inline_object_order_dry_run(tmp_path: Path) -> N
     assert all(node["source"].startswith("hwpml:section[") for node in parts)
 
 
+def test_hwpml_page_definition_inside_section_control_is_not_dropped(tmp_path: Path) -> None:
+    from hwpctl.units import hwpunit_to_mm
+
+    declaration = ('<SECDEF><PAGEDEF Width="59528" Height="84189">'
+                   '<PAGEMARGIN Left="5669" Right="5669" Top="5669" Bottom="5669"/>'
+                   '</PAGEDEF></SECDEF>')
+    source = _write(tmp_path, hwpml(f'<SECTION>{para(declaration + "body")}</SECTION>'))
+
+    result = reference_to_spec(source, tmp_path / "nested-page", dry_run=True)
+
+    assert result["ok"], result["report"]["losses"]
+    section = result["spec"]["sections"][0]
+    assert section["page"] == {
+        "paper_width": hwpunit_to_mm(59528),
+        "paper_height": hwpunit_to_mm(84189),
+        "left": hwpunit_to_mm(5669), "right": hwpunit_to_mm(5669),
+        "top": hwpunit_to_mm(5669), "bottom": hwpunit_to_mm(5669),
+    }
+    assert section["content"][0]["runs"][0]["text"] == "body"
+
+
+def test_multiple_page_definitions_in_one_section_fail_closed(tmp_path: Path) -> None:
+    definitions = '<PAGEDEF Width="59528" Height="84189"/>' * 2
+    source = _write(tmp_path, hwpml(f'<SECTION>{para(definitions + "body")}</SECTION>'))
+
+    result = reference_to_spec(source, tmp_path / "ambiguous-page", dry_run=True)
+
+    assert not result["ok"] and not result["executable"]
+    assert any("multiple page definitions" in item["detail"] for item in result["report"]["losses"])
+
+
 def test_vertical_merge_exact_hu_and_cell_margin_presence(tmp_path: Path) -> None:
     # The second track is determined by the merged cell and first row, not by
     # a first-row or outer-box proportion.
@@ -116,6 +147,53 @@ def test_unrecognized_control_and_unresolved_style_report_location(tmp_path: Pat
     assert any("unresolved paragraph style" in entry["detail"] for entry in result["report"]["losses"])
     assert any("unsupported inline control FIELD" in entry["detail"] for entry in result["report"]["losses"])
     assert all(entry["source"].startswith("hwpml:section[0]") for entry in result["report"]["losses"])
+
+
+def test_character_fill_and_tab_stop_references_are_not_silently_dropped(tmp_path: Path) -> None:
+    head = ('<HEAD><MAPPINGTABLE><BORDERFILLLIST><BORDERFILL Id="2">'
+            '<WINDOWBRUSH FaceColor="#FF00FF"/></BORDERFILL></BORDERFILLLIST>'
+            '<CHARSHAPELIST><CHARSHAPE Id="1" BorderFillIDRef="2"/></CHARSHAPELIST>'
+            '<PARASHAPELIST><PARASHAPE Id="1" TabPrIDRef="3"/></PARASHAPELIST>'
+            '</MAPPINGTABLE></HEAD>')
+    source = _write(tmp_path, f'<HWPML>{head}<BODY><SECTION>{para("a<TAB/>b")}</SECTION></BODY></HWPML>')
+
+    result = reference_to_spec(source, tmp_path / "blocked-style", dry_run=True)
+
+    assert not result["ok"] and not result["executable"]
+    details = [entry["detail"] for entry in result["report"]["losses"]]
+    assert any("character border/fill" in detail for detail in details)
+    assert any("tab-stop reference" in detail for detail in details)
+
+
+def test_ordinary_run_explicitly_turns_off_preceding_bold_style(tmp_path: Path) -> None:
+    head = ('<HEAD><MAPPINGTABLE><CHARSHAPELIST>'
+            '<CHARSHAPE Id="1" Height="1000" TextColor="#112233"><BOLD/></CHARSHAPE>'
+            '<CHARSHAPE Id="2" Height="1000" TextColor="#112233"/>'
+            '</CHARSHAPELIST><PARASHAPELIST><PARASHAPE Id="1" Align="Left"/>'
+            '</PARASHAPELIST></MAPPINGTABLE></HEAD>')
+    source = _write(tmp_path, '<HWPML>' + head + '<BODY><SECTION><P ParaShape="1">'
+                    '<TEXT CharShape="1">heavy</TEXT><TEXT CharShape="2">normal</TEXT>'
+                    '</P></SECTION></BODY></HWPML>')
+
+    result = reference_to_spec(source, tmp_path / "mixed", dry_run=True)
+
+    assert result["ok"], result["report"]["losses"]
+    runs = result["spec"]["sections"][0]["content"][0]["runs"]
+    assert runs[0]["bold"] is True
+    assert runs[1]["bold"] is False
+    assert runs[1]["italic"] is False
+    assert runs[1]["underline"] is False
+
+
+def test_special_spacing_controls_are_reported_as_loss(tmp_path: Path) -> None:
+    source = _write(tmp_path, hwpml(f'<SECTION>{para("a<NBSPACE/>b<FWSPACE/>c<FIXEDWIDTHSPACE/>d")}</SECTION>'))
+
+    result = reference_to_spec(source, tmp_path / "spacing", dry_run=True)
+
+    assert not result["ok"] and not result["executable"]
+    details = [item["detail"] for item in result["report"]["losses"]]
+    assert all(any(name in detail for detail in details)
+               for name in ("NBSPACE", "FWSPACE", "FIXEDWIDTHSPACE"))
 
 
 def test_success_publishes_fresh_spec_and_refuses_overwrite(tmp_path: Path) -> None:
@@ -266,7 +344,8 @@ def test_nonrepresentable_gradient_and_chart_fail_closed(tmp_path: Path) -> None
         '<COLOR Value="#000000"/><COLOR Value="#FFFFFF"/>'
         '</GRADATION></FILLBRUSH></BORDERFILL></BORDERFILLLIST></MAPPINGTABLE>')
     one = cell(0, 0, 600, 400, para("tone"), attrs=' BorderFill="7"')
-    xml = f'<HWPML>{head}<BODY><SECTION>{para(table(one) + "<CHART TableRef=\"1\"/>")}</SECTION></BODY></HWPML>'
+    chart_paragraph = para(table(one) + '<CHART TableRef="1"/>')
+    xml = f'<HWPML>{head}<BODY><SECTION>{chart_paragraph}</SECTION></BODY></HWPML>'
     source = _write(tmp_path, xml)
 
     result = reference_to_spec(source, tmp_path / "out")

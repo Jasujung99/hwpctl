@@ -39,9 +39,10 @@ identify local snapshots, not permission to publish those files.
 
 ## Verification completed on this working branch
 
-- Local default suite: **433 passed, 21 skipped**. Opt-in native cases are
+- Local default suite: **439 passed, 21 skipped**. Opt-in native cases are
   skipped, not counted as passes. Synthetic v2 dry-run and public-file checks
-  passed; a no-isolation wheel/sdist build passed. The isolated build could not
+  passed; Python 3.10 syntax was parsed for 59 Python source/test/example files;
+  a no-isolation wheel/sdist build passed. The isolated build could not
   download build dependencies in the restricted local network environment.
 - The earlier PR head had 15 passing native Hancom tests, including repeated
   COM diagnostics. Those results do **not** validate this branch's new builder.
@@ -68,6 +69,9 @@ identify local snapshots, not permission to publish those files.
    round-trip corpus, whole-operation Undo, and final Windows/Linux PR head CI
    have not passed for this increment. The final full diff review and review
    thread resolution must follow the verified head.
+4. The converter now fails closed for unverified character border/fill, tab
+   stops and special spacing controls. FAQ page-number controls still require
+   an exact source mapping; a reported conversion loss is not completion.
 
 The initial source snapshots and private prototypes were used only for
 function-level understanding; no personal document or asset is published.
