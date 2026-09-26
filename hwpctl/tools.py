@@ -26,6 +26,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         False,
         False,
     ),
+    ToolSpec(
+        "doctor",
+        "작업 전 환경 점검: 한/글 응답·대화상자·고정 창·글꼴 인식·hwpctl 최신성. 읽기 전용",
+        False,
+        False,
+    ),
     ToolSpec("open", "새 문서 또는 경로로 열기. 수정본이 있으면 --discard 필요", False, True),
     ToolSpec("snapshot", "제목·본문·표·선택 영역을 읽기", False, False),
     ToolSpec("set_edit_marks", "조판·문단부호 표시를 명시적으로 설정. 본문 변경 없음", False, True),

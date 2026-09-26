@@ -24,7 +24,7 @@ from starlette.responses import JSONResponse, Response
 from hwpctl.errors import HwpctlError, LockBusyError
 from hwpctl.tools import tool_catalog
 
-READ_COMMANDS = frozenset({"status", "list_documents", "snapshot"})
+READ_COMMANDS = frozenset({"status", "list_documents", "doctor", "snapshot"})
 DEFAULT_READ_TIMEOUT_SEC = 15.0
 
 
@@ -190,6 +190,15 @@ def build_mcp(lock_timeout: float = 8.0):
         있을 때 비활성 문서는 활성화하지 않으므로 쪽 수가 없을 수 있다.
         """
         return await _call(engine, "list_documents")
+
+    @mcp.tool()
+    async def doctor(fonts: list[str] | None = None) -> dict[str, Any]:
+        """작업 전 환경 점검(읽기 전용). 긴 작업을 시작하기 전에 먼저 호출한다.
+
+        한/글 응답 여부, 떠 있는 대화상자, 고정 창 유효성, fonts에 적은 글꼴의
+        설치·인식 여부(한/글 실행 뒤 설치면 재시작 필요), hwpctl 저장소 최신성을 본다.
+        """
+        return await _call(engine, "doctor", fonts=fonts)
 
     @mcp.tool()
     async def open(path: str = "", new: bool = False, discard: bool = False) -> dict[str, Any]:

@@ -71,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
             help="실행 중인 모든 한/글 문서를 활성화 없이 읽기 전용으로 열거",
         )
     )
+    p_doctor = add_common(
+        sub.add_parser("doctor", help="작업 전 환경 점검(응답·대화상자·고정 창·글꼴·저장소 최신성)")
+    )
+    p_doctor.add_argument(
+        "--font", action="append", default=[], dest="fonts", help="사용할 글꼴 이름(여러 번 지정 가능)"
+    )
 
     p_open = add_common(
         sub.add_parser("open", help="활성 창 재고정, 파일 열기 또는 새 문서 만들기")

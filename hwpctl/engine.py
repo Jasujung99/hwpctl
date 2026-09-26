@@ -110,6 +110,7 @@ class Engine:
         handlers = {
             "status": self.status,
             "list_documents": self.list_documents,
+            "doctor": self.doctor,
             "open": self.open,
             "snapshot": self.snapshot,
             "set_edit_marks": self.set_edit_marks,
@@ -225,6 +226,20 @@ class Engine:
                 "autosave": False,
                 "tools": [t["name"] for t in tool_catalog()],
             }
+
+    def doctor(self, fonts: Any = None) -> dict[str, Any]:
+        """작업 전 환경 점검. 문서·창·캐럿·고정 상태를 바꾸지 않는다."""
+        from hwpctl.diagnostics import run_doctor
+
+        if fonts is None or fonts == "":
+            names: list[str] = []
+        elif isinstance(fonts, str):
+            names = [part for part in fonts.split(",")]
+        elif isinstance(fonts, (list, tuple)) and all(isinstance(f, str) for f in fonts):
+            names = list(fonts)
+        else:
+            raise UsageError("fonts는 글꼴 이름 문자열 목록이어야 합니다.")
+        return run_doctor(fonts=names, target_hwnd=int(load_state().target_hwnd or 0) or None)
 
     def list_documents(self) -> dict[str, Any]:
         """모든 실행 중 한/글 문서를 활성화 없이 읽기 전용으로 열거한다."""

@@ -86,6 +86,8 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {"control_marks": args.control_marks, "paragraph_marks": args.paragraph_marks}
     if cmd == "list_documents":
         return {}
+    if cmd == "doctor":
+        return {"fonts": args.fonts}
     if cmd == "open":
         return {"path": args.path, "new": args.new, "discard": args.discard}
     if cmd == "format_paragraph_by_text":
