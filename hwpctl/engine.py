@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from math import isfinite
 from pathlib import Path
@@ -173,9 +174,10 @@ class Engine:
             result = set_edit_marks(canvas.com, control_marks=control_marks, paragraph_marks=paragraph_marks)
         return {"ok": True, "command": "set_edit_marks", **result, "autosave": False}
 
-    def build_document(self, spec: str | dict, output: str, dry_run: bool = False) -> dict[str, Any]:
+    def build_document(self, spec: str | dict, output: str, dry_run: bool = False,
+                       session: str = "owned") -> dict[str, Any]:
         from hwpctl.authoring.runtime import build_document
-        return build_document(spec, output, dry_run=dry_run, lock_timeout=self.lock_timeout)
+        return build_document(spec, output, dry_run=dry_run, session=session, lock_timeout=self.lock_timeout)
 
     def reference_to_spec(self, input: str, output_dir: str, dry_run: bool = False) -> dict[str, Any]:
         from hwpctl.authoring.converter import reference_to_spec
@@ -606,12 +608,14 @@ class Engine:
                 canvas.clear_cell_text()
                 actions += 1
                 paragraph_actions = [0]
+                sticky: set[str] = set()
                 for index, paragraph_spec in enumerate(table["paragraphs"]):
                     self._write_paragraph_spec(
                         canvas,
                         paragraph_spec,
                         terminate=index < len(table["paragraphs"]) - 1,
                         actions=paragraph_actions,
+                        sticky=sticky,
                     )
                 actions += paragraph_actions[0]
 
@@ -908,12 +912,14 @@ class Engine:
                 # 지우기도 편집 액션이므로 Undo 계산에 포함한다.
                 canvas.clear_cell_text()
                 actions[0] += 1
+                sticky: set[str] = set()
                 for index, spec in enumerate(specs):
                     self._write_paragraph_spec(
                         canvas,
                         spec,
                         terminate=index < len(specs) - 1,
                         actions=actions,
+                        sticky=sticky,
                     )
             except Exception:
                 if actions[0]:
@@ -958,6 +964,7 @@ class Engine:
         *,
         terminate: bool,
         actions: list[int],
+        sticky: set[str] | None = None,
     ) -> None:
         if spec["page_break_before"]:
             canvas.break_page()
@@ -965,7 +972,9 @@ class Engine:
         if spec["paragraph"]:
             canvas.set_paragraph_format(**spec["paragraph"])
             actions[0] += 1
+        changed = sticky if sticky is not None else set()
         for run in spec["runs"]:
+            run = _unstick_run(run, changed)
             format_kwargs = _run_font_kwargs(run)
             if format_kwargs:
                 canvas.set_font(**format_kwargs)
@@ -1553,7 +1562,9 @@ class Engine:
             if placement is not None:
                 from hwpctl.native_objects import position_control
                 position_control(canvas, ctrl, placement)
-            self._record_undo("insert_image", 1 if placement is None else 2)
+            # InsertPicture leaves two Undo steps; positioning adds one more
+            # (ShapeObjDialog). Measured on Hancom 2022.
+            self._record_undo("insert_image", 2 if placement is None else 3)
             return {
                 "ok": True,
                 "command": "insert_image",
@@ -1588,6 +1599,8 @@ class Engine:
         color: str = "",
         paragraphs: Any = None,
         cursor_after: bool = False,
+        vertical_align: str | None = None,
+        text_direction: str | None = None,
     ) -> dict[str, Any]:
         """새 편집 가능한 글상자를 만든다.
 
@@ -1601,6 +1614,10 @@ class Engine:
         if paragraphs is not None and text:
             raise UsageError("text and paragraphs are mutually exclusive")
         normalized_paragraphs = None if paragraphs is None else _normalize_cell_paragraphs(paragraphs)
+        if vertical_align is not None and vertical_align not in {"top", "center", "bottom"}:
+            raise UsageError("글상자 vertical_align은 top, center, bottom 중 하나여야 합니다.")
+        if text_direction is not None and text_direction not in {"horizontal", "vertical", "vertical_upright"}:
+            raise UsageError("글상자 text_direction은 horizontal, vertical, vertical_upright 중 하나여야 합니다.")
         width = _normalize_dimension(width_mm, "width_mm")
         height = _normalize_dimension(height_mm, "height_mm")
         normalized_fill = _normalize_fill(fill, allow_empty=True)
@@ -1627,12 +1644,26 @@ class Engine:
             extra = {}
             if normalized_paragraphs is not None:
                 def write_content():
+                    actions = [0]
+                    sticky: set[str] = set()
                     for index, paragraph in enumerate(normalized_paragraphs):
                         self._write_paragraph_spec(canvas, paragraph,
-                            terminate=index < len(normalized_paragraphs) - 1, actions=[0])
+                            terminate=index < len(normalized_paragraphs) - 1, actions=actions,
+                            sticky=sticky)
+                    # The adapter sets the box alignment (ParagraphShape) right before
+                    # this writer. Hangul keeps consecutive ParagraphShape edits of one
+                    # paragraph as a single Undo step, so the first paragraph format
+                    # adds no step of its own (measured on Hancom 2022).
+                    if normalized_paragraphs and normalized_paragraphs[0]["paragraph"]:
+                        actions[0] -= 1
+                    return actions[0]
                 extra["content_writer"] = write_content
             if cursor_after:
                 extra["cursor_after"] = True
+            if vertical_align is not None:
+                extra["vertical_align"] = vertical_align
+            if text_direction is not None:
+                extra["text_direction"] = text_direction
             action_result = canvas.insert_text_box(
                 text=text,
                 width_mm=width,
@@ -2839,6 +2870,45 @@ def _normalize_text_decoration(
     return out
 
 
+# 한/글은 입력 위치의 글자 모양을 다음 글자에 그대로 이어 쓴다. 그래서 한 런이
+# 장평 50%를 지정하면 장평을 적지 않은 다음 런도 50%로 찌그러진다. 앞 런이 바꾼
+# 속성 중 중립값이 분명한 것은, 다음 런이 생략하면 중립값으로 되돌린다.
+# (글꼴·크기·색은 문서마다 기준이 달라 기존처럼 이어받는다.)
+_RUN_NEUTRAL = {
+    "width_scale_percent": 100,
+    "letter_spacing_percent": 0,
+    "bold": False,
+    "italic": False,
+    "superscript": False,
+    "subscript": False,
+    "underline": {"enabled": False},
+    "strikeout": {"enabled": False},
+}
+
+
+def _is_neutral_run_value(key: str, value: Any) -> bool:
+    if isinstance(value, dict):
+        return value.get("enabled") is False
+    return value == _RUN_NEUTRAL[key]
+
+
+def _unstick_run(run: dict[str, Any], changed: set[str]) -> dict[str, Any]:
+    """앞 런이 바꾼 속성을 이 런이 생략했으면 중립값을 채운 사본을 돌려준다."""
+    patched = dict(run)
+    for key, neutral in _RUN_NEUTRAL.items():
+        if patched.get(key) is None and key in changed:
+            patched[key] = deepcopy(neutral)
+    for key in _RUN_NEUTRAL:
+        value = patched.get(key)
+        if value is None:
+            continue
+        if _is_neutral_run_value(key, value):
+            changed.discard(key)
+        else:
+            changed.add(key)
+    return patched
+
+
 def _run_font_kwargs(run: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "bold",
@@ -3268,11 +3338,12 @@ def _normalize_fill(value: Any, *, allow_empty: bool) -> dict[str, Any] | None:
         raise UsageError(
             f"{fill_type} 채우기에는 색 중지점 stops(2개 이상)가 필요합니다."
         )
-    # 한/글 2022의 DrawFillAttr는 Color/IndexPos 배열을 10칸만 제공한다.
-    # 공개 API가 그보다 많은 값을 받아 놓고 조용히 잘라내면 재현성이 깨지므로
-    # COM 경계 전에 명확히 거부한다.
-    if len(raw_stops) > 10:
-        raise UsageError("그라데이션 중지점은 최대 10개까지 허용합니다.")
+    # DrawFillAttr에는 Color/IndexPos 배열이 있지만, 한/글 2022 자동화는
+    # GradationColorNum이 3 이상이면 Execute를 성공으로 돌려주면서 채우기 전체를
+    # 저장하지 않는다(도형·글상자·표 칸 모두 실측). 조용한 손실 대신 COM 경계
+    # 전에 명확히 거부한다.
+    if len(raw_stops) != 2:
+        raise UsageError("한/글 2022 자동화는 2색 그라데이션만 적용합니다. 3색 이상은 한/글이 오류 없이 채우기 전체를 버리므로 거부합니다. 중간 색이 필요하면 2색 그라데이션 도형을 나눠 겹치세요.")
 
     uses_offsets = any(isinstance(stop, dict) and ("offset" in stop or "position" in stop) for stop in raw_stops)
     if uses_offsets and not all(

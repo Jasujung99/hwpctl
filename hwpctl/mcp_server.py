@@ -690,12 +690,16 @@ def build_mcp(lock_timeout: float = 8.0):
         color: str = "",
         paragraphs: list[dict[str, Any]] | None = None,
         cursor_after: bool = False,
+        vertical_align: str | None = None,
+        text_direction: str | None = None,
     ) -> dict[str, Any]:
         """편집 가능한 글상자를 넣는다. fill은 단색 색상 또는 structured fill,
         shadow는 {color, alpha(0~255), offset_x_mm, offset_y_mm}, text_shadow는
         alpha 없이 색·오프셋을 받는다.
         position은 inline 또는 {mode:'floating', x_mm, y_mm}; font_slots는 문자권별
-        name/type 글꼴 사양이며 font와 함께 쓸 수 없다. Undo 한 단위."""
+        name/type 글꼴 사양이며 font와 함께 쓸 수 없다. vertical_align은 top/center/bottom
+        (한/글 기본은 center), text_direction은 horizontal/vertical(세로쓰기, 영문 눕힘)/
+        vertical_upright(영문 세움). Undo 한 단위."""
         return await _call(
             engine,
             "insert_text_box",
@@ -717,6 +721,8 @@ def build_mcp(lock_timeout: float = 8.0):
             color=color,
             paragraphs=paragraphs,
             cursor_after=cursor_after,
+            vertical_align=vertical_align,
+            text_direction=text_direction,
         )
 
     @mcp.tool()
@@ -896,10 +902,16 @@ def build_mcp(lock_timeout: float = 8.0):
         return await _call(engine, "reference_to_spec", input=input, output_dir=output_dir, dry_run=dry_run)
 
     @mcp.tool()
-    async def build_document(spec: str, output: str, dry_run: bool = False) -> dict[str, Any]:
+    async def build_document(
+        spec: str, output: str, dry_run: bool = False, session: str = "owned"
+    ) -> dict[str, Any]:
         """전체 명세와 자산을 검사한 뒤 새 소유 한/글 세션으로 HWP/HWPX를 만든다.
-        dry_run은 명령 계획만 반환하고 창과 파일을 만들지 않는다."""
-        return await _call(engine, "build_document", spec=spec, output=output, dry_run=dry_run)
+        dry_run은 명령 계획만 반환하고 창과 파일을 만들지 않는다.
+        session="attached"는 새 프로세스를 못 띄우는 환경에서 실행 중인 한/글에
+        새 창 하나를 열어 작성하고 그 문서만 닫는다(다른 문서는 건드리지 않음)."""
+        return await _call(
+            engine, "build_document", spec=spec, output=output, dry_run=dry_run, session=session
+        )
 
     @mcp.tool()
     async def save_as(

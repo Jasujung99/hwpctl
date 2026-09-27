@@ -120,7 +120,8 @@ class Compiler:
                       "merges", "cells", "exit_cell", "position", "properties", "review"},
             "picture": {"asset", "size_option", "width_mm", "height_mm", "position"},
             "text_box": {"text", "paragraphs", "width_mm", "height_mm", "fill", "line", "shadow", "text_shadow",
-                         "margin", "align", "position", "bold", "italic", "font", "font_slots", "size", "color"},
+                         "margin", "align", "vertical_align", "text_direction", "position", "bold", "italic",
+                         "font", "font_slots", "size", "color"},
             "shape": {"shape_kind", "width_mm", "height_mm", "fill", "line", "shadow", "position"},
             "chart": {"table_id", "cell_range", "chart_type", "chart_index"},
             "page_break": set(), "page_hiding": {"hide_page_num", "hide_header", "hide_footer", "hide_border", "hide_fill", "hide_master_page"},
@@ -188,6 +189,10 @@ class Compiler:
                 api._normalize_margin(args.get("margin"))
                 api._normalize_text_box_position(args.get("position"))
                 api._normalize_align(args.get("align", "center"))
+                if args.get("vertical_align", "top") not in {"top", "center", "bottom"}:
+                    raise UsageError(f"{location}: vertical_align must be top, center or bottom")
+                if args.get("text_direction", "horizontal") not in {"horizontal", "vertical", "vertical_upright"}:
+                    raise UsageError(f"{location}: text_direction must be horizontal, vertical or vertical_upright")
                 api._normalize_text_run({k: args[k] for k in ("text", "bold", "italic", "font", "font_slots", "size", "color", "text_shadow") if k in args} | {"text": args.get("text", "")}, 0)
                 if "paragraphs" in args:
                     if args.get("text"):

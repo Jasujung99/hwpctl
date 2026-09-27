@@ -1029,6 +1029,10 @@ class _Converter:
                 self.entry(source, None, "loss", str(exc))
         if len(colors) < 2 or len(colors) > 10 or attrs.get("COLORNUM") != str(len(colors)):
             self.entry(source, None, "loss", "gradient color count absent, inconsistent, or outside 2..10")
+        elif len(colors) != 2:
+            # Hancom 2022 automation silently drops fills with more than two colors.
+            self.entry(source, None, "loss", "native writer supports only two-color gradients")
+            return None
         try:
             angle = int(attrs["ANGLE"])
             center_x = int(attrs.get("CENTERX", "0"))

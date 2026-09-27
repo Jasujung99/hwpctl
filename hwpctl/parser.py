@@ -396,6 +396,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_text_box.add_argument("--size", type=float, default=None, help="글자 크기(pt)")
     p_text_box.add_argument("--align", default="center", choices=["left", "center", "right", "justify"])
+    p_text_box.add_argument(
+        "--vertical-align",
+        default=None,
+        choices=["top", "center", "bottom"],
+        help="글상자 안 글자 세로 정렬 (기본: 한/글 기본값 가운데)",
+    )
+    p_text_box.add_argument(
+        "--text-direction",
+        default=None,
+        choices=["horizontal", "vertical", "vertical_upright"],
+        help="글자 방향: 가로, 세로(영문 눕힘), 세로(영문 세움)",
+    )
     p_text_box.add_argument("--color", default="", help="글자색. 이름 또는 #RRGGBB")
 
     p_shape = add_common(sub.add_parser("insert_shape", help="편집 가능한 일반 도형 삽입"))
@@ -642,6 +654,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("spec", help="v1/v2 명세 JSON 파일 경로")
     p_build.add_argument("output", help="존재하지 않는 .hwp 또는 .hwpx 결과 경로")
     p_build.add_argument("--dry-run", action="store_true", help="명세·자산·명령만 검사. 한/글 창 생성 안 함")
+    p_build.add_argument(
+        "--session",
+        choices=("owned", "attached"),
+        default="owned",
+        help="owned: 새 한/글 프로세스(기본). attached: 실행 중인 한/글에 새 창 하나만 열고 그 문서만 닫음",
+    )
 
     p_save_as = add_common(
         sub.add_parser("save_as", help="새 경로로 저장 (기존 파일은 --overwrite 필수)")

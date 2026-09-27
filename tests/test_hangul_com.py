@@ -893,7 +893,6 @@ def test_set_cell_fill_linear_gradient_writes_drawfill_arrays() -> None:
             "angle": 90,
             "stops": [
                 {"offset": 0, "color": "#112233"},
-                {"offset": 0.5, "color": "#445566"},
                 {"offset": 1, "color": "#778899"},
             ],
         }
@@ -901,13 +900,12 @@ def test_set_cell_fill_linear_gradient_writes_drawfill_arrays() -> None:
     assert out == 1
     fill = com.cell_fill_action.hset.items["FillAttr"]
     assert fill.items["GradationAngle"] == 90
-    assert fill.items["GradationColorNum"] == 3
-    assert fill.items["GradationColor"].items[:3] == [
+    assert fill.items["GradationColorNum"] == 2
+    assert fill.items["GradationColor"].items[:2] == [
         com.RGBColor(17, 34, 51),
-        com.RGBColor(68, 85, 102),
         com.RGBColor(119, 136, 153),
     ]
-    assert fill.items["GradationIndexPos"].items[:3] == [0, 50, 100]
+    assert fill.items["GradationIndexPos"].items[:2] == [0, 0]
     assert com.cell_fill_action.defaults == 1
     assert com.cell_fill_action.executed == 1
     assert "Cancel" in com.HAction.calls
@@ -969,16 +967,18 @@ def test_text_box_margin_commits_copied_child_parameter_set():
         "MarginLeft": 283, "MarginRight": 567, "MarginTop": 850, "MarginBottom": 1134}
 
 
-def test_adapter_rejects_oversized_gradient_before_cellfill_execute() -> None:
+@pytest.mark.parametrize("count", [3, 11])
+def test_adapter_rejects_multi_stop_gradient_before_cellfill_execute(count) -> None:
+    """한/글 2022는 3색 이상 그라데이션을 오류 없이 버리므로 실행 전에 거부한다."""
     com = StubCom()
-    with pytest.raises(UsageError, match="10개"):
+    with pytest.raises(UsageError, match="2색 그라데이션만"):
         make_canvas(com).set_cell_fill(
             {
                 "type": "linear_gradient",
                 "angle": 0,
                 "stops": [
-                    {"offset": index / 10, "color": "#123456"}
-                    for index in range(11)
+                    {"offset": index / (count - 1), "color": "#123456"}
+                    for index in range(count)
                 ],
             }
         )

@@ -1944,6 +1944,19 @@ def test_insert_text_box_rich_position_preserves_explicit_placement(engine) -> N
                             position={**position, "invented": True})
 
 
+def test_insert_text_box_forwards_vertical_align_and_text_direction(engine) -> None:
+    eng, fake = engine
+    eng.insert_text_box("BOOK CLUB", width_mm=20, height_mm=120,
+                        vertical_align="top", text_direction="vertical")
+    call = next(value for name, value in fake.calls if name == "insert_text_box")
+    assert call["vertical_align"] == "top"
+    assert call["text_direction"] == "vertical"
+    with pytest.raises(UsageError, match="text_direction"):
+        eng.insert_text_box("x", width_mm=20, height_mm=20, text_direction="diagonal")
+    with pytest.raises(UsageError, match="vertical_align"):
+        eng.insert_text_box("x", width_mm=20, height_mm=20, vertical_align="middle")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -1953,11 +1966,11 @@ def test_insert_text_box_rich_position_preserves_explicit_placement(engine) -> N
                 "type": "linear_gradient",
                 "angle": 90,
                 "stops": [
-                    {"offset": index / 10, "color": "#123456"}
-                    for index in range(11)
+                    {"offset": index / 2, "color": "#123456"}
+                    for index in range(3)
                 ],
             },
-            "최대 10개",
+            "2색 그라데이션만",
         ),
         (
             "line",

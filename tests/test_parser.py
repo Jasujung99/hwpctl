@@ -79,7 +79,11 @@ def test_document_authoring_entrypoints_and_table_path_cli() -> None:
     build = parse_args(["build_document", "C:/output/spec.json", "C:/output/final.hwp"])
     assert _kwargs_for(build) == {
         "spec": "C:/output/spec.json", "output": "C:/output/final.hwp", "dry_run": False,
+        "session": "owned",
     }
+    attached = parse_args(["build_document", "C:/output/spec.json", "C:/output/final.hwp",
+                           "--session", "attached"])
+    assert _kwargs_for(attached)["session"] == "attached"
     path = '{"root":0,"children":[{"cell":"a1","index":1}]}'
     nested = parse_args(["move_to_cell", "--table", path, "--cell", "B2"])
     assert _kwargs_for(nested)["table"] == {
