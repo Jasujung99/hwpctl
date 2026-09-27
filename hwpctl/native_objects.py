@@ -26,11 +26,29 @@ def apply_position(canvas, pset, position):
         put("AllowOverlap", int(position.get("allow_overlap", False)))
 
 
+def apply_creation_geometry(pset, width, height, *, line=False):
+    """Absolute size references and creation points (HwpUnit) for DrawObjCreator* actions."""
+    pset.SetItem("WidthRelTo", 4)
+    pset.SetItem("HeightRelTo", 2)
+    layout = pset.CreateItemSet("ShapeDrawLayOut", "DrawLayOut")
+    points = (0, 0, width, height) if line else (0, 0, width, 0, width, height, 0, height)
+    array = layout.CreateItemArray("CreatePt", len(points))
+    for index, value in enumerate(points):
+        array.SetItem(index, value)
+    layout.SetItem("CreateNumPt", len(points) // 2)
+
+
 def after_control(canvas, ctrl):
     """Leave a newly inserted control at the next position in the same list."""
     anchor = ctrl.GetAnchorPos(0)
     canvas.com.SetPosBySet(anchor)
     origin = canvas.get_pos()
+    anchored = _anchor_tuple(anchor)
+    if origin and anchored and tuple(origin[:2]) == anchored[:2] and origin[2] >= anchored[2] + 8:
+        # A control character spans 8 positions. Hwp may snap the anchor to
+        # the caret position right after it (e.g. at the end of the document),
+        # where MoveRight has nowhere to go; that is already the boundary.
+        return
     if origin and len(origin) == 3:
         next_position = (origin[0], origin[1], origin[2] + 1)
         if canvas.set_pos(next_position) and canvas.get_pos() == next_position:
@@ -80,15 +98,7 @@ def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow,
     action.GetDefault(pset)
     canvas._set_pset_item(pset, "Width", mm_to_hwpunit(width_mm))
     canvas._set_pset_item(pset, "Height", mm_to_hwpunit(height_mm))
-    pset.SetItem("WidthRelTo", 4)
-    pset.SetItem("HeightRelTo", 2)
-    width, height = mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm)
-    layout = pset.CreateItemSet("ShapeDrawLayOut", "DrawLayOut")
-    points = (0, 0, width, height) if shape_kind == "line" else (0, 0, width, 0, width, height, 0, height)
-    array = layout.CreateItemArray("CreatePt", len(points))
-    for index, value in enumerate(points):
-        array.SetItem(index, value)
-    layout.SetItem("CreateNumPt", len(points) // 2)
+    apply_creation_geometry(pset, mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm), line=shape_kind == "line")
     apply_position(canvas, pset, position)
     if fill is not None:
         child = pset.CreateItemSet("ShapeDrawFillAttr", "DrawFillAttr")
@@ -132,3 +142,10 @@ def table_properties_partial(canvas, table, *, page_break, repeat_header, cell_s
         canvas.run("Cancel")
         if saved is None or not canvas.set_pos(saved):
             raise HangulCommandError("Cannot restore cursor after table properties")
+
+
+def _anchor_tuple(anchor):
+    try:
+        return tuple(int(anchor.Item(name)) for name in ("List", "Para", "Pos"))
+    except Exception:
+        return None

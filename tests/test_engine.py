@@ -338,6 +338,15 @@ class FakeCanvas:
         )
         return self.text_box_actions
 
+    def render_page_image(self, path: str, page_index: int, dpi: int) -> None:
+        import struct
+
+        self.calls.append(("render_page_image", (page_index, dpi)))
+        pixels = (bytes((0, 0, 255)) * 2 + bytes(2)) * 2  # 2x2 빨강, 행 4바이트 정렬
+        header = b"BM" + struct.pack("<IHHI", 54 + len(pixels), 0, 0, 54)
+        dib = struct.pack("<IiiHHIIiiII", 40, 2, 2, 1, 24, 0, len(pixels), 0, 0, 0, 0)
+        Path(path).write_bytes(header + dib + pixels)
+
     def select_cell_text(self) -> None:
         self.calls.append(("select_cell_text", None))
 
@@ -1935,6 +1944,19 @@ def test_insert_text_box_rich_position_preserves_explicit_placement(engine) -> N
                             position={**position, "invented": True})
 
 
+def test_insert_text_box_forwards_vertical_align_and_text_direction(engine) -> None:
+    eng, fake = engine
+    eng.insert_text_box("BOOK CLUB", width_mm=20, height_mm=120,
+                        vertical_align="top", text_direction="vertical")
+    call = next(value for name, value in fake.calls if name == "insert_text_box")
+    assert call["vertical_align"] == "top"
+    assert call["text_direction"] == "vertical"
+    with pytest.raises(UsageError, match="text_direction"):
+        eng.insert_text_box("x", width_mm=20, height_mm=20, text_direction="diagonal")
+    with pytest.raises(UsageError, match="vertical_align"):
+        eng.insert_text_box("x", width_mm=20, height_mm=20, vertical_align="middle")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -1944,11 +1966,11 @@ def test_insert_text_box_rich_position_preserves_explicit_placement(engine) -> N
                 "type": "linear_gradient",
                 "angle": 90,
                 "stops": [
-                    {"offset": index / 10, "color": "#123456"}
-                    for index in range(11)
+                    {"offset": index / 2, "color": "#123456"}
+                    for index in range(3)
                 ],
             },
-            "최대 10개",
+            "2색 그라데이션만",
         ),
         (
             "line",
@@ -2254,3 +2276,33 @@ def test_set_cell_fill_rejects_bad_transparency_before_canvas(engine, fill) -> N
     with pytest.raises(UsageError):
         eng.set_cell_fill(fill, table=0, cell_range="A1")
     assert not any(name == "set_cell_fill" for name, _ in fake.calls)
+
+
+
+def test_render_page_converts_to_ppm_and_guards_overwrite(engine, tmp_path: Path) -> None:
+    eng, fake = engine
+    out = eng.render_page(str(tmp_path / "p1.ppm"), page=2, dpi=120)
+    assert (out["width"], out["height"], out["page"]) == (2, 2, 2)
+    assert ("render_page_image", (1, 120)) in fake.calls  # 0부터 세는 쪽 번호
+    assert (tmp_path / "p1.ppm").read_bytes().startswith(b"P6")
+    assert not (tmp_path / "p1.render.bmp").exists()
+    with pytest.raises(DestructiveGuardError):
+        eng.render_page(str(tmp_path / "p1.ppm"))
+    with pytest.raises(UsageError):
+        eng.render_page(str(tmp_path / "p9.bmp"), page=9)
+    with pytest.raises(UsageError):
+        eng.render_page(str(tmp_path / "p1.png"))
+
+
+def test_compare_render_validates_regions_and_paper(engine, tmp_path: Path) -> None:
+    eng, _ = engine
+    eng.render_page(str(tmp_path / "a.bmp"))
+    region = [{"name": "t", "x_mm": 0, "y_mm": 0, "w_mm": 10, "h_mm": 10}]
+    out = eng.compare_render(str(tmp_path / "a.bmp"), str(tmp_path / "a.bmp"), region, [10, 10])
+    assert out["command"] == "compare_render" and out["regions"][0]["name"] == "t"
+    with pytest.raises(UsageError):
+        eng.compare_render(str(tmp_path / "a.bmp"), str(tmp_path / "a.bmp"), [], [10, 10])
+    with pytest.raises(UsageError):
+        eng.compare_render(str(tmp_path / "a.bmp"), str(tmp_path / "a.bmp"), region, [10])
+    with pytest.raises(UsageError):
+        eng.compare_render(str(tmp_path / "a.bmp"), str(tmp_path / "missing.bmp"), region, [10, 10])

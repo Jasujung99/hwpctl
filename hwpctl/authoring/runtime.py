@@ -1,4 +1,12 @@
-"""Preflight first; author only in an exclusively created native session."""
+"""Preflight first; author only in a document this call created.
+
+``session="owned"`` (default) starts a separate native Hwp process and quits it
+afterwards. ``session="attached"`` opens one new blank window inside an already
+running Hwp and closes only that document; it exists for hosts where a private
+process cannot be activated (for example a stuck elevated automation server
+blocks new ``-Embedding`` instances). Both modes prove the document identity
+before every command and before cleanup, and never touch other documents.
+"""
 from __future__ import annotations
 
 import gc
@@ -12,7 +20,7 @@ from typing import Any
 from hwpctl.authoring.compiler import compile_spec
 from hwpctl.authoring.model import load_spec, parse_spec
 from hwpctl.engine import Engine
-from hwpctl.errors import UsageError, HangulCommandError
+from hwpctl.errors import UsageError, HangulCommandError, HangulMissingError
 from hwpctl.hangul import HangulCanvas
 from hwpctl.lock import writer_transaction
 
@@ -20,8 +28,9 @@ from hwpctl.lock import writer_transaction
 class OwnedEngine(Engine):
     """Never consult or modify the global window pin/Undo state."""
 
-    def __init__(self, canvas, *, allowed, lock_timeout=8):
+    def __init__(self, canvas, *, allowed, lock_timeout=8, exclusive=True):
         super().__init__(lock_timeout=lock_timeout)
+        self.exclusive = exclusive
         self.canvas = canvas
         self.hwnd = canvas.window_handle()
         self.pid = _window_pid(self.hwnd)
@@ -34,7 +43,8 @@ class OwnedEngine(Engine):
     def _connect(self, **kwargs):
         app = self.canvas.com
         if (any(kwargs.values()) or self.canvas.window_handle() != self.hwnd or
-                _window_pid(self.hwnd) != self.pid or int(app.XHwpDocuments.Count) != 1 or
+                _window_pid(self.hwnd) != self.pid or
+                (self.exclusive and int(app.XHwpDocuments.Count) != 1) or
                 _document_identity(app) != self.document_identity or
                 str(app.XHwpDocuments.Active_XHwpDocument.FullName or "").strip()):
             raise HangulCommandError("Owned authoring document/window identity changed")
@@ -111,8 +121,8 @@ def _document_identity(app):
     return document._oleobj_.QueryInterface(pythoncom.IID_IUnknown)
 
 
-def _require_owned_document(app, canvas, *, hwnd, pid, identity, staged):
-    if (int(app.XHwpDocuments.Count) != 1 or canvas.window_handle() != hwnd or
+def _require_owned_document(app, canvas, *, hwnd, pid, identity, staged, exclusive=True):
+    if ((exclusive and int(app.XHwpDocuments.Count) != 1) or canvas.window_handle() != hwnd or
             _window_pid(hwnd) != pid or _document_identity(app) != identity):
         raise HangulCommandError("Owned document identity changed before cleanup")
     current = str(app.XHwpDocuments.Active_XHwpDocument.FullName or "").strip()
@@ -120,11 +130,38 @@ def _require_owned_document(app, canvas, *, hwnd, pid, identity, staged):
         raise HangulCommandError("Owned document path changed before cleanup")
 
 
-def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
-                   lock_timeout: float = 8, _dispatch_factory=None,
+def _attach_running():
+    """Running Hwp for attached authoring: the pinned window's instance first."""
+    from hwpctl.hangul import _attach_running_com
+    from hwpctl.lock import load_state
+
+    pinned = int(getattr(load_state(), "target_hwnd", 0) or 0)
+    return (_attach_running_com(hwnd=pinned) if pinned else None) or _attach_running_com(hwnd=None)
+
+
+def _window_handles(app) -> set[int]:
+    from hwpctl.hangul import _iter_window_handles
+
+    return set(_iter_window_handles(app))
+
+
+def _activate_window(app, hwnd: int) -> None:
+    from hwpctl.hangul import _make_window_current
+
+    _make_window_current(app, hwnd)
+
+
+class _AttachedDone(Exception):
+    """Attached cleanup finished; skip the owned-process quit path."""
+
+
+def build_document(spec: str | dict, output: str, dry_run: bool = False, *, session: str = "owned",
+                   lock_timeout: float = 8, _dispatch_factory=None, _attach_factory=None,
                    _canvas_factory=HangulCanvas, _engine_factory=OwnedEngine) -> dict[str, Any]:
     if type(dry_run) is not bool:
         raise UsageError("dry_run must be boolean")
+    if session not in {"owned", "attached"}:
+        raise UsageError("session must be owned or attached")
     model = parse_spec(spec, base_dir=Path.cwd()) if isinstance(spec, dict) else load_spec(spec)
     plan = compile_spec(model)
     destination = Path(output).expanduser().resolve()
@@ -148,7 +185,7 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
     if destination in sources or destination.exists():
         raise UsageError("Existing outputs, specifications and assets are never overwritten")
     hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
-    result = {"ok": True, "command": "build_document", "dry_run": dry_run,
+    result = {"ok": True, "command": "build_document", "dry_run": dry_run, "session": session,
               "spec_sha256": model.digest, "output": str(destination),
               "plan": [command.to_dict() for command in plan], "saved": False,
               "completed": False, "cleanup": {"created": False, "closed": False, "quit": False}}
@@ -158,8 +195,10 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
     owned = False
     owner_identity = owner_hwnd = owner_pid = None
     failure = None
-    location = "session.create"
-    command_name = "create_owned_session"
+    exclusive = session == "owned"
+    location = "session.create" if exclusive else "session.attach"
+    command_name = "create_owned_session" if exclusive else "create_attached_document"
+    created: set[int] = set()
     stage = None
     staged = None
     with writer_transaction(timeout=lock_timeout):
@@ -168,20 +207,36 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
             # with stale assets or an output that appeared during preflight.
             if destination.exists() or any(hashlib.sha256(p.read_bytes()).hexdigest() != h for p, h in hashes.items()):
                 raise UsageError("Authoring inputs/output changed after preflight")
-            before_pids = _hwp_pids()
-            app = (_dispatch_factory or _dispatch)()
-            result["activation_returned"] = True
-            if int(app.XHwpDocuments.Count) != 1:
-                raise HangulCommandError("Owned session must contain exactly one new document")
-            canvas = _canvas_factory(None, app, "owned-authoring")
+            if exclusive:
+                before_pids = _hwp_pids()
+                app = (_dispatch_factory or _dispatch)()
+                result["activation_returned"] = True
+                if int(app.XHwpDocuments.Count) != 1:
+                    raise HangulCommandError("Owned session must contain exactly one new document")
+            else:
+                base = (_attach_factory or _attach_running)()
+                if base is None:
+                    raise HangulMissingError("attached authoring needs a running Hwp window")
+                before_windows = _window_handles(base)
+                before_count = int(base.XHwpDocuments.Count)
+                base.XHwpDocuments.Add(False)  # False: a new window, not a tab of the user's window
+                app = base
+                result["activation_returned"] = True
+                created = _window_handles(app) - before_windows
+                if len(created) != 1 or int(app.XHwpDocuments.Count) != before_count + 1:
+                    raise HangulCommandError("The new attached window could not be identified")
+                _activate_window(app, next(iter(created)))
+            canvas = _canvas_factory(None, app, "owned-authoring" if exclusive else "attached-authoring")
             if (canvas.doc_info().path or
                     str(app.XHwpDocuments.Active_XHwpDocument.FullName or "").strip() or
                     str(app.GetTextFile("UNICODE", "") or "").strip()):
                 raise HangulCommandError("Owned session is not a new blank document")
             hwnd = canvas.window_handle()
             pid = _window_pid(hwnd)
-            if not pid or pid in before_pids or pid not in _hwp_pids():
+            if exclusive and (not pid or pid in before_pids or pid not in _hwp_pids()):
                 raise HangulCommandError("New native process and window ownership could not be proven")
+            if not exclusive and (not pid or hwnd not in created):
+                raise HangulCommandError("New attached window ownership could not be proven")
             identity = _document_identity(app)
             owned = True
             owner_identity, owner_hwnd, owner_pid = identity, hwnd, pid
@@ -191,7 +246,8 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
             # Some installations return False even when the module is already
             # registered. SaveAs remains the authoritative check.
             app.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
-            engine = _engine_factory(canvas, allowed={c.name for c in plan} | {"save_as"}, lock_timeout=lock_timeout)
+            engine = _engine_factory(canvas, allowed={c.name for c in plan} | {"save_as"}, lock_timeout=lock_timeout,
+                                     exclusive=exclusive)
             for index, command in enumerate(plan):
                 location, command_name = command.location, command.name
                 reply = engine.dispatch(command.name, **command.arguments)
@@ -220,7 +276,17 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
             if app is not None and owned:
                 try:
                     _require_owned_document(app, canvas, hwnd=owner_hwnd, pid=owner_pid,
-                                            identity=owner_identity, staged=staged)
+                                            identity=owner_identity, staged=staged, exclusive=exclusive)
+                    if not exclusive:
+                        # Close exactly our document; the user's windows and the
+                        # process stay untouched, so there is no Quit.
+                        returned = app.XHwpDocuments.Active_XHwpDocument.Close(False)
+                        if returned is False:
+                            raise HangulCommandError("Attached document close returned false")
+                        result["cleanup"]["closed"] = True
+                        if owner_hwnd in _window_handles(app):
+                            result["cleanup"]["window_left_open"] = True
+                        raise _AttachedDone
                     returned = app.XHwpDocuments.Close(False)
                     if returned is False:
                         raise HangulCommandError("Owned document close returned false")
@@ -231,6 +297,8 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *,
                     if returned is False:
                         raise HangulCommandError("Owned session quit returned false")
                     result["cleanup"]["quit"] = True
+                except _AttachedDone:
+                    pass
                 except Exception as exc:
                     result["cleanup"]["error"] = str(exc)
                     failure = failure or {"location": "session.cleanup", "command": "close_owned_session", "message": str(exc)}

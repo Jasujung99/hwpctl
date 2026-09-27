@@ -323,3 +323,78 @@ def test_v1_flat_table_position_upgrades_without_losing_inline_margin(tmp_path):
         "outside_margin_mm": [0.5, 0.5, 0.5, 0.5]}
     plan = compile_spec(parse_spec(old, base_dir=tmp_path))
     assert any(c.name == "set_table_position" for c in plan)
+
+
+def test_attached_session_builds_in_new_window_and_closes_only_that_document(tmp_path, monkeypatch):
+    import hwpctl.authoring.runtime as runtime
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "writer.lock"))
+    closed = []
+
+    class Doc(SimpleNamespace):
+        def Close(self, save):
+            assert save is False
+            closed.append(self)
+            app.Count -= 1
+            app.windows.discard(123)
+            return True
+
+    class RunningApp(App):
+        def __init__(self):
+            super().__init__(count=1)
+            self.windows = {7}
+            self.user_document = Doc(FullName="C:/user/keep.hwp")
+            self.Active_XHwpDocument = self.user_document
+
+        def Add(self, is_tab):
+            assert is_tab is False  # a separate window, never a tab of the user's window
+            self.Count += 1
+            self.windows.add(123)
+            self.Active_XHwpDocument = Doc(FullName="")
+
+    app = RunningApp()
+    monkeypatch.setattr(runtime, "_window_handles", lambda target: set(target.windows))
+    monkeypatch.setattr(runtime, "_activate_window", lambda target, hwnd: None)
+    output = tmp_path / "attached.hwpx"
+    result = build_document(document([{"kind": "paragraph", "text": "synthetic"}]), str(output),
+                            session="attached", _attach_factory=lambda: app,
+                            _canvas_factory=Canvas, _engine_factory=FakeOwned)
+    assert result["ok"] and result["completed"] and result["session"] == "attached"
+    assert output.exists()
+    assert len(closed) == 1 and closed[0] is not app.user_document
+    assert not app.quit  # the user's Hangul process keeps running
+    assert result["cleanup"]["closed"] and "window_left_open" not in result["cleanup"]
+
+
+def test_attached_session_refuses_when_no_new_window_appears(tmp_path, monkeypatch):
+    import hwpctl.authoring.runtime as runtime
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "writer.lock"))
+
+    class TabbedApp(App):
+        def Add(self, is_tab):
+            self.Count += 1  # e.g. opened as a tab: no distinct window to own
+
+    app = TabbedApp()
+    monkeypatch.setattr(runtime, "_window_handles", lambda target: {7})
+    result = build_document(document([{"kind": "paragraph", "text": "synthetic"}]),
+                            str(tmp_path / "x.hwpx"), session="attached",
+                            _attach_factory=lambda: app, _canvas_factory=Canvas,
+                            _engine_factory=FakeOwned)
+    assert not result["ok"] and "could not be identified" in result["failure"]["message"]
+    assert not app.closed and not app.quit
+    assert not (tmp_path / "x.hwpx").exists()
+
+
+def test_session_mode_is_validated():
+    with pytest.raises(UsageError, match="owned or attached"):
+        build_document(document([]), "x.hwpx", True, session="shared")
+
+
+def test_text_box_layout_fields_compile_and_reject_unknown_values(tmp_path):
+    node = {"kind": "text_box", "text": "BOOK CLUB", "width_mm": 20, "height_mm": 120,
+            "vertical_align": "top", "text_direction": "vertical"}
+    plan = compile_spec(parse_spec(document([node]), base_dir=tmp_path))
+    args = next(c.arguments for c in plan if c.name == "insert_text_box")
+    assert args["vertical_align"] == "top" and args["text_direction"] == "vertical"
+    for field, value in (("vertical_align", "middle"), ("text_direction", "diagonal")):
+        with pytest.raises(UsageError, match=field):
+            compile_spec(parse_spec(document([{**node, field: value}]), base_dir=tmp_path))

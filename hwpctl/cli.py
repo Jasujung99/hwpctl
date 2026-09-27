@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from pathlib import Path
 from typing import Any, Sequence
 
 from argparse import ArgumentTypeError
@@ -86,6 +87,24 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
         return {"control_marks": args.control_marks, "paragraph_marks": args.paragraph_marks}
     if cmd == "list_documents":
         return {}
+    if cmd == "doctor":
+        return {"fonts": args.fonts}
+    if cmd == "render_page":
+        return {"output": args.output, "page": args.page, "dpi": args.dpi, "overwrite": args.overwrite}
+    if cmd == "compare_render":
+        regions_arg = args.regions
+        if regions_arg and not regions_arg.lstrip().startswith("[") and Path(regions_arg).is_file():
+            regions_arg = Path(regions_arg).read_text(encoding="utf-8")
+        return {
+            "reference": args.reference,
+            "candidate": args.candidate,
+            "regions": parse_json_or_raw(regions_arg),
+            "paper_mm": parse_json_or_raw(args.paper_mm),
+            "reference_background": args.reference_background,
+            "candidate_background": args.candidate_background,
+            "threshold": args.threshold,
+            "candidate_threshold": args.candidate_threshold,
+        }
     if cmd == "open":
         return {"path": args.path, "new": args.new, "discard": args.discard}
     if cmd == "format_paragraph_by_text":
@@ -227,6 +246,8 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "font_slots": parse_json_or_raw(args.font_slots),
             "size": args.size,
             "align": args.align,
+            "vertical_align": args.vertical_align,
+            "text_direction": args.text_direction,
             "color": args.color,
         }
     if cmd == "insert_shape":
@@ -324,7 +345,7 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
     if cmd == "reference_to_spec":
         return {"input": args.input, "output_dir": args.output_dir, "dry_run": args.dry_run}
     if cmd == "build_document":
-        return {"spec": args.spec, "output": args.output, "dry_run": args.dry_run}
+        return {"spec": args.spec, "output": args.output, "dry_run": args.dry_run, "session": args.session}
     if cmd == "save_as":
         return {"path": args.path, "format": args.format, "overwrite": args.overwrite}
     if cmd == "save":

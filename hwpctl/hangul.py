@@ -952,7 +952,8 @@ class HangulCanvas:
         text_shadow: dict[str, Any] | None = None,
         letter_spacing_percent: int | None = None,
         width_scale_percent: int | None = None,
-    ) -> None:
+    ) -> int:
+        """글자 모양을 적용하고 실제로 실행한 한/글 액션 수(Undo 단계)를 돌려준다."""
         normalized_font_slots = self._normalize_font_slots(font_slots)
         if face and normalized_font_slots:
             raise UsageError("font 와 font_slots 는 함께 지정할 수 없습니다.")
@@ -980,13 +981,15 @@ class HangulCanvas:
             and strikeout is None
             and kerning is None
         ):
-            return
+            return 0
+        executed = 0
         if self.px and not normalized_font_slots:
             # pyhwpx does not expose the complete HCharShape shadow/자간/장평 surface.
             # Keep its well-tested font path for normal character attributes,
             # then use the underlying 2022 COM parameter set for the missing fields.
             if kwargs:
                 self.px.set_font(**kwargs)
+                executed += 1
             if (
                 text_shadow is None
                 and letter_spacing_percent is None
@@ -997,7 +1000,7 @@ class HangulCanvas:
                 and strikeout is None
                 and kerning is None
             ):
-                return
+                return executed
         pset = self.com.HParameterSet.HCharShape
         self.com.HAction.GetDefault("CharShape", pset.HSet)
         if "Bold" in kwargs:
@@ -1120,8 +1123,9 @@ class HangulCanvas:
                     "글꼴 이름을 확인하고, 한/글 실행 뒤 설치한 글꼴이면 한/글을 다시 시작하세요."
                 )
             raise HangulCommandError("글자 모양(CharShape) 액션이 실패했습니다.")
+        return executed + 1
 
-    def set_align(self, align: str) -> None:
+    def set_align(self, align: str) -> int:
         mapping = {
             "left": "Left",
             "center": "Center",
@@ -1130,10 +1134,10 @@ class HangulCanvas:
         }
         key = mapping.get(align.lower() if align else "")
         if not key:
-            return
+            return 0
         if self.px:
             self.px.set_para(AlignType=key)
-            return
+            return 1
         # AlignType 은 숫자 열거값. 문자열 대입은 실패한다 — HAlign 으로 변환 (pyhwpx set_para 와 동일)
         try:
             pset = self.com.HParameterSet.HParaShape
@@ -1144,6 +1148,7 @@ class HangulCanvas:
             raise HangulCommandError(f"정렬을 적용하지 못했습니다: {exc}") from exc
         if not ok:
             raise HangulCommandError("정렬(ParagraphShape) 액션이 실패했습니다.")
+        return 1
 
     def set_paragraph_format(
         self,
@@ -1580,8 +1585,8 @@ class HangulCanvas:
         if angle >= 360.0:
             raise UsageError("그라데이션 각도는 360 미만이어야 합니다.")
         raw_stops = spec.get("stops")
-        if not isinstance(raw_stops, (list, tuple)) or not 2 <= len(raw_stops) <= 10:
-            raise UsageError("그라데이션 stops는 2개 이상 10개 이하여야 합니다.")
+        if not isinstance(raw_stops, (list, tuple)) or len(raw_stops) != 2:
+            raise UsageError("한/글 2022 자동화는 2색 그라데이션만 적용합니다. 3색 이상은 한/글이 오류 없이 채우기 전체를 버리므로 거부합니다. 중간 색이 필요하면 2색 그라데이션 도형을 나눠 겹치세요.")
 
         stops: list[tuple[float, tuple[int, int, int]]] = []
         previous = -1.0
@@ -1621,8 +1626,9 @@ class HangulCanvas:
     def _apply_gradient(self, fill_pset: Any, fill: Any) -> None:
         """HDrawFillAttr에 공개 선형/방사형 그라데이션을 쓴다.
 
-        한/글 2022는 ``GradationColor``/``GradationIndexPos`` 배열을 각각
-        10칸만 제공한다. Engine 검증과 별개로 여기서도 10개를 넘기지 않는다.
+        ``GradationColor``/``GradationIndexPos`` 배열은 10칸이지만, 한/글 2022
+        자동화는 ``GradationColorNum`` 3 이상을 오류 없이 버린다(채우기 자체가
+        사라짐). 그래서 2색만 받는다. Engine 검증과 별개로 여기서도 지킨다.
         """
         spec = self._mapping(fill, "채우기")
         kind = str(spec.get("type", "")).strip().lower()
@@ -1630,13 +1636,8 @@ class HangulCanvas:
             raise UsageError("채우기 type은 linear_gradient 또는 radial_gradient여야 합니다.")
         angle, stops = self._gradient(fill)
         colors = [self._rgb_value(color) for _offset, color in stops]
-        # 두 색의 기본 선형 그라데이션은 IndexPos가 모두 0인 한/글 기본
-        # 배치를 쓴다. 3색 이상은 공개 stop 위치(%)를 전달한다.
-        positions = (
-            [0] * len(stops)
-            if len(stops) == 2
-            else [int(round(offset * 100.0)) for offset, _color in stops]
-        )
+        # 두 색 그라데이션은 IndexPos가 모두 0인 한/글 기본 배치를 쓴다.
+        positions = [0] * len(stops)
         self._set_pset_item(
             fill_pset,
             "Type",
@@ -1924,14 +1925,16 @@ class HangulCanvas:
             self._number(value, "글상자 안쪽 여백", minimum=0) for value in margin
         )  # type: ignore[return-value]
 
-    def _apply_text_box_margin(self, margin: tuple[float, float, float, float] | None) -> None:
-        """선택된 글상자의 안쪽 여백을 ShapeObjDialog로 적용한다.
+    def _apply_text_box_margin(self, margin: tuple[float, float, float, float] | None,
+                               vertical_align: str | None = None,
+                               text_direction: str | None = None) -> None:
+        """선택된 글상자의 안쪽 여백·세로 정렬·글자 방향을 ShapeObjDialog로 적용한다.
 
         HWP 2022는 이 값을 ShapeObject 액션에서만 갱신한다. 지원하지 않는
         설치본에서 기본 여백으로 조용히 성공 처리하면 재현성이 깨지므로,
         호출자에게 명시적으로 실패를 돌려준다.
         """
-        if margin is None:
+        if margin is None and vertical_align is None and text_direction is None:
             return
         try:
             action = self.com.CreateAction("ShapeObjDialog")
@@ -1947,12 +1950,20 @@ class HangulCanvas:
                 raise HangulCommandError("선택 개체에 글상자 여백 속성이 없습니다.")
             text_box = pset.Item("ShapeListProperites")
             from hwpctl.units import mm_to_hwpunit
-            left, right, top, bottom = (mm_to_hwpunit(value) for value in margin)
-            for name, value in (
-                ("MarginLeft", left), ("MarginRight", right),
-                ("MarginTop", top), ("MarginBottom", bottom),
-            ):
-                self._set_pset_item(text_box, name, value)
+            if margin is not None:
+                left, right, top, bottom = (mm_to_hwpunit(value) for value in margin)
+                for name, value in (
+                    ("MarginLeft", left), ("MarginRight", right),
+                    ("MarginTop", top), ("MarginBottom", bottom),
+                ):
+                    self._set_pset_item(text_box, name, value)
+            if vertical_align is not None:
+                # 한/글 기본은 가운데(CENTER). PowerPoint 글상자는 보통 위쪽 기준이다.
+                self._set_pset_item(text_box, "VertAlign", {"top": 0, "center": 1, "bottom": 2}[vertical_align])
+            if text_direction is not None:
+                # 1 = 세로쓰기(영문 눕힘, HWPX VERTICAL), 2 = 세로쓰기(영문 세움, VERTICALALL).
+                self._set_pset_item(text_box, "TextDirection",
+                                    {"horizontal": 0, "vertical": 1, "vertical_upright": 2}[text_direction])
             pset.SetItem("ShapeListProperites", text_box)
             if not bool(action.Execute(pset)):
                 raise HangulCommandError("글상자 안쪽 여백(ShapeObjDialog) 액션이 실패했습니다.")
@@ -1990,6 +2001,8 @@ class HangulCanvas:
         text_color: str = "",
         content_writer: Any = None,
         cursor_after: bool = False,
+        vertical_align: str | None = None,
+        text_direction: str | None = None,
     ) -> int:
         """현재 캐럿에 편집 가능한 한/글 글상자를 만든다.
 
@@ -2049,6 +2062,11 @@ class HangulCanvas:
             action.GetDefault(pset)
             self._set_pset_item(pset, "Width", self._mm_to_hwpunit(width))
             self._set_pset_item(pset, "Height", self._mm_to_hwpunit(height))
+            # Without absolute size references and creation points Hancom 2022
+            # creates a degenerate 1mm box (orgSz 0, garbage corner points) and
+            # ignores Width/Height. Rectangles need the same data.
+            from hwpctl.native_objects import apply_creation_geometry
+            apply_creation_geometry(pset, self._mm_to_hwpunit(width), self._mm_to_hwpunit(height))
             from hwpctl.native_objects import apply_position
             # The legacy short form was paper-relative and overlap-enabled;
             # fully structured positions carry their own explicit values.
@@ -2072,9 +2090,15 @@ class HangulCanvas:
             self.com.SetPosBySet(anchor)
             self.com.FindCtrl()
             if not bool(self.com.HAction.Run("ShapeObjTextBoxEdit")):
-                raise HangulCommandError("글상자 편집 모드로 들어가지 못했습니다.")
+                raise HangulCommandError(
+                    "글상자 편집 모드로 들어가지 못했습니다. 한/글 시작 화면(최근 문서·서식 목록)이 "
+                    "떠 있으면 '새 문서'로 실제 문서 창을 연 뒤 다시 시도하세요."
+                )
             entered_text_box = True
-            self.set_font(
+            # Every executed Hangul action is one Undo step; creation and entering
+            # text-box editing are two of them (measured on Hancom 2022).
+            steps = 2
+            steps += self.set_font(
                 bold=bold,
                 italic=italic,
                 face=actual_face,
@@ -2083,17 +2107,19 @@ class HangulCanvas:
                 text_color=actual_color,
                 text_shadow=text_shadow,
             )
-            self.set_align(alignment)
+            steps += self.set_align(alignment)
             if text:
                 self.insert_text(text)
+                steps += 1
             if content_writer is not None:
-                content_writer()
-            if margins is not None:
+                steps += int(content_writer() or 0)
+            if margins is not None or vertical_align is not None or text_direction is not None:
                 # The list is materialized by entering text-box editing. Before
                 # that boundary a new gso may have no ListProperties at all.
                 self.com.SetPosBySet(anchor)
                 self.com.FindCtrl()
-                self._apply_text_box_margin(margins)
+                self._apply_text_box_margin(margins, vertical_align, text_direction)
+                steps += 1
         except HangulCommandError:
             if entered_text_box:
                 self._restore_text_box_cursor(original_pos, anchor)
@@ -2111,7 +2137,7 @@ class HangulCanvas:
         if cursor_after:
             from hwpctl.native_objects import after_control
             after_control(self, ctrl)
-        return 1
+        return steps
 
     def _restore_text_box_cursor(self, original_pos: tuple | None, anchor: Any | None) -> bool:
         """글상자 편집 모드가 다음 명령으로 새지 않도록 본문 캐럿을 복구한다."""
@@ -2142,8 +2168,9 @@ class HangulCanvas:
         ``embedded=True`` 면 문서에 포함되므로 원본 파일이 사라져도 그림이 남는다.
         """
         self.assert_no_dialog()
-        width = self._mm_to_hwpunit(width_mm) if width_mm else 0
-        height = self._mm_to_hwpunit(height_mm) if height_mm else 0
+        # InsertPicture takes Width/Height in millimetres (float), not HwpUnit.
+        width = float(width_mm) if width_mm else 0
+        height = float(height_mm) if height_mm else 0
         try:
             ctrl = self.com.InsertPicture(
                 path, bool(embedded), int(size_option), False, False, 0, width, height
@@ -2506,6 +2533,30 @@ class HangulCanvas:
                 "데이터 편집 대화상자가 화면에 떠 있다면 닫아 주세요 — "
                 "대화상자가 뜨는 버전(한글 2020 이하)에서는 자동화가 지원되지 않습니다."
             )
+
+    def render_page_image(self, path: str, page_index: int, dpi: int) -> None:
+        """한 쪽을 24비트 BMP로 렌더한다(``CreatePageImage``).
+
+        캐럿이 표 셀·글상자 안에 있으면 한/글은 쪽 전체가 아니라 그 목록만 그린다.
+        본문 처음으로 옮겨 렌더하고 캐럿을 되돌린다.
+        """
+        self.assert_no_dialog()
+        saved = self.get_pos()
+        try:
+            try:
+                self.run("Cancel")
+                self.com.SetPos(0, 0, 0)
+            except Exception:
+                pass
+            try:
+                ok = self.com.CreatePageImage(path, int(page_index), int(dpi), 24, "bmp")
+            except Exception as exc:
+                raise HangulCommandError(f"쪽 이미지를 만들지 못했습니다: {exc}") from exc
+            if not ok:
+                raise HangulCommandError("쪽 이미지(CreatePageImage) 생성이 실패했습니다.")
+        finally:
+            if saved is not None:
+                self.set_pos(saved)
 
     def get_pos(self) -> tuple | None:
         try:
