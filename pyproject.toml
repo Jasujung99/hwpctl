@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Office/Business :: Office Suites",
 ]
 dependencies = [
-    "mcp>=1.9,<2",
+    "mcp>=1.9,<3",
     "anyio>=4.5",
     "starlette>=0.38",
     "uvicorn>=0.30",
