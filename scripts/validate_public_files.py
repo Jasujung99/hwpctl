@@ -114,7 +114,7 @@ def validate_readme_tool_catalog(errors: list[str]) -> None:
     from hwpctl.tools import tool_names
 
     try:
-        documented = documented_tool_names((ROOT / "README.md").read_text(encoding="utf-8"))
+        documented = documented_tool_names((ROOT / "docs" / "guide" / "tools.md").read_text(encoding="utf-8"))
     except ValueError as exc:
         errors.append(str(exc))
         return
@@ -132,7 +132,7 @@ def validate_readme_tool_catalog(errors: list[str]) -> None:
             details.append("duplicate=" + ", ".join(duplicate))
         if not details:
             details.append("order differs")
-        errors.append("README 도구 표와 hwpctl.tools 불일치: " + "; ".join(details))
+        errors.append("도구 레퍼런스 표(docs/guide/tools.md)와 hwpctl.tools 불일치: " + "; ".join(details))
 
 
 def validate_asset_provenance(errors: list[str]) -> None:

@@ -9,7 +9,7 @@ from hwpctl.tools import tool_names
 
 
 def test_readme_tool_catalog_matches_public_tool_order() -> None:
-    readme = Path(__file__).resolve().parents[1] / "README.md"
+    readme = Path(__file__).resolve().parents[1] / "docs" / "guide" / "tools.md"
     text = readme.read_text(encoding="utf-8")
     assert documented_tool_names(text) == tool_names()
 

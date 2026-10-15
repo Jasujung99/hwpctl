@@ -1,6 +1,6 @@
 # HWPX 업그레이드 계획 — 한글 없이 조립하기
 
-조사 결론([research-hwp-without-hangul.md](research-hwp-without-hangul.md))을
+조사 결론([research-hwp-without-hangul.md](../research/hwp-without-hangul.md))을
 따른다. **1차 엔진은 `python-hwpx`**, `hwpctl` COM 은 **선택적 실물 확인**이다.
 이 문서는 단계만 고정한다. 복잡한 공고문 재현은 **다음 단계**이지 현재 PR이 아니다.
 

@@ -18,7 +18,7 @@
   오류가 나면 원하는 창을 활성화한 뒤 인자 없이 `open`을 실행해 다시 고정하세요.
   인자 없는 `open`은 문서를 만들지 않으며, 빈 문서는 `open --new`로만 만듭니다.
 - 자동 테스트는 COM 스텁을 포함하며 실제 한글 UI 검증을 대체하지 않습니다. 공식 릴리스
-  전에 [수동 체크리스트](docs/RELEASE_CHECKLIST.md)를 별도로 통과해야 합니다.
+  전에 [수동 체크리스트](docs/dev/RELEASE_CHECKLIST.md)를 별도로 통과해야 합니다.
 
 ## Undo와 수동 편집
 
@@ -68,7 +68,7 @@
   글자 줄 위치를 mm로 비교합니다. 한/글 없이 HWPX/PDF를 렌더하는 파이프라인은 없습니다.
 - `reference_to_spec`·`build_document`는 실험 기능입니다. ChartML·일부 서식 변환과 새 작성기의
   네이티브 저장·재열기 실기는 미완료이며 [#25](https://github.com/Jasujung99/hwpctl/issues/25)에서
-  추적합니다. 단계는 [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md)을 따릅니다.
+  추적합니다. 단계는 [HWPX 업그레이드 계획](docs/dev/hwpx-upgrade-plan.md)을 따릅니다.
 
 ## 저장과 데이터 보호
 
