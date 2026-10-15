@@ -16,6 +16,12 @@
 배포 전에 잠긴 의존성 버전의 패키지 메타데이터와 라이선스 원문을 다시 확인하세요.
 한글은 이 저장소에 포함되지 않으며 사용자가 별도로 유효한 라이선스를 준비해야 합니다.
 
+## 저장소 포함 테스트 자료 출처
+
+| 파일 | 출처 기록 | 배포 시 유의 사항 |
+|---|---|---|
+| `tests/fixtures/textart/ui-wave2-linear.hwpx`, `tests/fixtures/textart/com-two-text-arts.hwpx`, `tests/fixtures/textart/variants.hwpx`와 같은 이름의 `.hwpml` | 저장소 관리자가 한글 2022 `12.0.0.850`에서 새 빈 문서로 합성한 테스트 자료. 만든 방법은 `tests/fixtures/textart/README.md` | 개인 정보·실제 문서 내용 없음. 한/글 기본 메타데이터(작성자 `user`, 서식 파일 날짜)만 포함 |
+
 ## 저장소 포함 이미지 출처
 
 | 파일 | 출처 기록 | 배포 시 유의 사항 |
