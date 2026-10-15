@@ -26,7 +26,7 @@ Claude Code, Cursor, Gemini CLI, Grok Build 등 연결한 클라이언트의 데
 
 보고에는 민감정보를 제거한 다음 항목만 포함해 주세요.
 
-- 영향을 받는 hwpctl, Windows, 한글, Python, `pyhwpx` 버전
+- 영향을 받는 hwpctl, Windows, 한글, Python, pywin32(설치했다면 `pyhwpx`) 버전
 - 개인정보 없는 최소 재현 절차와 예상·실제 결과
 - 문서 노출, 임의 편집, 인증 우회 가능성
 

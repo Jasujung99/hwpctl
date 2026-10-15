@@ -84,6 +84,10 @@
 
 ### Changed
 
+- 검증 기준 백엔드를 `win32com`(pywin32)으로 명시. `windows` extra는 더 이상 `pyhwpx`를
+  설치하지 않으며, 필요하면 `.[pyhwpx]`로 따로 설치한다. 고정한 창의 편집 경로는 그대로다.
+- 알려진 한계 갱신: 줄 간격 지정 경로, 글맵시 미지원(#30), MCP SDK 1.x 한정(#29),
+  `render_page`/`compare_render`와 실험적 `reference_to_spec`/`build_document` 반영.
 - `open --new` 이후의 후속 명령이 고정된 한글 창을 계속 사용하도록 창 핀을 갱신
 - 인자 없는 `open`을 비파괴 활성 창 재고정으로 바꾸어, 닫혔거나 재시작된 창 핀을
   복구하고 새 문서 생성은 명시적인 `open --new`로 한정

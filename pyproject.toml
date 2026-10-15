@@ -31,8 +31,11 @@ dependencies = [
 
 [project.optional-dependencies]
 windows = [
-    "pyhwpx>=1.0",
     "pywin32>=306",
+]
+# 선택: 창을 고정하기 전 연결(open --new 등)에서만 쓰인다. 검증 기준 백엔드는 win32com.
+pyhwpx = [
+    "pyhwpx>=1.0",
 ]
 hwpx = [
     "python-hwpx>=6.3,<7",

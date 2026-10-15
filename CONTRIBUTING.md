@@ -52,6 +52,6 @@ pytest tests/test_hangul_live_integration.py
 
 ## Issue와 PR
 
-버그에는 Windows·한글·Python·`pyhwpx` 버전, 사용한 명령, 개인정보 없는 최소 재현 절차를
+버그에는 Windows·한글·Python·pywin32(설치했다면 `pyhwpx`) 버전, 사용한 명령, 개인정보 없는 최소 재현 절차를
 포함해 주세요. 보안 문제는 [SECURITY.md](SECURITY.md)의 비공개 신고 절차를 따릅니다.
 PR은 제공된 체크리스트를 작성하고 CI 실패나 리뷰 대화를 모두 해결한 뒤 병합합니다.

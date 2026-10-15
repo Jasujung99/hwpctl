@@ -12,19 +12,21 @@ Grok Build, Cursor, Codex, Gemini CLI, Claude Code는 설정을 갈아끼우기�
 한/글 전용 로직은 클라이언트에 두지 않습니다.
 
 - 엔진은 `hwpctl` 하나뿐입니다.
-- 글자를 타이핑하지 않습니다. `pyhwpx` / `win32com` `HWPFrame.HwpObject` 로 문단·표·셀을 조작합니다.
+- 글자를 타이핑하지 않습니다. Windows COM(`win32com`, `HWPFrame.HwpObject`)으로 문단·표·셀을 조작합니다.
 - 문단·표·셀 명령은 **Undo 한 덩어리**입니다.
 - **자동저장 없음.** 원본은 덮어쓰지 않고 `save_as` 로 새 파일에 저장합니다.
 - 작성기는 한 번에 하나만. 잠금 파일이 두 클라이언트의 동시 쓰기를 막습니다.
 
-대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + pyhwpx `1.7.2`.
+대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + `win32com`(pywin32) 백엔드.
+`pyhwpx`는 선택 설치(`.[pyhwpx]`)이며, 창을 고정하기 전 연결(`open --new` 등)에서만 쓰입니다.
+`open`으로 고정한 창의 모든 편집은 `win32com`으로 실행됩니다.
 한글 2024 전용 GSG / `GetCtrlInstID` / `SelectCtrl` 은 쓰지 않습니다.
 
 ```mermaid
 flowchart LR
     U["사용자"] --> A["Codex · Claude Code · Cursor<br/>Gemini CLI · Grok Build"]
     A -->|"로컬 MCP stdio"| B["hwpctl<br/>단일 작성기 · 명령 잠금"]
-    B -->|"pyhwpx / Windows COM"| H["사용자가 열어 둔<br/>한글 2022 문서"]
+    B -->|"Windows COM (win32com)"| H["사용자가 열어 둔<br/>한글 2022 문서"]
     H -->|"화면에서 즉시 확인"| U
 ```
 
@@ -51,7 +53,7 @@ pytest
 ```
 
 4. 한글을 한 창 열어 둡니다. `hwpctl` 은 **지금 열린 창(캔버스)** 에 붙습니다.
-5. 처음 파일 열기/저장 때 보안 모듈(`FilePathChecker`) 대화 상자가 뜨면 허용합니다. `pyhwpx` 가 모듈을 등록합니다.
+5. 처음 파일 열기/저장 때 보안 모듈(`FilePathChecker`) 대화 상자가 뜨면 허용합니다. `hwpctl`이 연결할 때 모듈을 등록합니다.
 
 연결 확인:
 
@@ -65,10 +67,12 @@ hwpctl status
 한/글(한글 오피스)을 찾을 수 없습니다. 이 컴퓨터에 한글 2022가 설치되어 있고 Windows에서 실행 중인지 확인하세요. ...
 ```
 
-### 선택: 한글 없이 `.hwpx` 준비
+### 선택: 한글 없이 `.hwpx` 읽기와 실험적 작성
 
-복잡한 공고문을 COM 으로 처음부터 재현하지 않고, `.hwpx` XML 을 조립하는
-준비 계층입니다. **재현 자체는 다음 단계**입니다.
+`.hwpx` XML을 한/글 없이 읽고 조립하는 계층입니다. `hwpx_status`/`hwpx_inspect`는
+한/글 없이 동작합니다. 참조 문서를 작성 명세로 바꾸는 `reference_to_spec`과 명세로 새 문서를
+만드는 `build_document`는 **실험 기능**입니다. 상세는
+[HWPX 범용 작성](docs/HWPX_AUTHORING.md)과 [#25](https://github.com/Jasujung99/hwpctl/issues/25)를 보세요.
 계획: [docs/hwpx-upgrade-plan.md](docs/hwpx-upgrade-plan.md) ·
 조사: [docs/research-hwp-without-hangul.md](docs/research-hwp-without-hangul.md)
 

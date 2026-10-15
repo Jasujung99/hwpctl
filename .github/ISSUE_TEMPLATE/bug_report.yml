@@ -20,8 +20,8 @@ body:
     id: environment
     attributes:
       label: 실행 환경
-      description: Windows, 한글 빌드, Python, pyhwpx, AI 클라이언트 버전을 적어 주세요.
-      placeholder: Windows 11 / 한글 2022 12.x / Python 3.12 / pyhwpx 1.7.2 / Cursor ...
+      description: Windows, 한글 빌드, Python, pywin32(설치했다면 pyhwpx), hwpctl, AI 클라이언트 버전을 적어 주세요.
+      placeholder: Windows 11 / 한글 2022 12.0.0.850 / Python 3.13 / pywin32 312 / hwpctl 0.1.0 / Claude Code ...
     validations:
       required: true
   - type: textarea

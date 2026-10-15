@@ -9,7 +9,9 @@
 
 ## 열린 창과 대상 고정
 
-- 연결은 Windows COM 실행 객체와 `pyhwpx`가 노출하는 한글 인스턴스에 의존합니다.
+- 연결은 실행 중인 한글이 Windows COM 실행 객체 테이블(ROT)에 등록한 인스턴스에 의존하며,
+  검증 기준 백엔드는 `win32com`(pywin32)입니다. 선택 설치한 `pyhwpx`는 창을 고정하기 전
+  연결에서만 쓰이고, 고정한 창의 편집은 항상 `win32com`으로 실행됩니다.
   한글 설치 종류, 보안 모듈, 권한 구성이 다르면 연결 결과도 달라질 수 있습니다.
 - `open`으로 얻은 창 핸들을 기록하고 후속 명령에서 같은 창인지 확인하지만, 여러 창을
   동시에 사용하는 모든 조합을 보장하지는 않습니다. 한글을 재시작했거나 대상 불일치
@@ -36,7 +38,12 @@
 - `insert_chart`의 `line` 차트 인덱스는 추론값이며 `ChartDataDialogDisable` 동작도 실기
   확인 대상입니다. 데이터 편집 대화상자가 뜨면 자동으로 누르지 말고 중단하세요.
 - 현재 `set_format`은 글꼴·문자권별 HFT 글꼴·크기·굵게·기울임·글자색·정렬·셀 채우기·글자 그림자를 지원합니다.
-  줄 간격은 레이아웃 검토에서 읽지만 직접 변경 도구로는 아직 노출하지 않습니다.
+  줄 간격·문단 여백은 `set_format`이 아니라 문단 사양(`paragraph.line_spacing_percent` 등)으로
+  지정합니다. 새 문단은 `insert_paragraph`·`write_cell`, 기존 문단은 `format_paragraph_by_text`를
+  사용하세요.
+- 글자 자체에 그러데이션을 넣는 글맵시(TextArt)는 아직 도구로 제공하지 않습니다. 현재 그러데이션은
+  표 칸(`set_cell_fill`)과 글상자·도형 채우기(`insert_text_box`·`insert_shape`의 `fill`)에만
+  적용됩니다. 진행 상황은 [#30](https://github.com/Jasujung99/hwpctl/issues/30)을 참고하세요.
 - `set_table_position`의 floating 좌표는 표가 놓인 문단/쪽/용지를 기준으로 계산됩니다.
   앞 문단의 길이나 쪽 나눔이 바뀌면 절대 화면 좌표처럼 고정되지 않을 수 있으므로,
   문서 조립이 끝난 뒤 PDF로 위치와 본문 흐름을 확인하세요.
@@ -57,10 +64,11 @@
 - 변경 추적, 암호화 문서, 매크로, 복잡한 개체, 모든 HWP/HWPX 변환을 지원하는 범용
   문서 처리기는 아닙니다.
 - `hwpx_status` / `hwpx_inspect` 는 한글 없이 `.hwpx` 서식 그룹만 읽습니다.
-  사전 렌더된 PPM(P6) 페이지는 라이브러리 API `compare_page_images(...)`로 비교할 수
-  있지만, HWPX/PDF 렌더 파이프라인과 비교 CLI/MCP, 공고문 재현·HWPX 쓰기 CLI 는 아직
-  없습니다.
-  단계는 [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md)을 따릅니다.
+- `render_page`는 열린 문서의 쪽을 한/글로 렌더하고, `compare_render`는 원본·결과 쪽 이미지의
+  글자 줄 위치를 mm로 비교합니다. 한/글 없이 HWPX/PDF를 렌더하는 파이프라인은 없습니다.
+- `reference_to_spec`·`build_document`는 실험 기능입니다. ChartML·일부 서식 변환과 새 작성기의
+  네이티브 저장·재열기 실기는 미완료이며 [#25](https://github.com/Jasujung99/hwpctl/issues/25)에서
+  추적합니다. 단계는 [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md)을 따릅니다.
 
 ## 저장과 데이터 보호
 
@@ -74,6 +82,9 @@
 ## 지원 범위와 비제휴 고지
 
 - 목표 환경은 Windows와 한글 오피스 2022이며, 현재 문서화된 실측 기준은 한글
-  `12.0.0.850`과 `pyhwpx 1.7.2`입니다. 다른 빌드와 한글 버전은 보장하지 않습니다.
+  `12.0.0.850`, `win32com`(pywin32 312), Python 3.13입니다. 다른 빌드와 한글 버전은
+  보장하지 않습니다.
+- MCP Python SDK는 1.x만 지원합니다(`mcp>=1.9,<2`). 2.x 마이그레이션은
+  [#29](https://github.com/Jasujung99/hwpctl/issues/29)에서 진행합니다.
 - `hwpctl`은 한글과컴퓨터가 제공·보증·후원하는 공식 제품이 아닙니다. 사용자는 유효한
   제품 라이선스와 자동화 사용 조건을 직접 확인해야 합니다.
