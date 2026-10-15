@@ -32,6 +32,9 @@ HIGHLIGHT_START = "<!-- hwpctl-tool-highlights:start -->"
 HIGHLIGHT_END = "<!-- hwpctl-tool-highlights:end -->"
 ASSET_PROVENANCE_MARKERS = {
     "assets/new-year-card/new-year-minhwa-background.png": "GPT 계열 이미지 생성 모델",
+    "tests/fixtures/textart/ui-wave2-linear.hwpx": "새 빈 문서로 합성한 테스트 자료",
+    "tests/fixtures/textart/com-two-text-arts.hwpx": "새 빈 문서로 합성한 테스트 자료",
+    "tests/fixtures/textart/variants.hwpx": "새 빈 문서로 합성한 테스트 자료",
 }
 
 

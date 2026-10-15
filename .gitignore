@@ -26,6 +26,9 @@ profiles/
 .grok/
 *.hwpx
 *.hwp
+# 합성 테스트 자료만 추적한다. 출처: tests/fixtures/*/README.md
+!tests/fixtures/**/*.hwpx
+!tests/fixtures/**/*.hwp
 .mypy_cache/
 .ruff_cache/
 agent-tools/
