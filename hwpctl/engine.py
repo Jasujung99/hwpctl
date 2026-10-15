@@ -144,6 +144,7 @@ class Engine:
             "insert_image": self.insert_image,
             "insert_text_box": self.insert_text_box,
             "insert_shape": self.insert_shape,
+            "insert_text_art": self.insert_text_art,
             "insert_section": self.insert_section,
             "build_document": self.build_document,
             "reference_to_spec": self.reference_to_spec,
@@ -212,6 +213,30 @@ class Engine:
             actions = insert_shape(canvas, **args)
             self._record_undo("insert_shape", actions)
         return {"ok": True, "command": "insert_shape", "undo_units": 1, **args}
+
+    def insert_text_art(self, text: str, width_mm: float, height_mm: float, shape: str = "rectangle",
+                        font: str = "", font_style: str = "regular", fill: Any = None, line: Any = None,
+                        shadow: Any = None, align: str = "left", line_spacing_percent: int = 120,
+                        char_spacing_percent: int = 100, position: Any = None) -> dict[str, Any]:
+        """글맵시(TextArt)를 삽입한다. 글자 자체에 그러데이션을 넣는 한/글 기본 경로다."""
+        from hwpctl.native_objects import insert_text_art
+        args = _normalize_text_art(
+            text=text, width_mm=width_mm, height_mm=height_mm, shape=shape, font=font,
+            font_style=font_style, fill=fill, line=line, shadow=shadow, align=align,
+            line_spacing_percent=line_spacing_percent, char_spacing_percent=char_spacing_percent,
+            position=position)
+        with SingleWriterLock(timeout=self.lock_timeout):
+            canvas = self._connect()
+            try:
+                actions = insert_text_art(canvas, **args)
+            except Exception as exc:
+                # 생성은 됐지만 속성 적용이 실패한 경우에도 한/글 Undo 이력과 맞춘다.
+                partial = getattr(exc, "partial_undo_steps", 0)
+                if partial:
+                    self._record_undo("insert_text_art", partial)
+                raise
+            self._record_undo("insert_text_art", actions)
+        return {"ok": True, "command": "insert_text_art", "undo_units": 1, "hangul_actions": actions, **args}
 
     def status(self) -> dict[str, Any]:
         with SingleWriterLock(timeout=self.lock_timeout):
@@ -3262,6 +3287,56 @@ def _finite_number(value: Any, label: str) -> float:
     return number
 
 
+_TEXT_ART_MAX_CHARS = 2000
+# 글맵시 줄·글자 간격(%) 허용 범위. 한글 2022에서 양 끝값의 저장을 실측했다.
+_TEXT_ART_SPACING = (50, 500)
+
+
+def _normalize_text_art(*, text: Any, width_mm: Any, height_mm: Any, shape: Any, font: Any,
+                        font_style: Any, fill: Any, line: Any, shadow: Any, align: Any,
+                        line_spacing_percent: Any, char_spacing_percent: Any,
+                        position: Any) -> dict[str, Any]:
+    """글맵시 공개 사양을 COM과 무관한 구조로 정규화한다(Engine·작성 명세 공용)."""
+    from hwpctl.textart import ALIGNS, FONT_STYLES, shape_index, shape_name
+
+    if not isinstance(text, str):
+        raise UsageError("글맵시 text는 문자열이어야 합니다.")
+    text = text.replace("\r\n", "\n")
+    if not text.strip():
+        raise UsageError("글맵시 text가 비어 있습니다.")
+    if len(text) > _TEXT_ART_MAX_CHARS:
+        raise UsageError(f"글맵시 text는 {_TEXT_ART_MAX_CHARS}자 이하여야 합니다.")
+    # U+240D/U+240A는 한/글이 파일에 줄바꿈을 저장하는 기호라, 내용으로 받으면 되읽을 때 줄바꿈이 된다.
+    if any(ord(char) < 0x20 and char != "\n" for char in text) or "\u240d" in text or "\u240a" in text:
+        raise UsageError("글맵시 text에는 줄바꿈(\\n) 외의 제어 문자를 넣을 수 없습니다.")
+    if not isinstance(font, str) or any(ord(char) < 0x20 for char in font) or len(font.strip()) > 64:
+        raise UsageError("글맵시 font는 64자 이하의 글꼴 이름이어야 합니다.")
+    if font_style not in FONT_STYLES:
+        raise UsageError("글맵시 font_style은 regular, bold, italic, bold_italic 중 하나여야 합니다.")
+    if align not in ALIGNS:
+        raise UsageError("글맵시 align은 left, right, center, full 중 하나여야 합니다.")
+    spacing: dict[str, int] = {}
+    for key, value in (("line_spacing_percent", line_spacing_percent),
+                       ("char_spacing_percent", char_spacing_percent)):
+        if type(value) is not int or not _TEXT_ART_SPACING[0] <= value <= _TEXT_ART_SPACING[1]:
+            raise UsageError(f"글맵시 {key}는 {_TEXT_ART_SPACING[0]}~{_TEXT_ART_SPACING[1]} 정수여야 합니다.")
+        spacing[key] = value
+    return {
+        "text": text,
+        "width_mm": _normalize_dimension(width_mm, "글맵시 width_mm"),
+        "height_mm": _normalize_dimension(height_mm, "글맵시 height_mm"),
+        "shape": shape_name(shape_index(shape)),
+        "font": font.strip(),
+        "font_style": font_style,
+        "fill": _normalize_fill(fill, allow_empty=True),
+        "line": _normalize_line(line),
+        "shadow": _normalize_shadow(shadow, label="글맵시 그림자"),
+        "align": align,
+        **spacing,
+        "position": _normalize_table_position(position or {"mode": "inline"}),
+    }
+
+
 def _normalize_dimension(value: Any, label: str) -> float:
     number = _finite_number(value, label)
     if not 0 < number <= 500:
@@ -3289,6 +3364,10 @@ def _normalize_fill_alpha(value: dict[str, Any]) -> int | None:
             raise UsageError("채우기 opacity는 0~100(%) 범위여야 합니다.")
         return int(round(255 * (100 - opacity) / 100))
     return None
+
+
+# 한/글 2022 그러데이션 번짐 정도(GradationStep)의 상한. UI 기본값이 255다.
+_GRADIENT_STEP_MAX = 255
 
 
 def _normalize_fill(value: Any, *, allow_empty: bool) -> dict[str, Any] | None:
@@ -3382,9 +3461,19 @@ def _normalize_fill(value: Any, *, allow_empty: bool) -> dict[str, Any] | None:
             ("step_center", 50),
         ):
             number = _finite_number(value.get(key, default), f"방사형 그라데이션 {key}")
-            if not number.is_integer() or not 0 <= number <= 100:
-                raise UsageError(f"방사형 그라데이션 {key}는 0~100 정수여야 합니다.")
+            limit = _GRADIENT_STEP_MAX if key == "step" else 100
+            if not number.is_integer() or not 0 <= number <= limit:
+                raise UsageError(f"방사형 그라데이션 {key}는 0~{limit} 정수여야 합니다.")
             result[key] = int(number)
+    else:
+        # 선형에는 중심이 없고 번짐 정도(step)·번짐 중심(step_center)만 고를 수 있다.
+        # 생략하면 기존 작성값(100, 50)을 쓴다. 한/글 UI 기본 번짐 정도는 255다.
+        for key, limit in (("step", _GRADIENT_STEP_MAX), ("step_center", 100)):
+            if key in value:
+                number = _finite_number(value[key], f"선형 그라데이션 {key}")
+                if not number.is_integer() or not 0 <= number <= limit:
+                    raise UsageError(f"선형 그라데이션 {key}는 0~{limit} 정수여야 합니다.")
+                result[key] = int(number)
     return result
 
 

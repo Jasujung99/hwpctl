@@ -31,10 +31,10 @@ Windows COM으로 직접 고치게 합니다. 바뀐 내용은 한/글 화면에
 
 | 하는 것 | 하지 않는 것 |
 |---|---|
-| 문단·글자 서식, 표(생성·채우기·병합·격자·여백), 글상자·도형·그림, 쪽 설정·쪽 번호 | 키 입력 흉내(SendKeys), 자동 저장 |
+| 문단·글자 서식, 표(생성·채우기·병합·격자·여백), 글상자·도형·그림, **글맵시(글자 그러데이션)**, 쪽 설정·쪽 번호 | 키 입력 흉내(SendKeys), 자동 저장 |
 | 명령마다 Undo 단위 기록과 `undo` | 명시 플래그 없는 원본 덮어쓰기·문서 닫기 |
 | 쪽 렌더(`render_page`)와 측정 비교(`compare_render`) | 한글 2024 전용 API 사용, 범용 HWP 변환기 역할 |
-| 한/글 없이 `.hwpx` 읽기(`hwpx_inspect`) | 글자 그러데이션(글맵시)은 아직 미지원 ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
+| 한/글 없이 `.hwpx` 읽기(`hwpx_inspect`) | 글맵시의 회전·뒤집기·자체 그림자 재현 |
 | 참조 문서를 명세로 바꿔 새 문서로 재구성(실험: `reference_to_spec`·`build_document`) | 네이티브 차트(`insert_chart`)는 검증 빌드에서 사용 비권장 ([#33](https://github.com/Jasujung99/hwpctl/issues/33)) |
 
 새 문서에서 미리보기 후 적용하는 좁고 안전한 방식이 필요하면 [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe)를,
@@ -81,13 +81,14 @@ C:\hwpctl\venv\Scripts\hwpctl status
 | `fill_cells` | 표 셀 값 채우기 |
 | `layout_review` | 표 편집 뒤 줄바꿈·행 높이·본문 폭 검토와 수정 |
 | `insert_shape` | 편집 가능한 사각형·타원·선 삽입 |
+| `insert_text_art` | 글맵시: 글자에 그러데이션 채우기, 모양 55종 |
 | `insert_text_box` | 편집 가능한 글상자 (채우기·테두리·그림자·위치) |
 | `render_page` | 쪽을 이미지로 렌더해 결과 확인 |
 | `undo` | 직전 hwpctl 명령을 Undo 한 덩어리로 되돌리기 |
 | `save_as` | 새 경로에 저장 (원본 경로는 거부) |
 <!-- hwpctl-tool-highlights:end -->
 
-전체 54개 도구: [도구 레퍼런스](docs/guide/tools.md)
+전체 55개 도구: [도구 레퍼런스](docs/guide/tools.md)
 
 ### 안전 원칙
 
@@ -103,7 +104,7 @@ C:\hwpctl\venv\Scripts\hwpctl status
 
 - 사용 가이드: [설치](docs/guide/install.md) · [클라이언트 연결](docs/guide/clients.md) ·
   [도구 레퍼런스](docs/guide/tools.md) · [표와 서식](docs/guide/tables-and-formatting.md) ·
-  [차트](docs/guide/charts.md) · [HWPX 작성(실험)](docs/guide/hwpx-authoring.md) ·
+  [차트](docs/guide/charts.md) · [글맵시](docs/guide/text-art.md) · [HWPX 작성(실험)](docs/guide/hwpx-authoring.md) ·
   [안전 장치](docs/guide/safety.md)
 - [알려진 한계](KNOWN_LIMITATIONS.md) · [변경 기록](CHANGELOG.md) · [보안 정책](SECURITY.md) ·
   [기여 안내](CONTRIBUTING.md) · [제3자 고지](THIRD_PARTY_NOTICES.md) · [전체 문서 목록](docs/README.md)
@@ -128,10 +129,10 @@ same `hwpctl` server with a small configuration change.
 
 | Does | Does not |
 |---|---|
-| Paragraph and character formatting, tables (create, fill, merge, grid, cell margins), text boxes, shapes, pictures, page setup and page numbers | Simulate keystrokes (SendKeys) or autosave |
+| Paragraph and character formatting, tables (create, fill, merge, grid, cell margins), text boxes, shapes, pictures, **TextArt (gradient-filled text)**, page setup and page numbers | Simulate keystrokes (SendKeys) or autosave |
 | Record each command as one Undo unit, with `undo` | Overwrite the original or close documents without an explicit flag |
 | Render pages (`render_page`) and measure differences (`compare_render`) | Use Hangul 2024-only APIs or act as a general HWP converter |
-| Read `.hwpx` without Hangul (`hwpx_inspect`) | Gradient-filled text (TextArt) — not yet ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
+| Read `.hwpx` without Hangul (`hwpx_inspect`) | Reproduce TextArt rotation, flips or its own shadow |
 | Rebuild a reference document from a spec (experimental: `reference_to_spec`, `build_document`) | Native charts (`insert_chart`) — not recommended on the verified build ([#33](https://github.com/Jasujung99/hwpctl/issues/33)) |
 
 For a narrower, preview-first workflow on a new document, see [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe).
@@ -179,13 +180,14 @@ To update, quit every MCP client first, then reinstall ([install guide](docs/gui
 | `fill_cells` | Fill table cells |
 | `layout_review` | Review and fix wrapping, row heights and body width after table edits |
 | `insert_shape` | Insert an editable rectangle, ellipse or line |
+| `insert_text_art` | TextArt: gradient-filled text in 55 native shapes |
 | `insert_text_box` | Insert an editable text box (fill, border, shadow, position) |
 | `render_page` | Render a page to an image to check the result |
 | `undo` | Undo the previous hwpctl command as one unit |
 | `save_as` | Save to a new path (the original path is refused) |
 <!-- hwpctl-tool-highlights:end -->
 
-All 54 tools: [tool reference](docs/guide/tools.md)
+All 55 tools: [tool reference](docs/guide/tools.md)
 
 ### Safety
 
@@ -203,7 +205,7 @@ The detailed guides are currently written in Korean.
 
 - Guides: [install](docs/guide/install.md) · [client setup](docs/guide/clients.md) ·
   [tool reference](docs/guide/tools.md) · [tables and formatting](docs/guide/tables-and-formatting.md) ·
-  [charts](docs/guide/charts.md) · [HWPX authoring (experimental)](docs/guide/hwpx-authoring.md) ·
+  [charts](docs/guide/charts.md) · [TextArt](docs/guide/text-art.md) · [HWPX authoring (experimental)](docs/guide/hwpx-authoring.md) ·
   [safety](docs/guide/safety.md)
 - [Known limitations](KNOWN_LIMITATIONS.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) ·
   [Contributing](CONTRIBUTING.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [All docs](docs/README.md)

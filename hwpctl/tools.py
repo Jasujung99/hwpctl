@@ -131,6 +131,12 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec("insert_shape", "편집 가능한 사각형·타원·선 삽입. Undo 1단위", False, True),
     ToolSpec(
+        "insert_text_art",
+        "글맵시 삽입: 글자에 단색·2색 그러데이션 채우기, 모양 55종, 크기·위치. Undo 1단위",
+        False,
+        True,
+    ),
+    ToolSpec(
         "set_cell_fill",
         "표 셀 범위에 단색·선형·방사형 그라데이션 채우기. Undo 1단위",
         False,

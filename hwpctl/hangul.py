@@ -1651,14 +1651,15 @@ class HangulCanvas:
                 ("step", 100),
                 ("step_center", 50),
             ):
+                limit = 255.0 if name == "step" else 100.0
                 value = self._number(
                     spec.get(name, default),
                     f"방사형 그라데이션 {name}",
                     minimum=0.0,
-                    maximum=100.0,
+                    maximum=limit,
                 )
                 if not value.is_integer():
-                    raise UsageError(f"방사형 그라데이션 {name}는 0~100 정수여야 합니다.")
+                    raise UsageError(f"방사형 그라데이션 {name}는 0~{int(limit)} 정수여야 합니다.")
                 values[name] = int(value)
             gradation_type = self._enum("Gradation", "Radial", 2)
             center_x = values["center_x"]
@@ -1669,8 +1670,16 @@ class HangulCanvas:
             gradation_type = self._enum("Gradation", "Linear", 1)
             center_x = 0
             center_y = 0
-            step = 100
-            step_center = 50
+            # 생략하면 기존 작성값을 쓴다. 한/글 UI 기본 번짐 정도는 255다.
+            linear: dict[str, int] = {}
+            for name, default, limit in (("step", 100, 255.0), ("step_center", 50, 100.0)):
+                value = self._number(spec.get(name, default), f"선형 그라데이션 {name}",
+                                     minimum=0.0, maximum=limit)
+                if not value.is_integer():
+                    raise UsageError(f"선형 그라데이션 {name}는 0~{int(limit)} 정수여야 합니다.")
+                linear[name] = int(value)
+            step = linear["step"]
+            step_center = linear["step_center"]
         self._set_pset_item(fill_pset, "GradationType", gradation_type)
         self._set_pset_item(fill_pset, "GradationCenterX", center_x)
         self._set_pset_item(fill_pset, "GradationCenterY", center_y)

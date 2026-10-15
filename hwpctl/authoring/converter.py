@@ -19,6 +19,7 @@ import zipfile
 from hwpctl.authoring.geometry import CellMeasurement, recover_table_geometry
 from hwpctl.authoring.model import SCHEMA, parse_spec
 from hwpctl.errors import UsageError
+from hwpctl.textart import TEXTART_COMMENT, parse_text_art
 from hwpctl.units import hwpunit_to_mm
 
 
@@ -406,7 +407,8 @@ class _Converter:
         return True
 
     def _object_frame(self, node: ET.Element, source: str, result: dict[str, Any],
-                      *, need_size: bool) -> None:
+                      *, need_size: bool, numbering: frozenset[str] = frozenset({"NONE"}),
+                      comment: str | None = None) -> None:
         """Read common SHAPEOBJECT/SIZE/POSITION facts without guessing anchors.
 
         HWPML stores these as children of the object. HWPX uses the same
@@ -421,7 +423,7 @@ class _Converter:
         if shape is not node:
             for key in set(attrs) - {"INSTID", "ZORDER", "NUMBERINGTYPE", "TEXTWRAP", "TEXTFLOW", "LOCK", "ID"}:
                 self.entry(source, None, "loss", f"unsupported shape-object property {key}")
-            for key, allowed in {"ZORDER": {"0"}, "NUMBERINGTYPE": {"NONE"},
+            for key, allowed in {"ZORDER": {"0"}, "NUMBERINGTYPE": numbering,
                                  "TEXTFLOW": {"BOTHSIDES"}, "LOCK": {"0", "FALSE"}}.items():
                 if key in attrs and attrs[key].upper() not in allowed:
                     self.entry(source, None, "loss", f"unsupported shape-object property {key}={attrs[key]}")
@@ -516,6 +518,9 @@ class _Converter:
             except ValueError as exc:
                 self.entry(source, None, "loss", str(exc))
         for child in shape if shape is not node else []:
+            if (comment is not None and _tag(child) == "SHAPECOMMENT" and not _attrs(child)
+                    and not list(child) and (child.text or "") == comment):
+                continue
             if _tag(child) not in {"SIZE", "SZ", "POSITION", "POS", "OUTSIDEMARGIN"}:
                 self.entry(source + "/" + _tag(child), None, "loss", "unsupported shape-object child")
 
@@ -675,6 +680,8 @@ class _Converter:
                 result.append(self._new_number(child, here, target + f"[{len(result)}]"))
             elif tag in {"RECTANGLE", "RECT", "ELLIPSE", "LINE"}:
                 result.append(self._drawing(child, here, target + f"[{len(result)}]"))
+            elif tag == "TEXTART":
+                result.append(self._text_art(child, here, target + f"[{len(result)}]"))
             elif tag == "CHART":
                 self._chart(child, here)
             elif tag in {"DRAWINGOBJECT", "SHAPEOBJECT", "TEXTBOX"}:
@@ -1039,7 +1046,8 @@ class _Converter:
             center_y = int(attrs.get("CENTERY", "0"))
             step = int(attrs.get("STEP", "50"))
             step_center = int(attrs.get("STEPCENTER", "50"))
-            if not 0 <= angle <= 359 or any(not 0 <= value <= 100 for value in (center_x, center_y, step, step_center)):
+            if (not 0 <= angle <= 359 or not 0 <= step <= 255
+                    or any(not 0 <= value <= 100 for value in (center_x, center_y, step_center))):
                 raise ValueError("gradient geometry outside supported range")
         except (KeyError, ValueError) as exc:
             self.entry(source, None, "loss", f"invalid gradient geometry: {exc}")
@@ -1047,8 +1055,11 @@ class _Converter:
         result: dict[str, Any] = {"type": "linear_gradient" if kind == "LINEAR" else "radial_gradient",
                                   "angle": angle, "stops": colors}
         if kind == "LINEAR":
-            if (center_x, center_y, step, step_center) != (0, 0, 100, 50):
-                self.entry(source, None, "loss", "linear gradient center/step differs from native writer")
+            if (center_x, center_y) != (0, 0):
+                self.entry(source, None, "loss", "linear gradient center differs from native writer")
+            if (step, step_center) != (100, 50):
+                # The native writer accepts these; omit defaults so older specs stay unchanged.
+                result.update(step=step, step_center=step_center)
         else:
             result.update(center_x=center_x, center_y=center_y, step=step, step_center=step_center)
         return result
@@ -1246,6 +1257,157 @@ class _Converter:
                     self.entry(source, None, "loss", f"unsupported drawing child {_tag(child)}")
         self.entry(source, target, "converted", "native editable drawing primitive")
         return result
+
+    def _text_art(self, node: ET.Element, source: str, target: str) -> dict[str, Any]:
+        """Convert a native 글맵시 to a ``text_art`` node (``insert_text_art``).
+
+        Text, font, style, shape, alignment, spacing, size, fill, outline and
+        position are represented. Rotation, flips, skew, shadows and non-TTF
+        fonts are not authored and are reported as losses. The native numbering
+        type (PICTURE/Figure) and the default comment are what ``TextArtCreate``
+        produces, so they are not losses.
+        """
+        result: dict[str, Any] = {"kind": "text_art", "source": source}
+        try:
+            facts = parse_text_art(node, self.kind)
+        except (UsageError, ValueError) as exc:
+            self.entry(source, None, "loss", f"text art cannot be read: {exc}")
+            return result
+        if not facts["text"].strip():
+            self.entry(source, None, "loss", "empty text art")
+        result.update(text=facts["text"], shape=facts["shape"], align=facts["align"],
+                      line_spacing_percent=facts["line_spacing_percent"],
+                      char_spacing_percent=facts["char_spacing_percent"])
+        if facts["font_name"]:
+            result["font"] = facts["font_name"]
+        if facts["font_style"] != "regular":
+            result["font_style"] = facts["font_style"]
+        if facts["font_type"] not in {"ttf", ""}:
+            self.entry(source, None, "loss", f"text art font type {facts['font_type']} is not authored")
+        for key in ("line_spacing_percent", "char_spacing_percent"):
+            if not 50 <= facts[key] <= 500:
+                self.entry(source, None, "loss", f"text art {key} outside 50..500")
+        self._object_frame(node, source, result, need_size=True,
+                           numbering=frozenset({"NONE", "FIGURE", "PICTURE"}), comment=TEXTART_COMMENT)
+        if self.kind == "hwpx":
+            drawing = node
+            props = _child(node, "TEXTARTPR")
+            attrs = _attrs(node)
+            for key, valid in {"ZORDER": {"0"}, "NUMBERINGTYPE": {"NONE", "PICTURE"}, "LOCK": {"0", "FALSE"},
+                               "DROPCAPSTYLE": {"NONE"}, "HREF": {""}, "GROUPLEVEL": {"0"},
+                               "TEXTFLOW": {"BOTHSIDES"}}.items():
+                if key in attrs and attrs[key].upper().replace("_", "") not in valid:
+                    self.entry(source, None, "loss", f"unsupported text art property {key}={attrs[key]}")
+            for key in set(attrs) - {"ID", "ZORDER", "NUMBERINGTYPE", "TEXTWRAP", "TEXTFLOW", "LOCK",
+                                     "DROPCAPSTYLE", "HREF", "GROUPLEVEL", "INSTID", "TEXT"}:
+                self.entry(source, None, "loss", f"unsupported text art property {key}")
+            size = _attrs(_child(node, "SZ"))
+            for child in node:
+                tag = _tag(child)
+                if tag in {"OFFSET", "FLIP"}:
+                    if any(value != "0" for value in _attrs(child).values()):
+                        self.entry(source, None, "loss", f"transformed text art {tag}")
+                elif tag == "CURSZ":
+                    cur = _attrs(child)
+                    if (cur.get("WIDTH"), cur.get("HEIGHT")) != (size.get("WIDTH"), size.get("HEIGHT")):
+                        self.entry(source, None, "loss", "text art current size differs from object size")
+                elif tag == "ROTATIONINFO":
+                    if _attrs(child).get("ANGLE", "0") != "0":
+                        self.entry(source, None, "loss", "rotated text art is not authored")
+                elif tag == "RENDERINGINFO":
+                    self._text_art_matrices(child, source)
+                elif tag == "SHADOW":
+                    self._text_art_shadow(child, source, "object")
+                elif tag == "TEXTARTPR":
+                    for prop in child:
+                        if _tag(prop) == "SHADOW":
+                            self._text_art_shadow(prop, source, "text art")
+                        else:
+                            self.entry(source, None, "loss", f"unsupported text art property {_tag(prop)}")
+                elif tag not in {"ORGSZ", "PT0", "PT1", "PT2", "PT3", "LINESHAPE", "FILLBRUSH", "SZ", "POS",
+                                 "OUTMARGIN", "SHAPECOMMENT"}:
+                    self.entry(source, None, "loss", f"unsupported text art child {tag}")
+                if tag == "SHAPECOMMENT" and (child.text or "") != TEXTART_COMMENT:
+                    self.entry(source, None, "loss", "text art comment is not authored")
+        else:
+            drawing = _child(node, "DRAWINGOBJECT")
+            props = _child(node, "TEXTARTSHAPE")
+            for key in set(_attrs(node)) - {"TEXT", "X0", "X1", "X2", "X3", "Y0", "Y1", "Y2", "Y3"}:
+                self.entry(source, None, "loss", f"unsupported text art property {key}")
+            for child in node:
+                if _tag(child) not in {"SHAPEOBJECT", "DRAWINGOBJECT", "TEXTARTSHAPE", "OUTLINEDATA"}:
+                    self.entry(source, None, "loss", f"unsupported text art child {_tag(child)}")
+            if drawing is None:
+                self.entry(source, None, "loss", "text art drawing properties absent")
+                return result
+            size = _attrs(_child(_child(node, "SHAPEOBJECT"), "SIZE"))
+            for child in drawing:
+                tag = _tag(child)
+                if tag == "SHAPECOMPONENT":
+                    component = _attrs(child)
+                    if (component.get("CURWIDTH"), component.get("CURHEIGHT")) != (size.get("WIDTH"), size.get("HEIGHT")):
+                        self.entry(source, None, "loss", "text art current size differs from object size")
+                    for key, value in {"XPOS": "0", "YPOS": "0", "GROUPLEVEL": "0",
+                                       "HORZFLIP": "false", "VERTFLIP": "false"}.items():
+                        if component.get(key, value).lower() != value:
+                            self.entry(source, None, "loss", f"transformed text art {key}={component[key]}")
+                    for part in child:
+                        if _tag(part) == "ROTATIONINFO":
+                            if _attrs(part).get("ANGLE", "0") != "0":
+                                self.entry(source, None, "loss", "rotated text art is not authored")
+                        elif _tag(part) == "RENDERINGINFO":
+                            self._text_art_matrices(part, source)
+                        else:
+                            self.entry(source, None, "loss", f"unsupported text art component {_tag(part)}")
+                elif tag == "SHADOW":
+                    self._text_art_shadow(child, source, "object")
+                elif tag not in {"LINESHAPE", "FILLBRUSH"}:
+                    self.entry(source, None, "loss", f"unsupported text art drawing property {tag}")
+            for prop in props if props is not None else []:
+                if _tag(prop) == "SHADOW":
+                    self._text_art_shadow(prop, source, "text art")
+                else:
+                    self.entry(source, None, "loss", f"unsupported text art property {_tag(prop)}")
+        line = _child(drawing, "LINESHAPE")
+        lattrs = _attrs(line)
+        style = lattrs.get("STYLE", "NONE").upper()
+        if style == "SOLID":
+            try:
+                result["line"] = {"type": "solid", "color": _color(lattrs.get("COLOR"), source + ".line.color"),
+                                  "width_mm": _line_width(lattrs.get("WIDTH"), source + ".line.width")}
+            except ValueError as exc:
+                self.entry(source, None, "loss", str(exc))
+        elif style != "NONE":
+            self.entry(source, None, "loss", f"unsupported text art outline style {style}")
+        fill = _child(drawing, "FILLBRUSH")
+        if fill is not None:
+            if _attrs(fill) or len(fill) != 1:
+                self.entry(source, None, "loss", "text art fill brush is not a single simple fill")
+            elif parsed := self._fill_brush(fill[0], source):
+                result["fill"] = parsed
+        self.entry(source, target, "converted", "native editable text art")
+        return result
+
+    def _text_art_matrices(self, info: ET.Element, source: str) -> None:
+        """Translation/rotation must be identity; scaling follows the object size."""
+        for matrix in info:
+            values = {key: float(value) for key, value in _attrs(matrix).items()}
+            tag = _tag(matrix)
+            if tag in {"TRANSMATRIX", "ROTMATRIX"}:
+                identity = {"E1": 1.0, "E2": 0.0, "E3": 0.0, "E4": 0.0, "E5": 1.0, "E6": 0.0}
+                if any(abs(values.get(key, 0.0) - expected) > 1e-6 for key, expected in identity.items()):
+                    self.entry(source, None, "loss", f"text art {tag} is not identity")
+            elif tag == "SCAMATRIX":
+                if any(abs(values.get(key, 0.0)) > 1e-6 for key in ("E2", "E3", "E4", "E6")) or \
+                        values.get("E1", 0.0) <= 0 or values.get("E5", 0.0) <= 0:
+                    self.entry(source, None, "loss", "skewed or mirrored text art scale")
+            else:
+                self.entry(source, None, "loss", f"unsupported text art rendering matrix {tag}")
+
+    def _text_art_shadow(self, shadow: ET.Element, source: str, label: str) -> None:
+        kind = _attrs(shadow).get("TYPE", "NONE").upper()
+        if kind not in {"NONE", "0"}:
+            self.entry(source, None, "loss", f"{label} shadow is not authored")
 
     def _hwpx_drawing_fact(self, child: ET.Element, node: ET.Element,
                            source: str, result: dict[str, Any]) -> None:

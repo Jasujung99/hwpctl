@@ -1,5 +1,19 @@
 # 통합 검증 기록
 
+## 글맵시 `insert_text_art` 실기 검증 (2026-10-15, #30)
+
+환경: Windows 11, 한글 2022 `12.0.0.850`, Python 3.13, pywin32 312. 새 문서와 DispatchEx 소유 문서만 사용했다.
+
+- 실측: `TextArtCreate`는 넘긴 값을 무시하고 기본 글맵시를 만든다. `GetDefault` 없이 `Execute`하면 RPC_E_SERVERFAULT가 난다.
+  `ShapeObjDialog`는 하위 셋 복사본을 돌려주므로 `SetItem`으로 다시 넣어야 하고, 너비·높이는 성공을 반환해도
+  무시한다(RelTo·ShapeType 변형 모두). 크기는 개체 `Properties` 대입으로 바뀌며 Undo 단계를 만들지 않는다.
+- 결과: 생성 1 + 속성 1 = 한/글 Undo 2단계, hwpctl `undo` 한 번으로 개체가 사라진다.
+- 실기 확인: 선형(step 255)·방사형(step 200)·단색 채우기, 모양(wave2·arch_up·rectangle), 굵게, 정렬 4종, 여러 줄,
+  줄·글자 간격 끝값(50·500), 윤곽선, 글자처럼 취급·떠 있음(쪽 기준), 표 칸 안 삽입, 요청 크기(mm→HU) 정확히 저장.
+- 왕복: UI로 만든 글맵시 HWPML → `reference_to_spec`(손실 없음) → `build_document` → HWPX가 원본과 내용·글꼴·모양·
+  정렬·간격·크기(HU)·위치·윤곽선·그러데이션(step 포함) 모두 일치.
+- 회귀: opt-in 실기 20개 통과(기존 18 + 글맵시 2), 남은 `Hwp.exe` 없음. 단위 523 passed.
+
 ## v0.1.0 릴리스 실기 검증 (2026-10-15)
 
 환경: Windows 11 Home 22621, 한글 2022 `12.0.0.850`, Python 3.13.5, pywin32 312(`win32com`),

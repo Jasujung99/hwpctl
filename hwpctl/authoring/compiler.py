@@ -44,6 +44,11 @@ def _integer(value, location, minimum=1, maximum=256):
     return value
 
 
+_TEXT_ART_DEFAULTS = {"shape": "rectangle", "font": "", "font_style": "regular", "fill": None, "line": None,
+                      "shadow": None, "align": "left", "line_spacing_percent": 120,
+                      "char_spacing_percent": 100, "position": None}
+
+
 class Compiler:
     def __init__(self, spec: DocumentSpec, *, check_assets=True):
         self.spec = spec
@@ -123,6 +128,8 @@ class Compiler:
                          "margin", "align", "vertical_align", "text_direction", "position", "bold", "italic",
                          "font", "font_slots", "size", "color"},
             "shape": {"shape_kind", "width_mm", "height_mm", "fill", "line", "shadow", "position"},
+            "text_art": {"text", "width_mm", "height_mm", "shape", "font", "font_style", "fill", "line",
+                         "shadow", "align", "line_spacing_percent", "char_spacing_percent", "position"},
             "chart": {"table_id", "cell_range", "chart_type", "chart_index"},
             "page_break": set(), "page_hiding": {"hide_page_num", "hide_header", "hide_footer", "hide_border", "hide_fill", "hide_master_page"},
             "new_number": {"number", "number_type"},
@@ -201,6 +208,12 @@ class Compiler:
                 args.setdefault("text", "")
                 args["cursor_after"] = True
             self.emit(location, "insert_" + kind, source, **args)
+        elif kind == "text_art":
+            # Same validation as the public command; defaults mirror Engine.insert_text_art.
+            api._normalize_text_art(**{**_TEXT_ART_DEFAULTS, **{key: args.get(key) for key in
+                                                                ("text", "width_mm", "height_mm")},
+                                       **args})
+            self.emit(location, "insert_text_art", source, **args)
         elif kind == "chart":
             table_id = args.pop("table_id", None)
             if table_id not in self.tables:

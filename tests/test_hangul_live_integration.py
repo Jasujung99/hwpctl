@@ -548,3 +548,78 @@ for trial in range(3):
     assert "windows fatal exception" not in diagnostics.lower(), diagnostics
     assert "0x800706ba" not in diagnostics.lower(), diagnostics
     assert result.stdout.count("CLEAN_CYCLE") == 3, diagnostics
+
+
+def _text_art_controls(app: Any) -> list[Any]:
+    found, ctrl = [], app.HeadCtrl
+    while ctrl is not None:
+        if str(ctrl.CtrlID) == "gso" and str(ctrl.UserDesc) == "글맵시":
+            found.append(ctrl)
+        ctrl = ctrl.Next
+    return found
+
+
+def test_text_art_insert_saves_requested_facts_and_undoes_as_one_unit(tmp_path) -> None:
+    """insert_text_art: 내용·글꼴·모양·크기·그러데이션·위치가 저장되고 Undo 2단계로 사라진다."""
+    from hwpctl.textart import read_text_arts
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, records = _isolated_engine(canvas)
+        engine.dispatch("insert_text_art", text="실기 글맵시", width_mm=80, height_mm=20, shape="wave2",
+                        font="함초롬돋움", font_style="bold", align="center",
+                        fill={"type": "linear_gradient", "angle": 0, "stops": ["#FF0000", "#0000FF"],
+                              "step": 255})
+        engine.dispatch("insert_text_art", text="첫째\n둘째", width_mm=60, height_mm=24, shape="arch_up",
+                        fill={"type": "radial_gradient", "stops": ["#FFFFFF", "#008000"], "step": 200},
+                        line={"type": "solid", "color": "#FF0000", "width_mm": 0.5},
+                        position={"mode": "floating", "x_mm": 20, "y_mm": 30, "wrap": "in_front_of_text",
+                                  "horizontal_relative_to": "page", "vertical_relative_to": "page"})
+        assert records == [("insert_text_art", 2), ("insert_text_art", 2)]
+        output = tmp_path / "synthetic-text-art.hwpx"
+        canvas.save_as(str(output))
+        first, second = read_text_arts(output)
+        from hwpctl.units import mm_to_hwpunit
+        assert (first["text"], first["font_name"], first["font_style"], first["shape"], first["align"]) == (
+            "실기 글맵시", "함초롬돋움", "bold", "wave2", "center")
+        assert (first["width_hu"], first["height_hu"]) == (mm_to_hwpunit(80), mm_to_hwpunit(20))
+        assert first["treat_as_char"] is True
+        assert first["fill"]["colors"] == ["#FF0000", "#0000FF"] and first["fill"]["step"] == 255
+        assert (second["text"], second["shape"], second["line_style"]) == ("첫째\n둘째", "arch_up", "solid")
+        assert (second["width_hu"], second["height_hu"]) == (mm_to_hwpunit(60), mm_to_hwpunit(24))
+        assert second["treat_as_char"] is False and (second["vert_rel_to"], second["horz_rel_to"]) == ("page", "page")
+        assert second["fill"]["type"] == "radial_gradient" and second["fill"]["step"] == 200
+        assert len(_text_art_controls(app)) == 2
+        canvas.undo_once()
+        canvas.undo_once()
+        assert len(_text_art_controls(app)) == 1
+    finally:
+        _close_without_saving(app)
+
+
+def test_text_art_reference_round_trip_rebuilds_the_native_object(tmp_path) -> None:
+    """UI로 만든 글맵시 → reference_to_spec → build_document가 같은 글맵시를 다시 만든다."""
+    import re
+    from hwpctl.authoring.converter import reference_to_spec
+    from hwpctl.authoring.runtime import build_document
+    from hwpctl.textart import read_text_arts
+    fixtures = Path(__file__).resolve().parent / "fixtures" / "textart"
+    element = re.findall(r"<TEXTART .*?</TEXTART>",
+                         (fixtures / "ui-wave2-linear.hwpml").read_bytes().decode("utf-16"), re.S)[0]
+    head = ('<HEAD><MAPPINGTABLE><CHARSHAPELIST><CHARSHAPE Id="1" Height="1000" TextColor="#000000"/>'
+            '</CHARSHAPELIST><PARASHAPELIST><PARASHAPE Id="1" Align="Left"/></PARASHAPELIST></MAPPINGTABLE></HEAD>')
+    source = tmp_path / "reference.hwpml"
+    source.write_text(f'<HWPML>{head}<BODY><SECTION><P ParaShape="1"><TEXT CharShape="1">{element}'
+                      '</TEXT></P></SECTION></BODY></HWPML>', encoding="utf-8")
+    converted = reference_to_spec(source, tmp_path / "converted")
+    assert converted["ok"], converted["report"]["losses"]
+    rebuilt = tmp_path / "rebuilt.hwpx"
+    built = build_document(converted["spec"], str(rebuilt))
+    assert built["ok"] and built["completed"], built
+    (expected,) = read_text_arts(fixtures / "ui-wave2-linear.hwpx")
+    (actual,) = read_text_arts(rebuilt)
+    keys = ("text", "font_name", "font_style", "shape", "align", "line_spacing_percent",
+            "char_spacing_percent", "width_hu", "height_hu", "treat_as_char", "vert_rel_to",
+            "horz_rel_to", "flow_with_text", "line_style")
+    assert {key: actual[key] for key in keys} == {key: expected[key] for key in keys}
+    for key in ("type", "angle", "colors", "step", "step_center"):
+        assert actual["fill"][key] == expected["fill"][key], key
