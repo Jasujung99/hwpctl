@@ -86,6 +86,41 @@ def test_table_grid_geometry_survives_a_page_boundary() -> None:
         _close_without_saving(app)
 
 
+def test_layout_review_shrinks_rows_written_by_table_grid() -> None:
+    """set_table_grid가 셀마다 쓴 행 높이를 layout_review 적용이 실제로 줄이는지 확인한다.
+
+    대표 셀 하나에만 높이를 쓰면 한/글은 같은 행의 다른 셀 높이로 행을 유지한다.
+    이때 layout_review가 applied:true를 보고하던 회귀를 막는다.
+    """
+    app, canvas = _new_blank_canvas()
+    try:
+        canvas.create_table(rows=4, cols=2, header=False)
+        canvas.get_into_nth_table(0)
+        engine, records = _isolated_engine(canvas)
+        engine.set_table_grid(table=0, column_widths_mm=[40.0, 130.0], row_heights_mm=[10.0, 14.0, 14.0, 14.0])
+        for row in range(4):
+            for col in range(2):
+                canvas.get_into_nth_table(0)
+                canvas.goto_addr(a1(row, col))
+                canvas.insert_text(f"셀 {a1(row, col)}")
+
+        result = engine.layout_review(table=0, dry_run=False)
+
+        table = result["tables"][0]
+        shrunk = [change for change in table["row_changes"] if change["from_mm"] == pytest.approx(14.0, abs=0.05)]
+        assert shrunk, table["row_changes"]
+        assert table["applied"] is True
+        canvas.get_into_nth_table(0)
+        for change in table["row_changes"]:
+            assert change["applied"] is True
+            for col in range(2):
+                canvas.goto_addr(a1(change["row_index"], col))
+                assert canvas.get_row_height() == pytest.approx(change["to_mm"], abs=0.5)
+        assert records[-1] == ("layout_review", result["hangul_actions"])
+    finally:
+        _close_without_saving(app)
+
+
 def test_parent_exit_stops_in_the_immediate_parent_cell() -> None:
     app, canvas = _new_blank_canvas()
     try:

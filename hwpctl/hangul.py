@@ -716,19 +716,54 @@ class HangulCanvas:
         return widths
 
     def set_table_row_height(self, n: int, row: int, height_mm: float) -> int:
-        """행 높이를 mm로 설정한다. 성공하면 한/글 액션 수 1."""
+        """행의 모든 실제 셀 높이를 mm로 설정하고 성공한 한/글 액션 수를 반환한다.
+
+        한/글 행 높이는 그 행 셀 높이의 최댓값이다. ``set_table_grid`` 처럼 셀마다
+        높이를 써 둔 표에서 대표 셀 하나만 줄이면 나머지 셀이 행을 그대로 붙잡는다.
+        아래 행까지 병합된 셀은 높이가 여러 행에 걸치므로 건드리지 않는다.
+        """
         self.get_into_nth_table(n)
-        addr = next(
-            (addr for addr in self._table_addresses() if _parse_a1(addr)[0] == row),
-            None,
-        )
-        if addr is None:
-            raise HangulCommandError(
-                f"{n}번 표 {row + 1}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
-            )
-        self.goto_addr(addr)
-        self.set_row_height_current(height_mm)
-        return 1
+        addresses = self._table_addresses()
+        targets = _single_row_cell_addresses(addresses).get(row)
+        if not targets:
+            # 행 하나에만 걸친 셀이 없는 병합 구조는 예전처럼 첫 셀에만 적용한다.
+            first = next((addr for addr in addresses if _parse_a1(addr)[0] == row), None)
+            if first is None:
+                raise HangulCommandError(
+                    f"{n}번 표 {row + 1}행은 병합 구조 때문에 높이를 조절할 셀을 찾지 못했습니다."
+                )
+            targets = [first]
+        written = 0
+        try:
+            for addr in targets:
+                self.goto_addr(addr)
+                self.set_row_height_current(height_mm)
+                written += 1
+        except Exception as exc:
+            # Engine이 중간 실패 전에 실행된 한/글 액션도 Undo 이력에 남기도록 전달한다.
+            setattr(exc, "_hwpctl_partial_actions", written)
+            raise
+        return written
+
+    def table_row_heights(self, n: int) -> list[float]:
+        """n번 표의 실제 행 높이(mm). 행 하나에만 걸친 셀 높이의 최댓값이다."""
+        self.get_into_nth_table(n)
+        addresses = self._table_addresses()
+        if not addresses:
+            raise HangulCommandError(f"{n}번 표의 셀 구조를 읽지 못했습니다.")
+        by_row = _single_row_cell_addresses(addresses)
+        rows = max(_parse_a1(addr)[0] for addr in addresses) + 1
+        heights: list[float] = []
+        for row in range(rows):
+            targets = by_row.get(row) or [
+                addr for addr in addresses if _parse_a1(addr)[0] == row
+            ]
+            height = 0.0
+            for addr in targets:
+                self.goto_addr(addr)
+                height = max(height, self._get_row_height_mm())
+            heights.append(height)
+        return heights
 
     def set_row_height_current(self, height_mm: float) -> None:
         """현재 셀이 속한 행 높이(mm)를 설정한다."""
@@ -4266,6 +4301,25 @@ def _parse_a1(addr: str) -> tuple[int, int]:
     for ch in letters:
         col = col * 26 + (ord(ch) - 64)
     return int(digits) - 1, col - 1
+
+
+def _single_row_cell_addresses(addresses: list[str]) -> dict[int, list[str]]:
+    """행마다 그 행 하나에만 걸친 실제 셀 주소를 표 순회 순서대로 모은다.
+
+    바로 아래 칸의 주소가 없으면 그 셀이 아래 행까지 병합됐을 수 있으므로 뺀다.
+    아래 칸이 왼쪽 셀의 가로 병합에 덮인 경우도 함께 빠지지만, 여러 행에 걸친
+    셀에 한 행 높이를 쓰는 것보다 보수적이다.
+    """
+    coordinates = {_parse_a1(addr): addr for addr in addresses}
+    if not coordinates:
+        return {}
+    rows = max(row for row, _col in coordinates) + 1
+    by_row: dict[int, list[str]] = {}
+    for (row, col), addr in coordinates.items():
+        if row + 1 < rows and (row + 1, col) not in coordinates:
+            continue
+        by_row.setdefault(row, []).append(addr)
+    return by_row
 
 
 def parse_a1(addr: str) -> tuple[int, int]:
