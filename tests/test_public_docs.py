@@ -30,3 +30,14 @@ def test_included_new_year_asset_has_generation_provenance_notice() -> None:
     assert (root / relative).is_file()
     assert relative in notices
     assert "GPT 계열 이미지 생성 모델" in notices
+
+def test_package_version_matches_pyproject() -> None:
+    """--version 출력(hwpctl.__version__)과 배포 메타데이터 버전이 어긋나지 않게 한다."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
+    from hwpctl import __version__
+    root = Path(__file__).resolve().parents[1]
+    with (root / "pyproject.toml").open("rb") as stream:
+        assert __version__ == tomllib.load(stream)["project"]["version"]

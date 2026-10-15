@@ -48,7 +48,7 @@ Windows COM으로 직접 고치게 합니다. 바뀐 내용은 한/글 화면에
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
-C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.2.0/hwpctl-0.2.0-py3-none-any.whl"
 ```
 
 **2. AI 클라이언트에 등록합니다.** Claude Code 예:
@@ -147,7 +147,7 @@ runtime, so the server executable is not tied to a source checkout.
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
-C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.2.0/hwpctl-0.2.0-py3-none-any.whl"
 ```
 
 **2. Register it with your client.** Claude Code example:

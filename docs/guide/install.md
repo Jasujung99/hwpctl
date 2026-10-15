@@ -17,7 +17,7 @@ MCP 클라이언트는 `hwpctl.exe`를 서버로 띄워 둡니다. 실행 중인
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
-C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.2.0/hwpctl-0.2.0-py3-none-any.whl"
 ```
 
 릴리스되지 않은 최신 `main`을 쓰려면 Git을 설치한 뒤 주소만 바꿉니다.
@@ -57,7 +57,7 @@ C:\hwpctl\venv\Scripts\hwpctl status
    설치합니다. 최신 `main`을 쓰는 경우에는 `git+` 명령에 `--upgrade`를 붙입니다.
 
 ```bat
-C:\hwpctl\venv\Scripts\python -m pip install --upgrade "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
+C:\hwpctl\venv\Scripts\python -m pip install --upgrade "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.2.0/hwpctl-0.2.0-py3-none-any.whl"
 ```
 
 ## 선택 extra
