@@ -28,6 +28,8 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 TOOL_TABLE_START = "<!-- hwpctl-tool-catalog:start -->"
 TOOL_TABLE_END = "<!-- hwpctl-tool-catalog:end -->"
 TOOL_TABLE_NAME = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
+HIGHLIGHT_START = "<!-- hwpctl-tool-highlights:start -->"
+HIGHLIGHT_END = "<!-- hwpctl-tool-highlights:end -->"
 ASSET_PROVENANCE_MARKERS = {
     "assets/new-year-card/new-year-minhwa-background.png": "GPT 계열 이미지 생성 모델",
 }
@@ -114,7 +116,7 @@ def validate_readme_tool_catalog(errors: list[str]) -> None:
     from hwpctl.tools import tool_names
 
     try:
-        documented = documented_tool_names((ROOT / "README.md").read_text(encoding="utf-8"))
+        documented = documented_tool_names((ROOT / "docs" / "guide" / "tools.md").read_text(encoding="utf-8"))
     except ValueError as exc:
         errors.append(str(exc))
         return
@@ -132,7 +134,44 @@ def validate_readme_tool_catalog(errors: list[str]) -> None:
             details.append("duplicate=" + ", ".join(duplicate))
         if not details:
             details.append("order differs")
-        errors.append("README 도구 표와 hwpctl.tools 불일치: " + "; ".join(details))
+        errors.append("도구 레퍼런스 표(docs/guide/tools.md)와 hwpctl.tools 불일치: " + "; ".join(details))
+
+
+def highlighted_tool_tables(readme_text: str) -> list[list[str]]:
+    """README의 대표 도구 표(한국어·영어 절)마다 도구명 목록을 돌려준다."""
+    tables: list[list[str]] = []
+    pos = 0
+    while True:
+        start = readme_text.find(HIGHLIGHT_START, pos)
+        if start < 0:
+            return tables
+        end = readme_text.find(HIGHLIGHT_END, start)
+        if end < 0:
+            raise ValueError("README 대표 도구 표의 end marker가 없습니다.")
+        tables.append(TOOL_TABLE_NAME.findall(readme_text[start + len(HIGHLIGHT_START) : end]))
+        pos = end + len(HIGHLIGHT_END)
+
+
+def validate_readme_highlights(errors: list[str]) -> None:
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from hwpctl.tools import tool_names
+
+    try:
+        tables = highlighted_tool_tables((ROOT / "README.md").read_text(encoding="utf-8"))
+    except ValueError as exc:
+        errors.append(str(exc))
+        return
+    if len(tables) != 2:
+        errors.append(f"README 대표 도구 표는 한국어·영어 2개여야 합니다: {len(tables)}개")
+        return
+    known = set(tool_names())
+    for table in tables:
+        unknown = [name for name in table if name not in known]
+        if not table or unknown:
+            errors.append("README 대표 도구 표에 없는 도구: " + (", ".join(unknown) or "(비어 있음)"))
+    if tables[0] != tables[1]:
+        errors.append("README 한국어·영어 대표 도구 표의 도구 목록이 다릅니다.")
 
 
 def validate_asset_provenance(errors: list[str]) -> None:
@@ -152,6 +191,7 @@ def main() -> int:
     validate_private_literals(files, errors)
     markdown_count = validate_markdown(files, errors)
     validate_readme_tool_catalog(errors)
+    validate_readme_highlights(errors)
     validate_asset_provenance(errors)
     if errors:
         for error in errors:

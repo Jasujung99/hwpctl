@@ -8,9 +8,10 @@
 - [ ] 작업 트리에 의도하지 않은 파일이 없다.
 - [ ] 실제 HWP/HWPX, 프로필, 토큰, 인증서, 로컬 MCP 설정, 사용자 경로와 스크린샷이
       추적되지 않는다.
-- [ ] README 예제와 MCP 도구 목록이 현재 CLI와 일치한다.
-- [ ] [알려진 한계](../KNOWN_LIMITATIONS.md), [보안 정책](../SECURITY.md),
-      [제3자 고지](../THIRD_PARTY_NOTICES.md)를 검토했다.
+- [ ] README·[도구 레퍼런스](../guide/tools.md) 예제와 MCP 도구 목록이 현재 CLI와 일치한다
+      (도구 표 순서는 CI가 검사한다).
+- [ ] [알려진 한계](../../KNOWN_LIMITATIONS.md), [보안 정책](../../SECURITY.md),
+      [제3자 고지](../../THIRD_PARTY_NOTICES.md)를 검토했다.
 - [ ] GitHub Private Vulnerability Reporting과 `main` 보호 규칙이 활성화되어 있다.
 
 ## 자동 검사

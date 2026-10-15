@@ -1,510 +1,213 @@
-# hwpctl — 한/글 라이브 코파일럿 브리지
+# hwpctl
 
-[구현 통합 대장·4계층 기준](docs/INTEGRATION_STATUS.md) ·
-[합성 FAQ 작성 예제](examples/FAQ_002_NORMALIZED_SPEC.md) ·
-[통합 검증 기록](docs/INTEGRATION_VERIFICATION.md)
+[![CI](https://github.com/Jasujung99/hwpctl/actions/workflows/ci.yml/badge.svg)](https://github.com/Jasujung99/hwpctl/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+![Windows + Hangul 2022](https://img.shields.io/badge/platform-Windows%20%2B%20Hangul%202022-lightgrey)
 
-[HWPX 범용 작성·참조 내보내기](docs/HWPX_AUTHORING.md) ·
-[폴더 조사 후속 후보](docs/INTEGRATION_CANDIDATES.md)
+**열린 한/글 2022 문서를 AI 코딩 도구가 직접 편집하게 하는 로컬 MCP·CLI 브리지**<br>
+*A local MCP/CLI bridge that lets AI coding agents edit an open Hancom Office Hangul 2022 document.*
 
-열린 **한글 2022** 창을 채팅 클라이언트가 고치게 하는 **단일 작성기**입니다.  
-Grok Build, Cursor, Codex, Gemini CLI, Claude Code는 설정을 갈아끼우기만 하면 됩니다.
-한/글 전용 로직은 클라이언트에 두지 않습니다.
-
-- 엔진은 `hwpctl` 하나뿐입니다.
-- 글자를 타이핑하지 않습니다. Windows COM(`win32com`, `HWPFrame.HwpObject`)으로 문단·표·셀을 조작합니다.
-- 문단·표·셀 명령은 **Undo 한 덩어리**입니다.
-- **자동저장 없음.** 원본은 덮어쓰지 않고 `save_as` 로 새 파일에 저장합니다.
-- 작성기는 한 번에 하나만. 잠금 파일이 두 클라이언트의 동시 쓰기를 막습니다.
-
-대상/실측 기준: Windows + 한글 2022 `12.0.0.850` + `win32com`(pywin32) 백엔드.
-`pyhwpx`는 선택 설치(`.[pyhwpx]`)이며, 창을 고정하기 전 연결(`open --new` 등)에서만 쓰입니다.
-`open`으로 고정한 창의 모든 편집은 `win32com`으로 실행됩니다.
-한글 2024 전용 GSG / `GetCtrlInstID` / `SelectCtrl` 은 쓰지 않습니다.
+[한국어](#한국어) · [English](#english)
 
 ```mermaid
 flowchart LR
-    U["사용자"] --> A["Codex · Claude Code · Cursor<br/>Gemini CLI · Grok Build"]
+    U["사용자 · User"] --> A["Claude Code · Codex · Cursor<br/>Gemini CLI · Grok Build"]
     A -->|"로컬 MCP stdio"| B["hwpctl<br/>단일 작성기 · 명령 잠금"]
-    B -->|"Windows COM (win32com)"| H["사용자가 열어 둔<br/>한글 2022 문서"]
+    B -->|"Windows COM (win32com)"| H["열어 둔 한글 2022 문서<br/>Open Hangul 2022 document"]
     H -->|"화면에서 즉시 확인"| U
 ```
 
-AI 클라이언트와 `hwpctl`이 같은 PC에서 실행되면 기본 연결은 로컬 stdio입니다.
-HTTP는 별도 프로세스나 원격 클라이언트가 명시적으로 필요로 할 때만 선택합니다.
-
 ---
 
-## 설치 (Windows + 한글 2022)
+## 한국어
 
-1. [한글 2022](https://www.hancom.com/)가 설치되어 있는지 확인합니다.
-2. [Python 3.10+](https://www.python.org/downloads/) 을 설치합니다. 설치 시 **Add Python to PATH** 를 켭니다.
-3. 이 저장소를 받은 뒤:
+### hwpctl은
 
-```bat
-py -3.12 -m pip install -e ".[windows]"
-```
+Claude Code, Codex, Cursor, Gemini CLI, Grok Build 같은 AI 도구가 **사용자가 열어 둔 한글 2022 창**을
+Windows COM으로 직접 고치게 합니다. 바뀐 내용은 한/글 화면에서 바로 확인합니다. 클라이언트마다
+한/글 로직을 따로 두지 않고, 설정만 바꿔 같은 `hwpctl` 서버에 붙습니다.
 
-개발·테스트만 할 때(한/글 없는 머신):
-
-```bash
-pip install -e ".[dev]"
-pytest
-```
-
-4. 한글을 한 창 열어 둡니다. `hwpctl` 은 **지금 열린 창(캔버스)** 에 붙습니다.
-5. 처음 파일 열기/저장 때 보안 모듈(`FilePathChecker`) 대화 상자가 뜨면 허용합니다. `hwpctl`이 연결할 때 모듈을 등록합니다.
-
-연결 확인:
-
-```bat
-hwpctl status
-```
-
-한/글이 없거나 Windows 가 아니면 스택 없이 한국어로 실패합니다.
-
-```
-한/글(한글 오피스)을 찾을 수 없습니다. 이 컴퓨터에 한글 2022가 설치되어 있고 Windows에서 실행 중인지 확인하세요. ...
-```
-
-### 선택: 한글 없이 `.hwpx` 읽기와 실험적 작성
-
-`.hwpx` XML을 한/글 없이 읽고 조립하는 계층입니다. `hwpx_status`/`hwpx_inspect`는
-한/글 없이 동작합니다. 참조 문서를 작성 명세로 바꾸는 `reference_to_spec`과 명세로 새 문서를
-만드는 `build_document`는 **실험 기능**입니다. 상세는
-[HWPX 범용 작성](docs/HWPX_AUTHORING.md)과 [#25](https://github.com/Jasujung99/hwpctl/issues/25)를 보세요.
-계획: [docs/hwpx-upgrade-plan.md](docs/hwpx-upgrade-plan.md) ·
-조사: [docs/research-hwp-without-hangul.md](docs/research-hwp-without-hangul.md)
-
-```bash
-pip install -e ".[hwpx]"
-hwpctl hwpx_status
-hwpctl hwpx_inspect 샘플.hwpx
-```
-
-한/글·COM·작성 잠금은 필요 없습니다. 기존 `status` / `insert_title` 등 COM
-명령은 그대로입니다.
-
----
-
-## 클라이언트 바꾸기
-
-서버는 같고, 설정만 다릅니다. 한/글 코드를 클라이언트마다 넣지 마세요.
-
-| 클라이언트 | 붙는 방식 | 예제 |
-|---|---|---|
-| Cursor | MCP stdio | [`examples/cursor/mcp.json`](examples/cursor/mcp.json) |
-| Codex | MCP stdio | [`examples/codex/config.toml`](examples/codex/config.toml) |
-| Claude Code | MCP stdio | [`examples/claude-code/.mcp.json`](examples/claude-code/.mcp.json) |
-| Gemini CLI | MCP stdio | [`examples/gemini/settings.json`](examples/gemini/settings.json) |
-| Grok Build / 로컬 Grok CLI | MCP stdio | [`examples/grok-build/.mcp.json`](examples/grok-build/.mcp.json) |
-| 별도 프로세스·원격 클라이언트 | MCP streamable HTTP + 토큰 | [`examples/grok-http/`](examples/grok-http/) |
-
-stdio 예 (Cursor·Codex·Claude·Gemini·Grok Build 공통):
-
-```json
-{
-  "mcpServers": {
-    "hwpctl": {
-      "command": "hwpctl",
-      "args": ["mcp"],
-      "env": { "HWPCTL_CLIENT": "cursor" }
-    }
-  }
-}
-```
-
-- Cursor: 프로젝트 `.cursor/mcp.json` 또는 사용자 MCP 설정에 위 내용을 넣습니다.
-- Codex: `~/.codex/config.toml` 에 `examples/codex/config.toml` 을 복사합니다.
-- Claude Code: 프로젝트 `.mcp.json` 또는 `claude mcp add`.
-- Gemini CLI: `~/.gemini/settings.json` 의 `mcpServers`.
-- Grok Build: 프로젝트 `.mcp.json`에 `examples/grok-build/.mcp.json`을 병합합니다.
-
-바꾼 뒤 클라이언트를 재시작하면 같은 `status` / `insert_title` / `create_table` 도구가 보입니다.
-
-### 선택 사항: HTTP 연결
-
-같은 PC에서 명령줄을 실행하는 Grok Build를 포함한 로컬 클라이언트는 위의 stdio
-설정을 사용하면 됩니다. HTTP 모드는 별도 프로세스가 필요하거나, 원격 서비스에 대해
-사용자가 보안 영향을 검토하고 명시적으로 연결을 구성할 때만 사용하세요. 이 저장소는
-외부 공개나 터널을 기본값으로 가정하지 않습니다.
-
-```bat
-set HWPCTL_TOKEN=긴무작위문자열
-hwpctl mcp --http --host 127.0.0.1 --port 18765 --token %HWPCTL_TOKEN%
-```
-
-- MCP 엔드포인트: `http://127.0.0.1:18765/mcp`
-- 헤더: `Authorization: Bearer <토큰>` 또는 `X-Hwpctl-Token: <토큰>`
-- 토큰 없으면 401. `127.0.0.1` / `localhost` 만 허용합니다.
-
----
-
-## 명령 / MCP 도구
-
-CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 stderr 한국어.
-
-<!-- hwpctl-tool-catalog:start -->
-| 이름 | 하는 일 |
+| 하는 것 | 하지 않는 것 |
 |---|---|
-| `status` | 창 제목, 경로, 수정 여부, 쪽, 한/글 버전 |
-| `list_documents` | 실행 중인 모든 한/글 문서의 창·경로·수정 여부·쪽 수를 **활성화 없이** 읽기 전용으로 열거. 경로 없는 초안은 `unsaved: true` |
-| `doctor` | 작업 전 환경 점검(읽기 전용): 한/글 응답·대화상자·창 없는 잔재 프로세스·고정 창·`--font` 글꼴 설치/재시작 필요 여부·hwpctl 최신성 |
-| `render_page` | 고정 문서의 한 쪽을 BMP/PPM으로 렌더(`CreatePageImage`). 표 안 캐럿이어도 쪽 전체를 그림. 문서 변경 없음 |
-| `compare_render` | 원본·결과 쪽 이미지에서 영역별 글자 줄 상자를 찾아 위치·크기 차이(mm) 보고. 한/글·COM 불필요 |
-| `open` | 인자 없이는 활성 창 재고정, 경로는 파일 열기, `--new`는 새 문서. 파일 교체 전 수정본은 `--discard` |
-| `snapshot` | 제목·본문·표·선택 영역 읽기. 캐럿·선택은 원래대로 복원 |
-| `set_edit_marks` | 조판·문단부호 보기를 명시적으로 설정. 본문·다른 보기 옵션 보존 |
-| `format_paragraph_by_text` | 정확히 일치하는 일반 본문 문단의 글자·문단 서식 적용 |
-| `recreate_inline_table_before_paragraph` | 검증한 1×1 질문 표를 답변 앞에 재생성. Cut/Paste·클립보드·HWPML 미사용 |
-| `trim_blank_paragraphs_before_body` | 정확한 답변 앞의 연속 빈 문단을 지정 개수만 남김 |
-| `insert_title` | 제목 문단 (가운데, 굵게, 큰 글씨). 서식은 제목에만. Undo 1단위 |
-| `insert_paragraph` | 본문 문단·글자 런·문단 레이아웃. `--no-terminate`로 문단 경계를 호출자가 제어. Undo 1단위 |
-| `insert_section` | 현재 본문 위치에서 다음 구역 시작 |
-| `create_table` | 표. `--header-fill gray`, 기본 칸 안여백 3.5/2.0mm. Undo 1단위 |
-| `set_table_properties` | 표의 쪽 나눔(`none`/`table`/`cell`)·제목 행 반복·셀 간격 |
-| `set_table_position` | 표의 글자처럼 취급/떠 있는 위치·바깥 여백 |
-| `fill_cells` | 셀 값. JSON 배열 또는 `A1=값`. Undo 1단위 |
-| `write_cell` | 표 셀을 구조화 문단·글자 런으로 원자적 교체. Undo 1단위 |
-| `move_to_cell` | 지정 표의 A1 셀로 이동. 문서 변경·Undo 없음 |
-| `exit_table` | 현재 표의 마지막 셀에서 본문 또는 바로 바깥 부모 셀로 이동. 이동 뒤 문맥 검증 |
-| `layout_review` | 표 줄바꿈·행 높이·본문 폭·쪽 수 검토/수정. `--dry-run`은 계획만 |
-| `set_cell_margin` | 표 칸 **안쪽 여백**(mm). `--no-has-margin`은 셀별 여백을 해제하고 표 기본값 상속 |
-| `set_table_inside_margin` | 표 기본 안쪽 여백(`TABLE/INSIDEMARGIN`, mm). 셀별 여백은 보존 |
-| `set_col_width` | 열 너비를 mm·비율로 설정 |
-| `set_table_grid` | 병합 전 표의 열·행 격자를 모든 실제 셀에 정밀 적용 |
-| `get_col_width` | 현재 열 또는 지정 표의 열 너비(mm) 조회 |
-| `set_row_height` | 현재 행 또는 지정 행 높이(mm) 설정 |
-| `get_row_height` | 현재 행 또는 지정 행 높이(mm) 조회 |
-| `merge_cells` | `TableCellBlock` 선택 범위의 셀 합치기 |
-| `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
-| `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
-| `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
-| `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입. floating 위치 지정 가능 |
-| `insert_text_box` | 편집 가능한 글상자. 구조화 문단, 채우기·테두리·그림자·위치 지정 가능 |
-| `insert_shape` | 편집 가능한 사각형·타원·선 삽입 |
-| `set_cell_fill` | 표 셀 범위의 단색/선형/방사형 그라데이션 채우기 |
-| `set_format` | 글꼴·문자권별 HFT 글꼴·크기·굵게·정렬·셀 색·글자 그림자. `--range` 는 요청 칸에만 |
-| `set_style` | 현재 문단에 문서 스타일 적용. 예: `개요 1` |
-| `replace_selection` | 블록 선택 영역 교체. 선택 없으면 거부 |
-| `undo` | 직전 hwpctl 명령을 한/글 Undo 한 덩어리로. 기록 없으면 거부 |
-| `page` | 현재 쪽·`PageCount` 읽기 / `--goto N` 이동 / `--break` 쪽 나누기 |
-| `set_page_number` | 네이티브 쪽 번호의 위치·양쪽 구분 문자 설정 |
-| `set_page_visibility` | 현재 쪽의 머리말·꼬리말·바탕쪽·테두리·채우기·쪽 번호 숨김 |
-| `restart_page_number` | 현재 위치부터 네이티브 쪽 번호 다시 시작 |
-| `set_pagedef` | 용지 크기·여백·가로/세로 방향 |
-| `reference_to_spec` | HWPML/HWPX/캡처 번들을 v2 작성 명세와 손실 보고서로 변환 |
-| `build_document` | v1/v2 명세를 검사한 뒤 새 소유 한/글 세션에서 HWP/HWPX 생성 |
-| `save_as` | **새 경로** 저장. 기존 대상은 **`--overwrite` 필수**, 원본 경로는 거부 |
-| `save` | 원본 덮어쓰기. **`--overwrite` 필수** |
-| `close` | 닫기. **`--force` 필수** |
-| `close_all` | 열려 있는 모든 한/글 문서 닫기. **`--force` 필수** |
-| `hwpx_status` | `python-hwpx` 설치 여부·선택적 `.hwpx` 요약. **한글 불필요** |
-| `hwpx_inspect` | `.hwpx` 문단·런·셀 서식 그룹. **한글·잠금 불필요** |
-<!-- hwpctl-tool-catalog:end -->
+| 문단·글자 서식, 표(생성·채우기·병합·격자·여백), 네이티브 차트, 글상자·도형·그림, 쪽 설정·쪽 번호 | 키 입력 흉내(SendKeys), 자동 저장 |
+| 명령마다 Undo 단위 기록과 `undo` | 명시 플래그 없는 원본 덮어쓰기·문서 닫기 |
+| 쪽 렌더(`render_page`)와 측정 비교(`compare_render`) | 한글 2024 전용 API 사용, 범용 HWP 변환기 역할 |
+| 한/글 없이 `.hwpx` 읽기(`hwpx_inspect`) | 글자 그러데이션(글맵시)은 아직 미지원 ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
 
-도구 목록만 (한/글 불필요):
+새 문서에서 미리보기 후 적용하는 좁고 안전한 방식이 필요하면 [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe)를,
+클라이언트·엔진 조합 안내는 [HWP AI Bridge](https://github.com/Jasujung99/hwp-ai-bridge)를 보세요.
 
-```bash
-hwpctl mcp --list-tools
-```
+### 빠른 시작
 
-문서 변환과 작성은 명세 전체를 먼저 검사할 수 있습니다. `--dry-run`은 결과 파일이나
-한/글 창을 만들지 않습니다. 실제 변환의 출력 디렉터리와 작성 결과 경로는 새
-경로여야 합니다.
+요구 사항: Windows, 한글 2022(검증 빌드 `12.0.0.850`), Python 3.10 이상, Git.
 
-> 두 명령은 **실험 기능**입니다. 명세 검사·dry-run·손실 보고는 자동 회귀로
-> 검증됐으며, 새 작성기의 한/글 저장·재열기와 ChartML 보존은 미완료입니다.
-> 변환 손실이 있으면 실행 명세를 내보내지 않습니다. 현재 제공 범위는
-> [작성 상태](docs/AUTHORING_COMPLETION.md), 남은 구현·실기는
-> [후속 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)에 기록합니다.
-
-```powershell
-hwpctl reference_to_spec C:\source\sample.hwpx C:\output\converted --dry-run
-hwpctl reference_to_spec C:\source\sample.hwpx C:\output\converted
-hwpctl build_document C:\output\converted\spec.json C:\output\rebuilt.hwpx --dry-run
-hwpctl build_document C:\output\converted\spec.json C:\output\rebuilt.hwpx
-```
-
-표를 고를 때 기존 `--table 0` 번호를 계속 쓸 수 있습니다. 중첩 표는
-`{"root":0,"children":[{"cell":"A1","index":0}]}`처럼 부모 표, 부모 셀,
-그 셀 안에서의 자식 표 번호를 지정합니다. `set_table_properties`에는 `--page-break
-keep`, `--keep-repeat-header`, `--keep-cell-spacing`으로 특정 속성을 유지할 수
-있습니다.
-
-모델이 「사업계획서, 4열 8행 표, 첫 행 회색」을 이렇게 매핑하면 됩니다.
+**1. 전용 가상환경에 설치합니다.** MCP 서버 실행 파일이 소스 폴더에 묶이지 않도록 `-e` 설치는 피합니다.
 
 ```bat
-hwpctl insert_title 사업계획서
-hwpctl create_table --rows 8 --cols 4 --header-fill gray
-hwpctl fill_cells --table 0 --cells "[[\"항목\",\"내용\",\"담당\",\"기한\"]]"
-hwpctl exit_table
-hwpctl insert_paragraph "표 다음 본문"
-hwpctl layout_review
-hwpctl save_as "%USERPROFILE%\Documents\사업계획서-초안.hwpx"
+py -3.13 -m venv C:\hwpctl\venv
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
 ```
 
-서식이 섞인 문단과 표 셀은 평면화하지 않고 구조화 값으로 작성할 수 있습니다.
+**2. AI 클라이언트에 등록합니다.** Claude Code 예:
 
 ```bat
-hwpctl insert_paragraph --runs "[{\"text\":\"Q. \",\"bold\":true,\"underline\":true},{\"text\":\"문의 내용\",\"font\":\"함초롬돋움\"}]" --paragraph "{\"align\":\"justify\",\"first_line_indent_mm\":-8,\"line_spacing_percent\":150,\"break_latin_word\":\"keep_word\",\"break_non_latin_word\":\"keep_word\"}"
-hwpctl write_cell --table 0 --cell A1 --paragraphs "[{\"runs\":[{\"text\":\"항목\",\"bold\":true}],\"paragraph\":{\"align\":\"center\"}}]"
+claude mcp add hwpctl -- C:\hwpctl\venv\Scripts\hwpctl.exe mcp
 ```
 
-한양 전용 글꼴처럼 글꼴 타입까지 정확히 지정해야 할 때는 `font` 대신
-`font_slots`를 씁니다. 문자권은 `hangul`, `hanja`, `japanese`, `latin`, `other`,
-`symbol`, `user`이고, 각 값은 비어 있지 않은 `name`과 `type: "ttf" | "hft"`입니다.
-`font`와 `font_slots`는 함께 쓸 수 없습니다. 이 사양은 `runs`, `set_format`,
-`format_paragraph_by_text`, `insert_text_box`에서 동일하게 지원합니다.
+Codex·Cursor·Gemini CLI·Grok Build 설정은 [클라이언트 연결](docs/guide/clients.md)에 있습니다.
+
+**3. 한글 2022에서 문서를 하나 열고 확인합니다.**
 
 ```bat
-hwpctl insert_paragraph --runs "[{\"text\":\"제목\",\"font_slots\":{\"hangul\":{\"name\":\"한양견고딕\",\"type\":\"hft\"},\"latin\":{\"name\":\"Arial\",\"type\":\"ttf\"}}}]"
-hwpctl set_format --font-slots "{\"hangul\":{\"name\":\"한양견고딕\",\"type\":\"hft\"}}"
+C:\hwpctl\venv\Scripts\hwpctl doctor
+C:\hwpctl\venv\Scripts\hwpctl status
 ```
 
-서브커맨드 이름은 밑줄입니다 (`insert_title`, `fill_cells`).
+이제 AI에게 "이 문서에 4열 8행 표를 넣고 첫 행을 회색으로 해 줘"처럼 요청하면 됩니다.
+업데이트할 때는 MCP 클라이언트를 모두 종료한 뒤 다시 설치합니다([설치](docs/guide/install.md#업데이트)).
 
-### 표 편집 뒤 항상 레이아웃 검토
+### 대표 도구
 
-`create_table`, `fill_cells`, `set_format`, `set_cell_margin`, `insert_chart` 등으로
-표를 만들거나 채운 뒤에는 **항상 `layout_review`를 한 번 실행합니다.** 편집 명령과
-자동으로 묶지는 않습니다. 한/글 잠금과 Undo 단위를 섞지 않기 위해 별도 명령으로
-호출해야 합니다.
-
-```bat
-hwpctl layout_review                         :: 문서의 모든 표를 검토하고 기본적으로 수정
-hwpctl layout_review --table 0               :: 0번 표만 검토하고 수정
-hwpctl layout_review --table 0 --dry-run     :: 수정하지 않고 JSON 계획만 출력
-```
-
-셀의 조판 줄 수는 한글 2022의 `MoveLineEnd` 위치 진행과 `KeyIndicator` 셀 주소를
-함께 확인해 실측합니다. 명시적 줄바꿈보다 조판 줄 수가 많을 때만 열 너비로 인한
-줄바꿈으로 판정합니다. 한글 2022 Automation에는 문자열 조판 폭을 직접 재는 API가
-없으므로 필요한 목표 열 너비는 글자 크기와 유니코드 문자 폭으로 추정하며, 열 하나가
-본문 폭의 45% 또는 기존 너비의 1.6배를 넘지 않게 제한합니다. 표 폭은 용지 폭에서
-좌우·제본·표 바깥 여백을 뺀 범위를 넘기지 않습니다.
-
----
-
-## 표 칸 안쪽 여백 (셀 안 여백)
-
-글자가 칸 테두리에 붙는 문제는 표 바깥 여백이 아니라 **셀 안쪽 여백** 문제입니다.
-
-- `create_table` 은 새 표의 모든 칸에 기본 안여백 **좌우 3.5mm / 상하 2.0mm** 를 적용합니다.
-  한/글 기본값(1.8/0.5mm)보다 넉넉합니다. `--cell-padding "3.0,1.5"` 로 바꾸거나
-  `--cell-padding none` 으로 끌 수 있습니다.
-- 이미 있는 표는 `set_cell_margin` 으로:
-
-```bat
-hwpctl set_cell_margin --table 0                        :: 0번 표 전체 칸, 기본 3.5/2.0mm
-hwpctl set_cell_margin --table 0 --left 4 --right 4 --top 2 --bottom 2
-hwpctl set_cell_margin --table 0 --range A1:D4          :: 해당 칸들만
-```
-
-원본의 표 전역 기본값인 `TABLE/INSIDEMARGIN`까지 맞춰야 할 때는 별도 명령을 씁니다.
-이 명령은 개별 칸의 `CELL/CELLMARGIN`을 덮어쓰지 않으므로, 셀별 여백과 표 기본값을
-구분해 재현할 수 있습니다.
-
-```bat
-hwpctl set_table_inside_margin --table 0 --left 4 --right 4 --top 1.5 --bottom 1.5
-```
-
-`create_table`의 기본 여백과 `set_cell_margin --table N`은 여전히 표의 실제 셀 주소를
-순회하며 각 셀의 `CELLMARGIN`을 적용합니다. Undo 기록에는 적용한 셀 수가 그대로
-들어갑니다. 반면 `set_table_inside_margin`은 네이티브 표 속성 액션 한 번으로
-`INSIDEMARGIN`만 바꾸며 Undo 한 단위입니다.
-
-## 한글 2022 실측 서식 명령
-
-MCP/Engine 시그니처(같은 이름의 CLI도 제공):
-
-```python
-set_col_width(widths, table=None, column=None, unit="mm")  # unit: mm | ratio
-set_table_grid(table, column_widths_mm, row_heights_mm)      # 병합 전 완전 직사각 표, mm
-get_col_width(table=None, column=None)                     # 결과 단위: mm
-set_row_height(height, table=None, row=None)               # mm, row는 1부터
-get_row_height(table=None, row=None)                       # 결과 단위: mm
-merge_cells(cell_range, table=None)
-set_valign(align, table=None, cell_range="")               # top | center | bottom
-insert_paragraph(text="", runs=None, paragraph=None, page_break_before=False, terminate=True)
-# paragraph: align, *_margin_mm, first_line_indent_mm, *_spacing_mm,
-#            line_spacing_percent, break_latin_word, break_non_latin_word
-# runs: text, bold, italic, superscript, subscript, kerning, font 또는 font_slots, size, color,
-#       underline/strikeout(bool 또는 {enabled,color,type,shape}), text_shadow,
-#       letter_spacing_percent, width_scale_percent
-write_cell(table, cell, paragraphs)                         # A1, 마지막 문단 뒤 빈 문단 없음
-move_to_cell(table, cell)                                   # A1, 문서 변경·Undo 없음
-set_table_properties(table, page_break="cell", repeat_header=True, cell_spacing_mm=0.0)
-set_table_position(table, position)                         # inline/floating JSON 객체
-set_table_inside_margin(table, left=3.5, right=3.5, top=2.0, bottom=2.0)  # TABLE/INSIDEMARGIN, mm
-format_paragraph_by_text(text, font="", font_slots=None, ...)
-insert_text_box(text, width_mm, height_mm, fill=None, line=None, shadow=None, text_shadow=None,
-                font="", font_slots=None, ...)
-set_cell_fill(fill, table=None, cell_range="")
-exit_table(destination="body")  # body 또는 중첩 표의 바로 바깥 parent; Undo 없음
-set_format(..., font="", font_slots=None, text_shadow=None)
-set_cell_border(sides="all", line_type="Solid", width="0.12mm",
-                color="#000000", table=None, cell_range="")
-set_style(style)                                           # 예: "개요 1"
-set_pagedef(paper_width=None, paper_height=None, left=None, right=None,
-            top=None, bottom=None, header=None, footer=None, gutter=None,
-            landscape=None, apply="current")
-page(goto=None, break_page=False)
-set_page_number(position="bottom_center", separator="-") # 예: - 1 -
-set_page_visibility(hide_header=False, hide_footer=False, hide_master_page=False,
-                    hide_border=False, hide_fill=False, hide_page_num=False)
-restart_page_number(number=1)
-list_documents()  # 문서 활성화·저장·닫기 없이 모든 열린 문서 메타데이터 읽기
-```
-
-- 열·행 치수는 `GetCellWidth` 없이 `TablePropertyDialog`의
-  `ShapeTableCell.Width/Height`를 읽고, 설정할 때 `ShapeCellSize=1`을 씁니다.
-  `ratio`는 현재 표 전체 폭을 유지하며 모든 열의 비율을 지정합니다.
-- 병합은 `TableCellBlock` → `TableCellBlockExtend` → 셀 이동 →
-  `TableMergeCell` 순서입니다. `TableMergeCell` 단독 호출은 하지 않습니다.
-- 세로 정렬은 `TableVAlignTop/Center/Bottom`이며 결과의 `vert_align`은 각각
-  `0/1/2`입니다.
-- 테두리는 `CellBorderFill`을 사용합니다. 왼쪽 색 항목은 한글 2022의 실제
-  철자인 `BorderCorlorLeft`를 사용합니다. 내부 가로선 `TypeHorz`는 오류로
-  거부합니다.
-- 쪽 나누기는 `BreakPage`, 쪽 수는 `PageCount`입니다.
-- `set_style("개요 1")`은 pyhwpx가 있으면 해당 API를 쓰고, 창 고정 때문에 COM으로
-  연결된 경우에는 문서 HWPML을 **메모리에서 읽기만** 하여 스타일 이름을 ID로 해석한 뒤
-  네이티브 `Style` 액션을 실행합니다. HWPML을 저장·주입하지 않으며, 한글 2022에서
-  COM 예외가 나는 `HwpOutlineType`/`HwpOutlineStyle` 직접 호출도 하지 않습니다.
-- 편집 전후에 한/글 대화상자를 확인하며, 떠 있으면 대신 누르지 않고 한국어
-  오류로 중단합니다. SendKeys와 자동저장은 사용하지 않습니다.
-
-CLI 예:
-
-```bat
-hwpctl set_col_width --table 0 --widths 1,2,1 --unit ratio
-hwpctl set_table_grid --table 0 --column-widths-mm 30,60,30 --row-heights-mm 10,12,10
-hwpctl get_col_width --table 0
-hwpctl set_row_height --table 0 --row 2 --height 12
-hwpctl merge_cells --table 0 --range A1:B1
-hwpctl set_valign center --table 0 --range A1:C2
-hwpctl set_cell_border --table 0 --range A1:C2 --sides all --color #333333
-hwpctl set_table_properties --table 0 --page-break cell --repeat-header --cell-spacing-mm 0
-hwpctl set_table_position --table 0 --position "{\"mode\":\"inline\",\"outside_margin_mm\":[0.5,0.5,0.5,0.5]}"
-hwpctl set_table_inside_margin --table 0 --left 4 --right 4 --top 1.5 --bottom 1.5
-hwpctl set_style "개요 1"
-hwpctl set_pagedef --paper-width 210 --paper-height 297 --left 20 --right 20
-hwpctl page --break
-hwpctl set_page_visibility --hide-page-num
-hwpctl restart_page_number --number 1
-```
-
-저장 없이 시험하려면 빈 문서에서 다음처럼 실행하고, 결과 확인 뒤 `undo`로
-직전 명령을 되돌립니다. `save`/`save_as`를 호출하지 않는 한 자동으로 저장되지
-않습니다.
-
-```bat
-hwpctl open --new
-hwpctl create_table --rows 2 --cols 3
-hwpctl set_table_grid --table 0 --column-widths-mm 30,60,30 --row-heights-mm 12,12
-hwpctl set_valign center --table 0
-hwpctl layout_review --table 0
-hwpctl page
-hwpctl undo
-```
-
-`set_table_grid`는 셀 병합 전에만 사용합니다. 여러 쪽으로 이어지는 표도 모든 실제
-셀에 너비와 높이를 함께 적용해 열·행 블록 선택이 쪽 경계에서 끊기는 한/글 2022
-경로를 피합니다. 완료 뒤에는 호출 전 커서 위치를 복원합니다.
-
-중첩 표 앞뒤처럼 문단 끝을 자동으로 넣으면 안 되는 경우에는
-`insert_paragraph --no-terminate`를 쓰고, 다음 문단 경계는 호출자가 명시적으로
-만듭니다.
-
-## 한/글 네이티브 차트 (insert_chart)
-
-`insert_chart` 는 **한/글 입력 > 차트** 개체를 넣습니다. PNG 그림 삽입이 아닙니다.
-
-흐름: 데이터 표를 만들고(`create_table` + `fill_cells`) → `insert_chart --table N`.
-표(또는 `--range` 범위)의 셀을 선택한 뒤 `InsertChart` 액션을
-`ChartGroup` / `ChartIndex` / `ChartDataDialogDisable=1` 파라미터로 실행합니다
-(한컴 포럼에서 확인된, 노출된 파라미터 전부입니다 — 생성 후 차트 수정 API 는 없습니다).
-
-```bat
-hwpctl insert_chart --table 1 --type line      :: 인생 그래프 = 꺾은선
-hwpctl insert_chart --table 0 --type column --range A1:B10
-```
-
-- 종류: `line`(꺾은선) / `column`(세로막대) / `bar`(가로막대) / `pie`(원형).
-  0=가로막대·1=세로막대·3=원형은 한컴 포럼에서 확인된 값이고, line=2 는 추론값이라
-  실기에서 종류가 다르게 나오면 `--type` 대신 `--index` 와 함께 조정하세요.
-- **한글 2022 이상 전용.** 2020 이하에는 `ChartDataDialogDisable` 이 없어 데이터
-  편집 대화상자가 뜹니다. 대화상자가 뜨면 자동화 실패입니다 — hwpctl 은 한국어
-  오류를 내며, 화면의 창을 대신 눌러 주지 않습니다.
-
----
-
-## 파괴적 작업
-
-아래는 **명시 플래그 없이 거부**합니다.
-
-| 작업 | 플래그 |
+<!-- hwpctl-tool-highlights:start -->
+| 도구 | 하는 일 |
 |---|---|
-| 원본 덮어쓰기 (`save`) | `--overwrite` |
-| 다른 기존 파일을 `save_as` 로 덮어쓰기 | `--overwrite` |
-| 문서 닫기 (`close`) | `--force` |
-| 수정본을 버리고 다른 파일 열기 | `--discard` |
-| `save_as` 로 원본과 같은 경로 | 거부 → `save --overwrite` |
+| `open` | 활성 창 고정, 파일 열기, `--new`로 새 문서 |
+| `snapshot` | 제목·본문·표·선택 영역 읽기 |
+| `insert_paragraph` | 서식 있는 문단·글자 런 삽입 |
+| `create_table` | 표 생성, 첫 행 배경색, 기본 칸 안여백 |
+| `fill_cells` | 표 셀 값 채우기 |
+| `layout_review` | 표 편집 뒤 줄바꿈·행 높이·본문 폭 검토와 수정 |
+| `insert_chart` | 표 데이터로 한/글 네이티브 차트 삽입 |
+| `insert_text_box` | 편집 가능한 글상자 (채우기·테두리·그림자·위치) |
+| `render_page` | 쪽을 이미지로 렌더해 결과 확인 |
+| `undo` | 직전 hwpctl 명령을 Undo 한 덩어리로 되돌리기 |
+| `save_as` | 새 경로에 저장 (원본 경로는 거부) |
+<!-- hwpctl-tool-highlights:end -->
 
-큰 범위 삭제, 표·쪽·그림 구조 변경 API 는 넣지 않았습니다. 넣게 되면 같은 방식으로 플래그를 요구합니다.
+전체 54개 도구: [도구 레퍼런스](docs/guide/tools.md)
 
----
+### 안전 원칙
 
-## 잠금
+- **자동 저장하지 않습니다.** `save_as`는 새 경로만 받고, 원본 덮어쓰기는 `save --overwrite`가 필요합니다.
+- 문서 닫기는 `--force`, 수정본을 버리고 다른 파일 열기는 `--discard`를 명시해야 합니다.
+- 명령 단위 잠금으로 한 번에 하나의 작성기만 문서를 고칩니다.
+- 한/글 대화상자가 떠 있으면 대신 누르지 않고 한국어 오류로 멈춥니다.
+- hwpctl 명령 사이에 직접 편집했다면 `undo` 대신 한/글의 Ctrl+Z를 쓰세요.
 
-`%LOCALAPPDATA%\hwpctl\hwpctl.lock` (Windows) 또는 `$XDG_RUNTIME_DIR/hwpctl/hwpctl.lock`.  
-경로 재정의: `HWPCTL_LOCK`, `HWPCTL_STATE`.  
-클라이언트 이름: `HWPCTL_CLIENT` (오류 메시지에 표시).
+자세히: [안전 장치](docs/guide/safety.md) · [알려진 한계](KNOWN_LIMITATIONS.md)
 
-MCP 서버가 떠 있어도 잠금은 **명령 단위**입니다. 서버 프로세스가 잠금을 붙잡고 있지 않습니다.
+### 문서
 
-`undo` 는 hwpctl 이 기록한 명령만 되돌립니다. hwpctl 명령 사이에 한/글에서 직접
-편집했다면 그 편집이 먼저 되돌아갈 수 있으니, 수동 편집은 한/글의 Ctrl+Z 를 쓰세요.
+- 사용 가이드: [설치](docs/guide/install.md) · [클라이언트 연결](docs/guide/clients.md) ·
+  [도구 레퍼런스](docs/guide/tools.md) · [표와 서식](docs/guide/tables-and-formatting.md) ·
+  [차트](docs/guide/charts.md) · [HWPX 작성(실험)](docs/guide/hwpx-authoring.md) ·
+  [안전 장치](docs/guide/safety.md)
+- [알려진 한계](KNOWN_LIMITATIONS.md) · [변경 기록](CHANGELOG.md) · [보안 정책](SECURITY.md) ·
+  [기여 안내](CONTRIBUTING.md) · [제3자 고지](THIRD_PARTY_NOTICES.md) · [전체 문서 목록](docs/README.md)
 
----
+### 범위와 라이선스
 
-## 개발 (한/글 없이)
-
-파서와 잠금은 Linux 에서도 테스트합니다.
-
-```bash
-pip install -e ".[dev]"
-pytest
-hwpctl status
-# → 한국어 오류, 종료 코드 3
-```
-
-레이아웃:
-
-```
-hwpctl/           엔진·CLI·MCP
-hwpctl/hwpx/      한글 없는 .hwpx 준비 (python-hwpx)
-examples/         MCP 클라이언트 설정 + Engine 직접 호출 예제
-tests/            파서·잠금·한/글 없음·HWPX XML
-```
-
-라이브 편집은 Windows + 한글 2022 + `pip install -e ".[windows]"` 가 필요합니다.
-`.hwpx` 읽기 준비는 `pip install -e ".[hwpx]"` 로 Linux 에서도 됩니다.
+`hwpctl`은 독립적인 오픈 소스 프로젝트이며 한글과컴퓨터가 제공·보증·후원하는 공식 제품이
+아닙니다. 사용자는 유효한 한글 라이선스와 해당 자동화 사용 조건을 직접 확인해야 합니다.
+이 저장소의 코드는 [MIT 라이선스](LICENSE)로 배포되며, 한글 및 제3자 패키지는 각자의
+라이선스를 따릅니다.
 
 ---
 
-## 공개 문서와 프로젝트 범위
+## English
 
-- [HWPX 업그레이드 계획](docs/hwpx-upgrade-plan.md): 한글 없이 조립하는 단계 (준비만 완료)
-- [한글 없이 HWP 조사](docs/research-hwp-without-hangul.md): `python-hwpx` 1순위 근거
-- [알려진 한계](KNOWN_LIMITATIONS.md): 열린 창, Undo, 표·차트와 실기 검증 상태
-- [보안 정책](SECURITY.md): 로컬 MCP의 신뢰 경계와 비공개 취약점 신고
-- [기여 안내](CONTRIBUTING.md): 테스트 자료와 PR 원칙
-- [변경 기록](CHANGELOG.md) · [릴리스 체크리스트](docs/RELEASE_CHECKLIST.md)
-- [제3자 구성요소 고지](THIRD_PARTY_NOTICES.md)
+### What is hwpctl?
 
-`hwpctl`은 독립적인 오픈 소스 프로젝트이며 한글과컴퓨터가 제공·보증·후원하는 공식
-제품이 아닙니다. 사용자는 유효한 한글 라이선스와 해당 자동화 사용 조건을 직접
-확인해야 합니다. 이 저장소의 코드는 [MIT 라이선스](LICENSE)로 배포되며, 한글 및
-제3자 패키지는 각자의 라이선스를 따릅니다.
+hwpctl lets AI coding agents such as Claude Code, Codex, Cursor, Gemini CLI and Grok Build edit
+**the Hancom Office Hangul 2022 document you already have open**, through Windows COM. Every change
+appears live in the Hangul window. Clients carry no Hangul-specific logic; they all connect to the
+same `hwpctl` server with a small configuration change.
+
+| Does | Does not |
+|---|---|
+| Paragraph and character formatting, tables (create, fill, merge, grid, cell margins), native charts, text boxes, shapes, pictures, page setup and page numbers | Simulate keystrokes (SendKeys) or autosave |
+| Record each command as one Undo unit, with `undo` | Overwrite the original or close documents without an explicit flag |
+| Render pages (`render_page`) and measure differences (`compare_render`) | Use Hangul 2024-only APIs or act as a general HWP converter |
+| Read `.hwpx` without Hangul (`hwpx_inspect`) | Gradient-filled text (TextArt) — not yet ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
+
+For a narrower, preview-first workflow on a new document, see [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe).
+For choosing a client and engine combination, see [HWP AI Bridge](https://github.com/Jasujung99/hwp-ai-bridge).
+
+### Quick start
+
+Requirements: Windows, Hancom Office Hangul 2022 (verified build `12.0.0.850`), Python 3.10+, Git.
+
+**1. Install into a dedicated virtual environment.** Avoid editable (`-e`) installs for the MCP
+runtime, so the server executable is not tied to a source checkout.
+
+```bat
+py -3.13 -m venv C:\hwpctl\venv
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
+```
+
+**2. Register it with your client.** Claude Code example:
+
+```bat
+claude mcp add hwpctl -- C:\hwpctl\venv\Scripts\hwpctl.exe mcp
+```
+
+Configurations for Codex, Cursor, Gemini CLI and Grok Build are in [client setup](docs/guide/clients.md).
+
+**3. Open a document in Hangul 2022 and check the connection.**
+
+```bat
+C:\hwpctl\venv\Scripts\hwpctl doctor
+C:\hwpctl\venv\Scripts\hwpctl status
+```
+
+Then ask your agent, for example: "Insert a 4-column, 8-row table with a gray header row."
+To update, quit every MCP client first, then reinstall ([install guide](docs/guide/install.md#업데이트)).
+
+### Key tools
+
+<!-- hwpctl-tool-highlights:start -->
+| Tool | What it does |
+|---|---|
+| `open` | Pin the active window, open a file, or create a new document with `--new` |
+| `snapshot` | Read the title, body, tables and current selection |
+| `insert_paragraph` | Insert formatted paragraphs and text runs |
+| `create_table` | Create a table with an optional header fill and default cell padding |
+| `fill_cells` | Fill table cells |
+| `layout_review` | Review and fix wrapping, row heights and body width after table edits |
+| `insert_chart` | Insert a native Hangul chart from table data |
+| `insert_text_box` | Insert an editable text box (fill, border, shadow, position) |
+| `render_page` | Render a page to an image to check the result |
+| `undo` | Undo the previous hwpctl command as one unit |
+| `save_as` | Save to a new path (the original path is refused) |
+<!-- hwpctl-tool-highlights:end -->
+
+All 54 tools: [tool reference](docs/guide/tools.md)
+
+### Safety
+
+- **No autosave.** `save_as` only writes to a new path; overwriting the original requires `save --overwrite`.
+- Closing a document requires `--force`; discarding changes to open another file requires `--discard`.
+- A per-command lock keeps a single writer on the document at a time.
+- If a Hangul dialog is open, hwpctl stops with an error instead of clicking it for you.
+- If you edited the document by hand between hwpctl commands, use Ctrl+Z in Hangul instead of `undo`.
+
+Details: [safety](docs/guide/safety.md) · [known limitations](KNOWN_LIMITATIONS.md)
+
+### Documentation
+
+The detailed guides are currently written in Korean.
+
+- Guides: [install](docs/guide/install.md) · [client setup](docs/guide/clients.md) ·
+  [tool reference](docs/guide/tools.md) · [tables and formatting](docs/guide/tables-and-formatting.md) ·
+  [charts](docs/guide/charts.md) · [HWPX authoring (experimental)](docs/guide/hwpx-authoring.md) ·
+  [safety](docs/guide/safety.md)
+- [Known limitations](KNOWN_LIMITATIONS.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) ·
+  [Contributing](CONTRIBUTING.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [All docs](docs/README.md)
+
+### Scope and license
+
+`hwpctl` is an independent open-source project. It is not provided, endorsed or sponsored by
+Hancom Inc. You are responsible for holding a valid Hangul license and following its automation
+terms. The code in this repository is released under the [MIT License](LICENSE); Hangul and
+third-party packages follow their own licenses.

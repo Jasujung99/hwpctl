@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hwpctl"
 version = "0.1.0"
-description = "한/글(HWP) 라이브 코파일럿 브리지 — CLI + MCP, 단일 작성기"
+description = "Local MCP/CLI bridge that lets AI coding agents edit an open Hancom Office Hangul 2022 document (한/글 2022 라이브 편집 브리지)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "hwpctl" }]
-keywords = ["hangul", "hwp", "hwpx", "mcp", "pyhwpx"]
+authors = [{ name = "Jasujung99" }]
+keywords = ["hangul", "hancom", "hwp", "hwpx", "mcp", "mcp-server", "win32com", "claude-code", "codex"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Win32 (MS Windows)",
@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Office Suites",
 ]
 dependencies = [
@@ -51,7 +52,7 @@ hwpctl = "hwpctl.cli:main"
 [project.urls]
 Homepage = "https://github.com/Jasujung99/hwpctl"
 Repository = "https://github.com/Jasujung99/hwpctl"
-Documentation = "https://github.com/Jasujung99/hwpctl#readme"
+Documentation = "https://github.com/Jasujung99/hwpctl/blob/main/docs/README.md"
 Issues = "https://github.com/Jasujung99/hwpctl/issues"
 Changelog = "https://github.com/Jasujung99/hwpctl/blob/main/CHANGELOG.md"
 "pyhwpx documentation" = "https://martiniifun.github.io/pyhwpx/core.html"

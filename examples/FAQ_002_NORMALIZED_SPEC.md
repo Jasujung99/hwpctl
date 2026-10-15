@@ -53,4 +53,4 @@ Tests: `tests/test_rebuild_faq_002_from_normalized_spec.py` (no COM), and opt-in
 `tests/test_hangul_live_integration.py` (isolated synthetic document). Structural
 success is not evidence of visual equivalence. Full source fidelity, private
 source-specific exporters, pagination fitting, and visual comparisons remain
-separate follow-up work. See [integration inventory](../docs/INTEGRATION_STATUS.md).
+separate follow-up work. See [integration inventory](../docs/dev/INTEGRATION_STATUS.md).

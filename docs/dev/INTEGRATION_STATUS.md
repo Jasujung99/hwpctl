@@ -2,7 +2,7 @@
 
 기준일: 2026-09-08. 이 문서가 코드·예제·실험의 단일 진입점이다.
 범위 보완: 이후 폴더 조사로 누락된 `fixtures/gongo-doc1`의 범용 HWPX 구현을
-발견했다. [1차 추가 통합](HWPX_AUTHORING.md)과 [남은 후보](INTEGRATION_CANDIDATES.md)를
+발견했다. [1차 추가 통합](../guide/hwpx-authoring.md)과 [남은 후보](INTEGRATION_CANDIDATES.md)를
 함께 확인한다. 이 대장은 확인한 코드의 기준이며 모든 작업창 개발을 포괄하지 않는다.
 파일 존재, 자동 테스트 통과, 한/글 실기 통과, 시각적 동일성은 서로 다른 증거다.
 새 범용 작성 CLI/MCP나 자동 조판 엔진을 제공한다는 뜻이 아니다.
@@ -28,19 +28,19 @@
 
 | 기능 / 출처 | 상태·최종 소속 | 기준 코드·공식 진입점 | 검증·제한 |
 | --- | --- | --- | --- |
-| 빈 HWPX·파트·참조·저장 / 출발 main | main 제공 / 패키지·입출력 | [hwpx/document.py](../hwpctl/hwpx/document.py): `new_document`, `open_document`, `save_document` | [test_hwpx.py](../tests/test_hwpx.py); python-hwpx extra 필요. 신규 일반 작성 CLI는 없음 |
-| HWPX 문단·런·실제 표 / 출발 main | main 제공 / 모델·작성 어댑터 | [hwpx/write.py](../hwpctl/hwpx/write.py): `insert_paragraph`, `create_table_and_fill` | 동일 테스트의 생성·검사; 저수준 임의 도형 작성은 검증 범위 밖 |
-| 네이티브 문단·런·셀·표·그림·글상자 / 출발 main | main 제공 / 모델·구성 | [Engine](../hwpctl/engine.py), [HangulCanvas](../hwpctl/hangul.py); `insert_paragraph`, `write_cell`, `create_table`, `insert_image`, `insert_text_box` | [test_engine.py](../tests/test_engine.py), [test_hangul_com.py](../tests/test_hangul_com.py); 실제 표와 글상자는 별개 |
-| 표 레이아웃 검토 / 출발 main | main 제공 / 구성·조판 | [layout.py](../hwpctl/layout.py), `layout_review` | Engine 회귀 테스트; 실측 줄 수와 폭 추정을 구분. 페이지 완전 재현·자동 fit 보장 아님 |
-| 조판부호 표시·미사용 서식 정의 / `fbdb97e` | main 제공 / 검증·실행 관리 | [edit_support.py](../hwpctl/edit_support.py), `set_edit_marks`; `compact_formatting_xml`은 내부 순수 함수 | [test_edit_support.py](../tests/test_edit_support.py); 반복 설정은 토글 아님. 빈 문단·개체 앵커 자동 삭제 금지 |
-| 참조 정규화·구조 비교 / `255590a`, `92b3584` | main 제공 (실험 API) / 모델·검증 | [reference](../hwpctl/reference/__init__.py): `compare_hwpml`, `compare_structure`, 읽기 전용 캡처 | [test_reference_compare.py](../tests/test_reference_compare.py), [test_reference_capture.py](../tests/test_reference_capture.py); 미지원 개체는 inconclusive, 구조 일치 ≠ 시각 일치 |
-| 표 격자·셀 탐색·부모 표 탈출 / `cb44cf6`, `381fd2e` | main 제공 / 구성·조판 | `set_table_grid`, `move_to_cell`, `exit_table(destination="parent")` | Engine/COM/parser/MCP 및 [실기](../tests/test_hangul_live_integration.py); 격자는 병합 전 직사각 표에 적용 |
+| 빈 HWPX·파트·참조·저장 / 출발 main | main 제공 / 패키지·입출력 | [hwpx/document.py](../../hwpctl/hwpx/document.py): `new_document`, `open_document`, `save_document` | [test_hwpx.py](../../tests/test_hwpx.py); python-hwpx extra 필요. 신규 일반 작성 CLI는 없음 |
+| HWPX 문단·런·실제 표 / 출발 main | main 제공 / 모델·작성 어댑터 | [hwpx/write.py](../../hwpctl/hwpx/write.py): `insert_paragraph`, `create_table_and_fill` | 동일 테스트의 생성·검사; 저수준 임의 도형 작성은 검증 범위 밖 |
+| 네이티브 문단·런·셀·표·그림·글상자 / 출발 main | main 제공 / 모델·구성 | [Engine](../../hwpctl/engine.py), [HangulCanvas](../../hwpctl/hangul.py); `insert_paragraph`, `write_cell`, `create_table`, `insert_image`, `insert_text_box` | [test_engine.py](../../tests/test_engine.py), [test_hangul_com.py](../../tests/test_hangul_com.py); 실제 표와 글상자는 별개 |
+| 표 레이아웃 검토 / 출발 main | main 제공 / 구성·조판 | [layout.py](../../hwpctl/layout.py), `layout_review` | Engine 회귀 테스트; 실측 줄 수와 폭 추정을 구분. 페이지 완전 재현·자동 fit 보장 아님 |
+| 조판부호 표시·미사용 서식 정의 / `fbdb97e` | main 제공 / 검증·실행 관리 | [edit_support.py](../../hwpctl/edit_support.py), `set_edit_marks`; `compact_formatting_xml`은 내부 순수 함수 | [test_edit_support.py](../../tests/test_edit_support.py); 반복 설정은 토글 아님. 빈 문단·개체 앵커 자동 삭제 금지 |
+| 참조 정규화·구조 비교 / `255590a`, `92b3584` | main 제공 (실험 API) / 모델·검증 | [reference](../../hwpctl/reference/__init__.py): `compare_hwpml`, `compare_structure`, 읽기 전용 캡처 | [test_reference_compare.py](../../tests/test_reference_compare.py), [test_reference_capture.py](../../tests/test_reference_capture.py); 미지원 개체는 inconclusive, 구조 일치 ≠ 시각 일치 |
+| 표 격자·셀 탐색·부모 표 탈출 / `cb44cf6`, `381fd2e` | main 제공 / 구성·조판 | `set_table_grid`, `move_to_cell`, `exit_table(destination="parent")` | Engine/COM/parser/MCP 및 [실기](../../tests/test_hangul_live_integration.py); 격자는 병합 전 직사각 표에 적용 |
 | 문자권 글꼴·문단 종료 제어 / `5139c45` | main 제공 / 모델·구성 | `font_slots`, `insert_paragraph(terminate=False)` | Engine/COM/실기; HFT 설치·폰트 가용성은 실행 환경에 의존 |
 | floating 표 정렬 / `0427e5d` | main 제공 / 구성·조판 | `set_table_position` → 네이티브 표 정렬 enum | COM/실기; 일반 문단 정렬 enum과 혼동 금지 |
 | 표 전역 안 여백 / `381fd2e` | main 제공 / 구성·조판 | `set_table_inside_margin` | Engine/COM/실기; `TABLE/INSIDEMARGIN`과 `CELL/CELLMARGIN`을 구분 |
-| 합성 FAQ 작성 드라이버 / 로컬 미추적 예제 | main 제공 (공식 예제) / 입력 변환·구성 | [드라이버](../examples/rebuild_faq_002_from_normalized_spec.py), [명세 안내](../examples/FAQ_002_NORMALIZED_SPEC.md), [합성 JSON](../examples/specs/faq.synthetic.json) | [FAQ 테스트](../tests/test_rebuild_faq_002_from_normalized_spec.py), opt-in 실기. 공개 dispatch만 사용. 자동 조판·범용 import 아님 |
+| 합성 FAQ 작성 드라이버 / 로컬 미추적 예제 | main 제공 (공식 예제) / 입력 변환·구성 | [드라이버](../../examples/rebuild_faq_002_from_normalized_spec.py), [명세 안내](../../examples/FAQ_002_NORMALIZED_SPEC.md), [합성 JSON](../../examples/specs/faq.synthetic.json) | [FAQ 테스트](../../tests/test_rebuild_faq_002_from_normalized_spec.py), opt-in 실기. 공개 dispatch만 사용. 자동 조판·범용 import 아님 |
 | FAQ 여백 재적용 커서 이동·개별 격자 설정 | 대체됨 / 예제 | 공식 예제의 `move_to_cell` / `set_table_grid` | 원본 로컬 스크립트는 보존; 새 예제는 불필요한 서식 액션을 내보내지 않음 |
-| 저장·창 고정·부분 실패 Undo / #17–#22 | main 제공 / 실행 관리 (4계층 외부) | Engine / HangulCanvas / [lock.py](../hwpctl/lock.py) | Engine/lock 회귀. 자동 저장·다른 창 암묵적 닫기 없음 |
+| 저장·창 고정·부분 실패 Undo / #17–#22 | main 제공 / 실행 관리 (4계층 외부) | Engine / HangulCanvas / [lock.py](../../hwpctl/lock.py) | Engine/lock 회귀. 자동 저장·다른 창 암묵적 닫기 없음 |
 
 이번에 확인한 참조 브랜치의 여섯 커밋은 모두 통합했다. 그 범위에 남은
 `브랜치 구현` 항목은 없다. 다른 실험은 아래 기준을 통과하기 전 승격하지 않는다.
@@ -64,9 +64,9 @@ FAQ JSON → `load_spec`의 `BuildSpec` → `PublicBuild` → 공개 `Engine.dis
 4개로 옮기거나 import를 바꾸지 않았다. 창 생성·저장·닫기·잠금·대상 고정은
 Engine/HangulCanvas 실행 관리에 남기고, 예제가 별도 수명주기 엔진을 만들지 않는다.
 
-공식 명령 기준은 [tools.py](../hwpctl/tools.py), [CLI](../hwpctl/cli.py),
-[parser](../hwpctl/parser.py), [MCP](../hwpctl/mcp_server.py),
-[README 도구 표](../README.md)다. 참조 캡처와 HWPX 작성 래퍼는 라이브러리 API이며
+공식 명령 기준은 [tools.py](../../hwpctl/tools.py), [CLI](../../hwpctl/cli.py),
+[parser](../../hwpctl/parser.py), [MCP](../../hwpctl/mcp_server.py),
+[도구 레퍼런스 표](../guide/tools.md)다. 참조 캡처와 HWPX 작성 래퍼는 라이브러리 API이며
 별도의 공개 MCP 명령으로 오인하지 않는다.
 
 ## 남은 프로토타입과 승격 조건

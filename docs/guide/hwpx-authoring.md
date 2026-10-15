@@ -10,7 +10,7 @@
 보고서로 변환한다. `build_document`는 v1/v2 명세를 사전 검사하고 기존
 `Engine.dispatch` 명령으로 새 소유 문서를 작성한다. 두 명령은 실험 기능이다.
 ChartML·일부 서식 변환과 새 작성기의 네이티브 저장·재열기 실기는 미완료이며,
-[작성 상태](AUTHORING_COMPLETION.md)와 [후속 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)를 참고한다.
+[작성 상태](../dev/AUTHORING_COMPLETION.md)와 [후속 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)를 참고한다.
 
 ```powershell
 hwpctl reference_to_spec sample.hwpx converted --dry-run
@@ -123,4 +123,4 @@ HWPX 검사기는 줄간격 원시 값·종류·단위를 구분하며 고정 HU
 
 검증 위치: `tests/test_hwpx_writer.py`, `tests/test_reference_export.py`, `tests/test_reference_candidates.py`,
 `tests/test_hangul_live_integration.py`. 추가 후보는
-[후속 목록](INTEGRATION_CANDIDATES.md)에서 이번 변경과 분리한다.
+[후속 목록](../dev/INTEGRATION_CANDIDATES.md)에서 이번 변경과 분리한다.
