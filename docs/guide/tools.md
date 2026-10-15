@@ -42,7 +42,7 @@ CLI 와 MCP 는 **같은 함수**를 부릅니다. 성공 시 JSON, 실패 시 s
 | `merge_cells` | `TableCellBlock` 선택 범위의 셀 합치기 |
 | `set_valign` | 셀 세로 정렬: `top` / `center` / `bottom` |
 | `set_cell_border` | 셀 테두리. `TypeHorz`는 한글 2022 미지원 |
-| `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님) |
+| `insert_chart` | 표 데이터로 **한/글 네이티브 차트** 삽입 (그림 아님). ⚠ 검증 빌드에서 데이터 대화상자로 멈출 수 있음 ([#33](https://github.com/Jasujung99/hwpctl/issues/33)) |
 | `insert_image` | 그림 파일(PNG/JPG 등)을 본문 또는 표 칸에 삽입. floating 위치 지정 가능 |
 | `insert_text_box` | 편집 가능한 글상자. 구조화 문단, 채우기·테두리·그림자·위치 지정 가능 |
 | `insert_shape` | 편집 가능한 사각형·타원·선 삽입 |
@@ -95,12 +95,14 @@ hwpctl build_document C:\output\converted\spec.json C:\output\rebuilt.hwpx
 keep`, `--keep-repeat-header`, `--keep-cell-spacing`으로 특정 속성을 유지할 수
 있습니다.
 
-모델이 「사업계획서, 4열 8행 표, 첫 행 회색」을 이렇게 매핑하면 됩니다.
+모델이 「사업계획서, 4열 8행 표, 첫 행 회색」을 이렇게 매핑하면 됩니다. `exit_table`은 표의 마지막 셀에서만
+동작하므로 `fill_cells` 뒤에는 `move_to_cell`로 마지막 셀(여기서는 `D8`)에 먼저 갑니다.
 
 ```bat
 hwpctl insert_title 사업계획서
 hwpctl create_table --rows 8 --cols 4 --header-fill gray
 hwpctl fill_cells --table 0 --cells "[[\"항목\",\"내용\",\"담당\",\"기한\"]]"
+hwpctl move_to_cell --table 0 --cell D8
 hwpctl exit_table
 hwpctl insert_paragraph "표 다음 본문"
 hwpctl layout_review

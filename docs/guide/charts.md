@@ -2,6 +2,11 @@
 
 [← README](../../README.md) · [문서 목록](../README.md)
 
+> **현재 사용 비권장 ([#33](https://github.com/Jasujung99/hwpctl/issues/33)).** 2026-10-15 실기(한글 2022 `12.0.0.850`)에서
+> `ChartDataDialogDisable=1`이 무시되어 "차트 데이터 편집" 대화상자가 떴고, 대화상자가 닫힐 때까지
+> 호출이 반환되지 않았으며 차트에 표 데이터가 아닌 기본값이 들어갔습니다. 아래 설명은 의도한
+> 동작이며, 이 문제가 해결될 때까지 사용자가 명시적으로 요청한 경우에만 쓰세요.
+
 `insert_chart` 는 **한/글 입력 > 차트** 개체를 넣습니다. PNG 그림 삽입이 아닙니다.
 
 흐름: 데이터 표를 만들고(`create_table` + `fill_cells`) → `insert_chart --table N`.

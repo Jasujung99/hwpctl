@@ -7,7 +7,7 @@
 - Windows 10/11
 - 한글 2022 (검증 빌드 `12.0.0.850`)
 - [Python 3.10 이상](https://www.python.org/downloads/) — 설치할 때 **Add Python to PATH**를 켭니다.
-- Git (GitHub에서 바로 설치할 때)
+- Git (최신 `main`을 설치할 때만)
 
 ## 권장: 전용 가상환경에 고정 설치
 
@@ -17,6 +17,12 @@ MCP 클라이언트는 `hwpctl.exe`를 서버로 띄워 둡니다. 실행 중인
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
+```
+
+릴리스되지 않은 최신 `main`을 쓰려면 Git을 설치한 뒤 주소만 바꿉니다.
+
+```bat
 C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
 ```
 
@@ -47,10 +53,11 @@ C:\hwpctl\venv\Scripts\hwpctl status
 
 1. 이 hwpctl을 쓰는 **모든 MCP 클라이언트를 종료**합니다(Claude Code, Codex, Cursor 등).
    서버가 떠 있으면 `hwpctl.exe`가 잠겨 설치가 중간에 실패합니다.
-2. 같은 명령에 `--upgrade`를 붙여 다시 설치합니다.
+2. [릴리스 목록](https://github.com/Jasujung99/hwpctl/releases)에서 새 버전의 wheel 주소로 다시
+   설치합니다. 최신 `main`을 쓰는 경우에는 `git+` 명령에 `--upgrade`를 붙입니다.
 
 ```bat
-C:\hwpctl\venv\Scripts\python -m pip install --upgrade "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
+C:\hwpctl\venv\Scripts\python -m pip install --upgrade "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
 ```
 
 ## 선택 extra
