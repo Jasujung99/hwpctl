@@ -130,6 +130,21 @@ def _require_owned_document(app, canvas, *, hwnd, pid, identity, staged, exclusi
         raise HangulCommandError("Owned document path changed before cleanup")
 
 
+def _only_automatic_blank_documents(app) -> bool:
+    """Close(False) 뒤 남은 문서가 한/글이 자동으로 만든 빈 대체 문서뿐인지 확인한다.
+
+    한글 2022는 마지막 문서를 닫으면 경로 없고 수정되지 않은 빈 문서를 새로 만든다
+    (``close_all``과 같은 동작). 소유 인스턴스에 그런 문서만 남았으면 Quit해도 되고,
+    경로가 있거나 수정된 문서가 하나라도 있으면 소유하지 않은 문서로 보고 Quit하지 않는다.
+    """
+    documents = app.XHwpDocuments
+    for index in range(int(documents.Count)):
+        document = documents.Item(index)
+        if str(getattr(document, "FullName", "") or "").strip() or bool(getattr(document, "Modified", False)):
+            return False
+    return True
+
+
 def _attach_running():
     """Running Hwp for attached authoring: the pinned window's instance first."""
     from hwpctl.hangul import _attach_running_com
@@ -291,7 +306,7 @@ def build_document(spec: str | dict, output: str, dry_run: bool = False, *, sess
                     if returned is False:
                         raise HangulCommandError("Owned document close returned false")
                     result["cleanup"]["closed"] = True
-                    if int(app.XHwpDocuments.Count) != 0:
+                    if not _only_automatic_blank_documents(app):
                         raise HangulCommandError("New document appeared after owned close; quit skipped")
                     returned = app.Quit()
                     if returned is False:

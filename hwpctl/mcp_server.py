@@ -53,8 +53,10 @@ INSTRUCTIONS = (
     "자동저장은 없다. save/close 는 각각 overwrite/force 가 필요하다. "
     "새 표에는 기본 칸 안여백(좌우 3.5mm, 상하 2.0mm)이 적용된다. "
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
-    "차트는 insert_chart 로 한/글 네이티브 차트를 넣는다 (그림 아님). "
-    "표 뒤에 일반 본문을 넣을 때는 마지막 셀에서 exit_table을 호출해 표 밖인지 확인한다. "
+    "insert_chart 는 검증 빌드(한글 2022 12.0.0.850)에서 데이터 편집 대화상자가 떠 호출이 "
+    "멈출 수 있으므로 사용자가 명시적으로 요청할 때만 쓴다. "
+    "표 뒤에 일반 본문을 넣을 때는 move_to_cell 로 마지막 셀에 간 뒤 exit_table을 호출해 "
+    "표 밖인지 확인한다. "
     "reference_to_spec은 참조 입력의 변환 손실을 보고하고, build_document는 명세를 검사해 "
     "새 소유 한/글 세션에서 결과를 작성한다. 두 명령의 dry_run은 창·파일을 만들지 않는다. "
     "예: 사업계획서 제목 + 4열 8행 표 + 첫 행 회색 → "
@@ -752,7 +754,9 @@ def build_mcp(lock_timeout: float = 8.0):
     ) -> dict[str, Any]:
         """데이터 표(또는 범위)를 선택해 한/글 네이티브 차트를 삽입한다 (그림 아님).
         chart_type: line(꺾은선)/column(세로막대)/bar(가로막대)/pie(원형).
-        한글 2022 이상에서만 데이터 대화상자 없이 동작하며, 대화상자가 뜨면 실패다."""
+        주의: 검증 빌드(한글 2022 12.0.0.850)에서는 ChartDataDialogDisable 이 무시되어
+        데이터 편집 대화상자가 뜨고, 대화상자가 닫힐 때까지 호출이 반환되지 않으며 표 데이터가
+        반영되지 않을 수 있다. 사용자가 명시적으로 요청할 때만 사용한다."""
         return await _call(
             engine,
             "insert_chart",

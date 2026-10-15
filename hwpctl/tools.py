@@ -121,7 +121,7 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec("merge_cells", "셀블록 범위를 합치기. Undo 1단위", False, True),
     ToolSpec("set_valign", "셀 세로 정렬(top/center/bottom). Undo 1단위", False, True),
     ToolSpec("set_cell_border", "셀 테두리(CellBorderFill). TypeHorz 미지원", False, True),
-    ToolSpec("insert_chart", "선택한 표 데이터로 한/글 네이티브 차트 삽입 (PNG 아님)", False, True),
+    ToolSpec("insert_chart", "표 데이터로 한/글 네이티브 차트 삽입 (PNG 아님). 검증 빌드에서 데이터 대화상자로 멈출 수 있음", False, True),
     ToolSpec("insert_image", "그림 파일을 본문·표 칸에 삽입하고 inline/floating 위치 지정. Undo 1단위", False, True),
     ToolSpec(
         "insert_text_box",

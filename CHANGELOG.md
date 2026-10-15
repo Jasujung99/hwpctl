@@ -1,124 +1,102 @@
 # 변경 기록
 
 주요 변경 사항을 이 문서에 기록합니다. 버전은 [Semantic Versioning](https://semver.org/)을
-따르며, 첫 GitHub Release는 한글 2022 수동 검증을 통과한 뒤 `v0.1.0`으로 게시합니다.
+따릅니다. 0.x 동안에는 MCP 도구 이름·인자·결과 형식이 바뀌면 **Breaking**으로 표시하고
+부 버전을 올립니다. 각 릴리스는 [릴리스 체크리스트](docs/dev/RELEASE_CHECKLIST.md)의 한글 2022
+실기 확인을 거친 뒤 태그를 붙입니다.
 
 ## [Unreleased]
 
-### Added
+## [0.1.0] - 2026-10-15
 
-- `doctor`: 긴 작업 전 읽기 전용 점검(응답 없는 한/글, 떠 있는 대화상자, 창 없는 잔여
-  프로세스, 낡은 창 핀, 한/글 실행 뒤 설치한 글꼴, 뒤처진 hwpctl 저장소).
-- `render_page`/`compare_render`: 쪽을 BMP로 렌더하고 원본 이미지와 글자 줄 위치를
-  mm로 비교해, 눈대중 대신 측정값으로 개체 위치를 보정.
-- `insert_text_box`에 `vertical_align`(top/center/bottom)과 `text_direction`
-  (horizontal / vertical=세로쓰기 영문 눕힘 / vertical_upright=영문 세움) 추가.
-  작성 명세 `text_box`에서도 같은 필드 사용.
-- `build_document --session attached`: 새 한/글 프로세스를 띄울 수 없는 환경에서
-  실행 중인 한/글에 새 창 하나를 열어 작성하고 그 문서만 닫음(다른 문서·프로세스 유지).
+첫 공개 릴리스입니다. 열린 한글 2022 문서를 MCP·CLI로 편집하는 54개 도구를 제공합니다.
 
-- 참조 내보내기 실기 회귀에서 종료된 creator COM 참조를 다음 세션 전에 해제.
-  동일 프로세스 3회 반복 및 native RPC 진단 검사를 추가하여 종료 코드 0의 오탐 방지.
+검증 환경: Windows 11, 한글 2022 `12.0.0.850`, Python 3.13, pywin32 312(`win32com` 백엔드),
+MCP Python SDK 1.29. CI는 Windows·Linux에서 Python 3.10·3.12로 실행합니다.
 
-- 후속 후보 통합: 정적 참조 사전 분석, HU/mm/pt 단위, 정확/정보 부족/모순 격자
-  증거, 읽기 전용 포함 그림 자산 번들. 새 CLI/MCP나 자동 문서별 보정은 추가하지 않음.
+### 편집 도구
 
-- 공고 브랜치에서 범용 HWPX 런·문단·표·쪽 설정·구조 검사만 선별 통합.
-  공고 전용 코드/자료와 기존 main의 비교/편집 기능은 섞거나 되돌리지 않음.
-- 읽기 전용 참조 HWPML/PDF 내보내기의 공통 캡처 수명주기 및 안전 테스트.
-  새 CLI/MCP 명령 없음. 단순 floating 표 보존과 격자 정밀도 실험을 opt-in 회귀로 승격.
+- **문서·창**: `status`, `list_documents`(활성화 없이 모든 문서 열거), `doctor`(작업 전 읽기 전용
+  점검), `open`(인자 없이 활성 창 재고정, 경로 열기, `--new` 새 문서), `snapshot`,
+  `set_edit_marks`(조판·문단부호 보기를 명시적으로 설정)
+- **문단·글자**: `insert_title`, `insert_paragraph`(글자 런·문단 레이아웃·줄 간격·
+  `--no-terminate`), `format_paragraph_by_text`, `set_format`(글자 그림자 포함), `set_style`,
+  `replace_selection`. 문자권별 글꼴 `font_slots`로 한양 HFT 글꼴의 글꼴 타입까지 지정
+- **표**: `create_table`(기본 칸 안여백 3.5/2.0mm), `fill_cells`, `write_cell`(구조화 문단으로
+  원자적 교체), `set_table_grid`(병합 전 격자 정밀 적용), `set_col_width`/`get_col_width`,
+  `set_row_height`/`get_row_height`, `merge_cells`, `set_valign`, `set_cell_border`,
+  `set_cell_margin`, `set_table_inside_margin`, `set_table_properties`(쪽 나눔·제목 행 반복·
+  셀 간격), `set_table_position`(글자처럼 취급/떠 있음·바깥 여백), `move_to_cell`,
+  `exit_table`(중첩 표 한 단계 탈출), `layout_review`, `set_cell_fill`(단색·선형·방사형 2색)
+- **개체**: `insert_chart`(한/글 네이티브 차트, 검증 빌드에서 사용 비권장 — [#33](https://github.com/Jasujung99/hwpctl/issues/33)), `insert_image`, `insert_text_box`(채우기·선·
+  그림자·세로 정렬·세로쓰기·위치), `insert_shape`(사각형·타원·선)
+- **쪽**: `page`, `insert_section`, `set_pagedef`, `set_page_number`, `set_page_visibility`,
+  `restart_page_number`
+- **문단 앵커 교정**: `recreate_inline_table_before_paragraph`,
+  `trim_blank_paragraphs_before_body` (클립보드·HWPML 주입 없이 구조 보존)
+- **결과 확인**: `render_page`(쪽 렌더), `compare_render`(원본·결과 글자 줄 위치를 mm로 비교)
+- **저장·되돌리기**: `save_as`, `save`, `close`, `close_all`, `undo`
+- **한/글 없이 HWPX**: `hwpx_status`, `hwpx_inspect`
+- **실험 기능**: `reference_to_spec`(HWPML/HWPX/캡처 번들 → 작성 명세와 손실 보고서),
+  `build_document`(명세 사전 검사 후 새 소유 문서 작성, `--session attached` 지원)
 
-- 기존 참조 브랜치와 main을 통합한 4계층 기능 대장·검증 기록과 합성 FAQ 공식 예제.
-  예제는 기존 공개 명령만 사용하고 개인 참조 경로·데이터를 포함하지 않는다.
-  격자/탐색 우회를 `set_table_grid`/`move_to_cell`로 대체하며 새 작성 명령은 추가하지 않음.
+### 안전
 
-- CLI/MCP `set_edit_marks`: 조판·문단부호 표시를 명시적으로 설정하고 읽어서 검증.
-  반복 호출 시 토글하지 않으며 본문이나 Undo 이력을 변경하지 않음.
-- 내부 순수 함수 `compact_formatting_xml`: 미사용 글자·문단 서식 정의만 검사·정리.
-  문단·도형 앵커는 삭제하지 않으며, 공개 파일 수정 명령으로 제공하지 않음.
+- 자동 저장하지 않습니다. `save_as`는 새 경로만 받고, 기존 파일에는 `--overwrite`가 필요하며
+  원본 경로는 거부합니다. 원본 덮어쓰기는 `save --overwrite`, 닫기는 `--force`, 수정본 폐기는
+  `--discard`를 요구합니다.
+- 명령 단위 잠금으로 한 번에 하나의 작성기만 동작합니다.
+- 편집 전후에 한/글 대화상자를 확인하고, 떠 있으면 대신 누르지 않고 한국어 오류로 중단합니다.
+- 각 명령의 실제 Undo 단계 수를 기록합니다(그림·글상자 등 실측). 명령이 중간에 실패해도
+  이미 실행된 편집은 Undo 이력에 남깁니다.
+- 3색 이상 그라데이션은 한/글 2022가 채우기 전체를 조용히 버리므로 실행 전에 거부합니다.
+- MCP HTTP 연결은 loopback과 토큰으로 제한합니다. 기본 연결은 로컬 stdio입니다.
 
-- 문자권별 글꼴 사양 `font_slots`: `hangul`/`hanja`/`japanese`/`latin`/
-  `other`/`symbol`/`user`별로 `{name, type: ttf|hft}`를 지정한다. 한양 전용
-  HFT 글꼴은 `FaceName*`과 `FontType*`을 하나의 네이티브 `CharShape` 액션으로
-  적용하며 기존 단일 `font`와 동시에 지정하면 실행 전에 거부한다.
-- 구조화 문단 `insert_paragraph(..., terminate=True)`: `terminate=false`로
-  `BreakPara` 자동 생성을 끄고 중첩 표 앞뒤의 문단 경계를 호출자가 정확히 제어
-- 병합 전 완전 직사각 표의 모든 실제 셀에 열 너비·행 높이를 함께 적용하는
-  `set_table_grid(table, column_widths_mm, row_heights_mm)`: 쪽 경계를 넘는 표 격자를
-  명시적으로 고정하고, 원래 커서를 복원하며 hwpctl Undo 한 단위로 기록
-- 표 전역 기본 안쪽 여백 `set_table_inside_margin(table, left, right, top, bottom)`:
-  한/글 2022 `TablePropertyDialog`의 `CellMargin*`으로
-  `TABLE/INSIDEMARGIN`만 변경한다. 각 칸의 `CELL/CELLMARGIN`은 보존하며,
-  CLI·MCP·Engine에서 네 mm 값을 엄격히 검증하고 Undo 한 단위로 기록
-- 비파괴 표 탐색 `move_to_cell(table, cell)` 및 중첩 표 한 단계 탈출
-  `exit_table(destination="parent")`: 마지막 셀·목록 문맥을 검증해 본문 또는 부모
-  표를 과도하게 건너뛰지 않음
-- 비공개 참조 문서를 위한 실험적 읽기 전용 HWPML 캡처·구조 비교 계층
-  `hwpctl.reference`: 원본 해시를 열기 전후 확인하고, 스타일 ID·빈 문단·공유 표
-  테두리에 강한 구조 보고서를 원문·경로 없이 만든다. 이 계층은 아직 CLI/MCP 작성
-  명령이 아니며, 도형·그라데이션·시각 레이아웃은 명시적으로 미지원 상태로 남긴다.
-- 원본 구조를 이미지·클립보드·HWPML로 평면화하지 않는 문단 앵커 교정 API
-  `recreate_inline_table_before_paragraph(...)`, `trim_blank_paragraphs_before_body(...)`:
-  검증된 1×1 인라인 표를 답변 앞에 재생성하고 질문→빈 문단→답변의 문단부호를 보존
-- 실행 중인 모든 한/글 문서를 문서 단위로 닫는 명시적 파괴 명령
-  `close_all(force=true)` / `close_all --force` (문서 Close 뒤 남는 빈 창은 해당 인스턴스 Quit으로 종료)
-- 구조화 문단 API `insert_paragraph(text, runs, paragraph, page_break_before)`와
-  원자적 표 셀 교체 `write_cell(table, cell, paragraphs)`: 글자 런, 자간·장평,
-  위/아래첨자·밑줄·취소선의 색·type·shape·kerning, 문단 정렬·여백·들여쓰기·줄간격·
-  라틴/비라틴 단어 줄바꿈을 CLI·MCP·Engine에서 동일하게 제공
-- 본문 텍스트를 평면화하지 않는 네이티브 쪽 번호 `set_page_number(position, separator)`
-- 표의 네이티브 쪽 나눔·제목 행 반복·셀 간격 `set_table_properties(table, page_break, repeat_header, cell_spacing_mm)`와
-  inline/floating 위치·바깥 여백 `set_table_position(table, position)`
-- 현재 쪽의 표시 요소를 숨기는 `set_page_visibility(...)`와 현재 위치부터 번호를
-  다시 시작하는 `restart_page_number(number)`
-- 편집 가능한 글상자 `insert_text_box`: 단색/선형 그라데이션, 선, 도형 그림자,
-  글자 그림자와 inline/floating 배치
-- 표 셀의 단색/선형 그라데이션 `set_cell_fill`, `set_format(text_shadow=...)`
-- CLI·MCP·Engine 공통의 채우기·그림자·선·좌표 검증과 한글 2022 COM 구현
-- 한글 없이 `.hwpx`를 다루는 준비 계층(`hwpctl/hwpx`, extra `hwpx`, `hwpx_status` / `hwpx_inspect`)
-- Codex, Claude Code, Cursor, Gemini CLI, Grok Build용 로컬 MCP 설정 예제
-- 공개용 보안 정책, 알려진 한계, 기여 안내와 릴리스 체크리스트
-- 표 너비·높이, 셀 병합·정렬·테두리, 쪽 설정, 스타일과 레이아웃 검토 문서
-- Windows COM extra 없이 Python 3.10·3.12에서 HWPX·MCP 도구 목록·오류 종료 코드·
-  공개 파일을 검증하는 Linux CI 계약
+### 연결과 플랫폼
 
-### Changed
+- Claude Code, Codex, Cursor, Gemini CLI, Grok Build용 MCP 설정 예제
+- 검증 기준 백엔드는 `win32com`(pywin32)입니다. `pyhwpx`는 선택 extra(`.[pyhwpx]`)이며
+  창을 고정하기 전 연결에서만 쓰입니다.
+- Windows COM 없이도 HWPX 계층·MCP 도구 목록·오류 종료 코드(3)·공개 파일을 검증하는 Linux
+  CI 계약
+- 태그를 푸시하면 테스트·빌드 후 GitHub Release에 wheel·sdist를 첨부하는 릴리스 워크플로
 
-- 검증 기준 백엔드를 `win32com`(pywin32)으로 명시. `windows` extra는 더 이상 `pyhwpx`를
-  설치하지 않으며, 필요하면 `.[pyhwpx]`로 따로 설치한다. 고정한 창의 편집 경로는 그대로다.
-- 알려진 한계 갱신: 줄 간격 지정 경로, 글맵시 미지원(#30), MCP SDK 1.x 한정(#29),
-  `render_page`/`compare_render`와 실험적 `reference_to_spec`/`build_document` 반영.
-- `open --new` 이후의 후속 명령이 고정된 한글 창을 계속 사용하도록 창 핀을 갱신
-- 인자 없는 `open`을 비파괴 활성 창 재고정으로 바꾸어, 닫혔거나 재시작된 창 핀을
-  복구하고 새 문서 생성은 명시적인 `open --new`로 한정
-- 로컬 클라이언트는 stdio를 기본으로 사용하고 HTTP는 선택 연결로 구분
+### 문서
 
-### Fixed
+- README를 한국어·영어 병기 첫 화면으로 정리하고, 상세 내용은 [사용 가이드](docs/guide/)로 분리
+- [알려진 한계](KNOWN_LIMITATIONS.md), [보안 정책](SECURITY.md), [기여 안내](CONTRIBUTING.md),
+  [제3자 고지](THIRD_PARTY_NOTICES.md)
+- 도구 레퍼런스 표 순서와 README 대표 도구 표를 CI가 실제 도구 목록과 대조
 
-- 글상자가 크기 지정과 무관하게 1mm 짜리로 만들어지던 문제: 도형과 같은 절대 크기
-  기준·생성 좌표를 `DrawObjCreatorTextBox`에도 전달.
-- `insert_image`의 width/height가 mm→HwpUnit으로 두 번 변환되던 문제
-  (`InsertPicture`는 mm를 받음).
-- 문서 끝에 넣은 개체 뒤로 캐럿을 옮기지 못해 도형·글상자 삽입이 실패하던 문제.
-- 3색 이상 그라데이션: 한/글 2022가 오류 없이 채우기 전체를 버리므로 2색만 받고
-  명확히 거부(변환기는 손실로 보고).
-- Undo 단계 수: 위치 지정 그림(3단계)·일반 그림(2단계)·글상자(실제 실행 액션 수)를
-  실측대로 기록해 `undo`가 다른 개체를 건드리지 않게 함.
-- 한 문단의 런이 지정하지 않은 장평·자간·굵게·기울임·위/아래 첨자·밑줄·취소선을
-  앞 런에게서 이어받던 문제: 앞 런이 바꾼 속성은 생략 시 중립값으로 되돌림.
-- 한/글 시작 화면이 떠 있을 때 글상자 편집 실패 메시지에 해결 방법을 안내.
+### 출시 전에 고친 주요 문제
 
-- `insert_title`, `fill_cells`, `set_format`가 중간 실패한 경우에도 이미 실행된
-  한/글 편집 액션을 Undo 이력에 남겨 반쯤 적용된 변경을 안전하게 되돌릴 수 있도록 수정
-- 창 핀 때문에 win32com으로 연결된 경우에도 문서 스타일 이름을 적용할 수 있도록,
-  읽기 전용 메모리 HWPML에서 스타일 ID를 해석해 기존 네이티브 `Style` 액션으로 연결
-- README 도구 표를 실제 공개 도구와 맞추고, `insert_image`·오류 종료 코드·예제 성격·
-  HWPX PPM 비교 라이브러리의 현재 범위를 정확히 문서화
-- 신년 카드 예제 배경 이미지의 GPT 계열 생성 출처와 배포 시 권리 확인 범위를 고지
+- `build_document`의 소유 세션 정리: 한글 2022가 마지막 문서를 닫으면 경로 없는 빈 문서를 자동으로
+  새로 만들어, 작성이 성공해도 `ok: false`가 되고 숨은 한/글 프로세스가 남던 문제. 소유 인스턴스에
+  자동 생성된 빈 문서만 남았을 때만 종료하고, 경로가 있거나 수정된 문서가 있으면 종료하지 않습니다.
+- 글상자가 크기 지정과 무관하게 1mm로 만들어지던 문제
+- `insert_image`의 크기가 mm→HwpUnit으로 두 번 변환되던 문제
+- 문서 끝 개체 뒤로 캐럿을 옮기지 못해 도형·글상자 삽입이 실패하던 문제
+- 한 문단의 글자 런이 앞 런의 장평·자간·굵게 등을 의도치 않게 이어받던 문제
+- 도구 레퍼런스 예시를 `fill_cells` → `move_to_cell`(마지막 셀) → `exit_table` 순서로 바로잡음
+- 창 고정으로 `win32com`에 연결된 경우에도 문서 스타일 이름(`개요 1` 등)을 적용하도록 수정
+- `open --new` 이후 명령이 고정된 창을 계속 쓰도록, 인자 없는 `open`은 문서를 만들지 않고
+  재고정만 하도록 정리
 
-### Security
+### 알려진 한계
 
-- 원본 덮어쓰기·닫기·수정본 폐기에 명시 플래그 요구
-- `save_as`도 기존 대상 파일에는 `overwrite=true` / `--overwrite`를 요구하고,
-  원본과 같은 경로는 계속 `save --overwrite`로만 저장
-- MCP HTTP 연결을 loopback과 토큰으로 제한
+- `insert_chart`는 검증 빌드에서 데이터 편집 대화상자가 떠 호출이 멈추고 표 데이터가 반영되지 않습니다
+  ([#33](https://github.com/Jasujung99/hwpctl/issues/33)). README 대표 도구에서 뺐고, MCP 도구 설명에도 경고를 넣었습니다.
+- 글자 그러데이션(글맵시)은 아직 도구가 없습니다 ([#30](https://github.com/Jasujung99/hwpctl/issues/30)).
+- MCP Python SDK 2.x는 지원하지 않습니다 ([#29](https://github.com/Jasujung99/hwpctl/issues/29)).
+- `reference_to_spec`·`build_document`의 ChartML·일부 서식 변환과 네이티브 저장·재열기 실기는
+  미완료입니다 ([#25](https://github.com/Jasujung99/hwpctl/issues/25)).
+- 전체 목록: [알려진 한계](KNOWN_LIMITATIONS.md)
+
+### 개발 기반
+
+사용자 기능은 아니지만 이번 릴리스에 포함된 내부 기반입니다. 4계층 통합 대장·검증 기록,
+읽기 전용 참조 HWPML 캡처·구조 비교 라이브러리(`hwpctl.reference`), 범용 HWPX 런·문단·표 작성
+라이브러리, 미사용 서식 정의 정리 함수 등은 [개발 문서](docs/dev/INTEGRATION_STATUS.md)를 보세요.
+
+[Unreleased]: https://github.com/Jasujung99/hwpctl/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.1.0

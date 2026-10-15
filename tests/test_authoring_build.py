@@ -156,13 +156,16 @@ def test_nested_command_lock_borrows_only_current_thread(tmp_path, monkeypatch):
 
 
 class App:
-    def __init__(self, fail=None, *, count=1, body=""):
+    def __init__(self, fail=None, *, count=1, body="", replacement=None):
         self.fail = fail
         self.closed = self.quit = self.registered = False
         self.XHwpDocuments = self
         self.Count = count
         self.body = body
         self.Active_XHwpDocument = SimpleNamespace(FullName="")
+        # 한/글 2022는 마지막 문서를 닫으면 빈 대체 문서를 새로 만든다.
+        self.replacement = replacement
+        self.remaining = []
     def RegisterModule(self, *args):
         self.registered = True
         return True
@@ -171,7 +174,10 @@ class App:
     def Close(self, save):
         assert save is False
         self.closed = True
-        self.Count = 0
+        self.remaining = [self.replacement] if self.replacement is not None else []
+        self.Count = len(self.remaining)
+    def Item(self, index):
+        return self.remaining[index]
     def Quit(self):
         self.quit = True
         if self.fail == "quit":
@@ -216,6 +222,25 @@ def test_owned_lifecycle_success_and_failures(fail, tmp_path, monkeypatch):
     assert output.exists() is (fail is None)
     if fail == "insert_paragraph":
         assert result["failure"]["location"] == "sections[0].content[0]"
+
+
+@pytest.mark.parametrize("replacement, quits", [
+    (SimpleNamespace(FullName="", Modified=False), True),
+    (SimpleNamespace(FullName="", Modified=True), False),
+    (SimpleNamespace(FullName="other.hwp", Modified=False), False),
+])
+def test_owned_quit_tolerates_only_hangul_automatic_blank_replacement(replacement, quits,
+                                                                    tmp_path, monkeypatch):
+    monkeypatch.setenv("HWPCTL_LOCK", str(tmp_path / "writer.lock"))
+    app = App(replacement=replacement)
+    output = tmp_path / "new.hwp"
+    result = build_document(document([{"kind": "paragraph", "text": "synthetic"}]), str(output),
+        _dispatch_factory=lambda: app, _canvas_factory=Canvas, _engine_factory=FakeOwned)
+    assert app.closed and result["cleanup"]["closed"]
+    assert app.quit is quits and result["cleanup"]["quit"] is quits
+    assert result["ok"] is quits
+    if not quits:
+        assert "quit skipped" in result["cleanup"]["error"]
 
 
 @pytest.mark.parametrize("case", ["multiple", "nonblank", "existing_pid", "missing_window"])

@@ -1,6 +1,7 @@
 # hwpctl
 
 [![CI](https://github.com/Jasujung99/hwpctl/actions/workflows/ci.yml/badge.svg)](https://github.com/Jasujung99/hwpctl/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Jasujung99/hwpctl)](https://github.com/Jasujung99/hwpctl/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Windows + Hangul 2022](https://img.shields.io/badge/platform-Windows%20%2B%20Hangul%202022-lightgrey)
@@ -30,23 +31,24 @@ Windows COM으로 직접 고치게 합니다. 바뀐 내용은 한/글 화면에
 
 | 하는 것 | 하지 않는 것 |
 |---|---|
-| 문단·글자 서식, 표(생성·채우기·병합·격자·여백), 네이티브 차트, 글상자·도형·그림, 쪽 설정·쪽 번호 | 키 입력 흉내(SendKeys), 자동 저장 |
+| 문단·글자 서식, 표(생성·채우기·병합·격자·여백), 글상자·도형·그림, 쪽 설정·쪽 번호 | 키 입력 흉내(SendKeys), 자동 저장 |
 | 명령마다 Undo 단위 기록과 `undo` | 명시 플래그 없는 원본 덮어쓰기·문서 닫기 |
 | 쪽 렌더(`render_page`)와 측정 비교(`compare_render`) | 한글 2024 전용 API 사용, 범용 HWP 변환기 역할 |
 | 한/글 없이 `.hwpx` 읽기(`hwpx_inspect`) | 글자 그러데이션(글맵시)은 아직 미지원 ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
+| 참조 문서를 명세로 바꿔 새 문서로 재구성(실험: `reference_to_spec`·`build_document`) | 네이티브 차트(`insert_chart`)는 검증 빌드에서 사용 비권장 ([#33](https://github.com/Jasujung99/hwpctl/issues/33)) |
 
 새 문서에서 미리보기 후 적용하는 좁고 안전한 방식이 필요하면 [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe)를,
 클라이언트·엔진 조합 안내는 [HWP AI Bridge](https://github.com/Jasujung99/hwp-ai-bridge)를 보세요.
 
 ### 빠른 시작
 
-요구 사항: Windows, 한글 2022(검증 빌드 `12.0.0.850`), Python 3.10 이상, Git.
+요구 사항: Windows, 한글 2022(검증 빌드 `12.0.0.850`), Python 3.10 이상.
 
 **1. 전용 가상환경에 설치합니다.** MCP 서버 실행 파일이 소스 폴더에 묶이지 않도록 `-e` 설치는 피합니다.
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
-C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
 ```
 
 **2. AI 클라이언트에 등록합니다.** Claude Code 예:
@@ -78,7 +80,7 @@ C:\hwpctl\venv\Scripts\hwpctl status
 | `create_table` | 표 생성, 첫 행 배경색, 기본 칸 안여백 |
 | `fill_cells` | 표 셀 값 채우기 |
 | `layout_review` | 표 편집 뒤 줄바꿈·행 높이·본문 폭 검토와 수정 |
-| `insert_chart` | 표 데이터로 한/글 네이티브 차트 삽입 |
+| `insert_shape` | 편집 가능한 사각형·타원·선 삽입 |
 | `insert_text_box` | 편집 가능한 글상자 (채우기·테두리·그림자·위치) |
 | `render_page` | 쪽을 이미지로 렌더해 결과 확인 |
 | `undo` | 직전 hwpctl 명령을 Undo 한 덩어리로 되돌리기 |
@@ -126,24 +128,25 @@ same `hwpctl` server with a small configuration change.
 
 | Does | Does not |
 |---|---|
-| Paragraph and character formatting, tables (create, fill, merge, grid, cell margins), native charts, text boxes, shapes, pictures, page setup and page numbers | Simulate keystrokes (SendKeys) or autosave |
+| Paragraph and character formatting, tables (create, fill, merge, grid, cell margins), text boxes, shapes, pictures, page setup and page numbers | Simulate keystrokes (SendKeys) or autosave |
 | Record each command as one Undo unit, with `undo` | Overwrite the original or close documents without an explicit flag |
 | Render pages (`render_page`) and measure differences (`compare_render`) | Use Hangul 2024-only APIs or act as a general HWP converter |
 | Read `.hwpx` without Hangul (`hwpx_inspect`) | Gradient-filled text (TextArt) — not yet ([#30](https://github.com/Jasujung99/hwpctl/issues/30)) |
+| Rebuild a reference document from a spec (experimental: `reference_to_spec`, `build_document`) | Native charts (`insert_chart`) — not recommended on the verified build ([#33](https://github.com/Jasujung99/hwpctl/issues/33)) |
 
 For a narrower, preview-first workflow on a new document, see [HWP Live Safe](https://github.com/Jasujung99/hwp-live-safe).
 For choosing a client and engine combination, see [HWP AI Bridge](https://github.com/Jasujung99/hwp-ai-bridge).
 
 ### Quick start
 
-Requirements: Windows, Hancom Office Hangul 2022 (verified build `12.0.0.850`), Python 3.10+, Git.
+Requirements: Windows, Hancom Office Hangul 2022 (verified build `12.0.0.850`), Python 3.10+.
 
 **1. Install into a dedicated virtual environment.** Avoid editable (`-e`) installs for the MCP
 runtime, so the server executable is not tied to a source checkout.
 
 ```bat
 py -3.13 -m venv C:\hwpctl\venv
-C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ git+https://github.com/Jasujung99/hwpctl@main"
+C:\hwpctl\venv\Scripts\python -m pip install "hwpctl[windows] @ https://github.com/Jasujung99/hwpctl/releases/download/v0.1.0/hwpctl-0.1.0-py3-none-any.whl"
 ```
 
 **2. Register it with your client.** Claude Code example:
@@ -175,7 +178,7 @@ To update, quit every MCP client first, then reinstall ([install guide](docs/gui
 | `create_table` | Create a table with an optional header fill and default cell padding |
 | `fill_cells` | Fill table cells |
 | `layout_review` | Review and fix wrapping, row heights and body width after table edits |
-| `insert_chart` | Insert a native Hangul chart from table data |
+| `insert_shape` | Insert an editable rectangle, ellipse or line |
 | `insert_text_box` | Insert an editable text box (fill, border, shadow, position) |
 | `render_page` | Render a page to an image to check the result |
 | `undo` | Undo the previous hwpctl command as one unit |

@@ -1,5 +1,24 @@
 # 통합 검증 기록
 
+## v0.1.0 릴리스 실기 검증 (2026-10-15)
+
+환경: Windows 11 Home 22621, 한글 2022 `12.0.0.850`, Python 3.13.5, pywin32 312(`win32com`),
+MCP Python SDK 1.29.1. 작업 전 한/글 미실행 상태에서 시작했고, 테스트가 만든 문서와 프로세스만 다뤘다.
+
+- 단위·계약: `pytest` 482 passed, 21 skipped. `validate_public_files.py`, `mcp --list-tools`(54), `python -m build` 통과.
+- opt-in 실기(`HWPCTL_RUN_HANGUL_INTEGRATION=1`, `test_hangul_live_integration.py`, `test_authoring_native.py`)
+  - 첫 실행: 14 passed, 4 failed. `build_document` 소유 세션이 문서를 닫은 뒤 한/글이 자동으로 만든 빈
+    문서 때문에 Quit을 건너뛰어 `ok: false`가 되고 숨은 인스턴스 3개가 남음. 남은 인스턴스 때문에
+    `test_hierarchical_table_selector_matches_native_control_order`도 실패(단독 실행 시 통과).
+  - 수정(`_only_automatic_blank_documents`) 뒤 재실행: **18 passed**, 남은 `Hwp.exe` 없음.
+- CLI 점검(새 문서): `open --new`, `status`(backend `win32com`), `insert_title`, `create_table`, `fill_cells`,
+  `layout_review`, `snapshot`, `save_as`(.hwpx), 같은 경로 `save_as` 거부(종료 코드 5), `undo`, `page`,
+  `move_to_cell` → `exit_table` → `insert_paragraph`, `close_all --force` 정상.
+  - `fill_cells` 직후 `exit_table`은 마지막 셀이 아니어서 거부됨 → 문서 예시에 `move_to_cell` 추가.
+  - `insert_chart`: 범위 없이 표 전체 선택 실패, `--range` 지정 시 차트는 생기지만 `ChartDataDialogDisable=1`이
+    무시되어 데이터 편집 대화상자가 뜨고 호출이 반환되지 않음, 데이터는 기본값 → #33으로 분리하고 사용
+    비권장으로 문서화.
+
 ## 후속 후보 PR 로컬 검증 (2026-09-08)
 
 기준 main `09fe928` 위의 별도 작업트리. 아래 변경은 PR 제안이며 main 반영을 뜻하지 않는다.

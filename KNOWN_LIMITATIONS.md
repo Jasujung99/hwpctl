@@ -35,8 +35,11 @@
 - `snapshot`은 캐럿과 블록 선택을 복원하려고 시도하지만 특수 개체나 손상된 표가 있는
   문서에서는 복원에 실패할 수 있습니다. 표 미리보기는 최대 10개, 표당 8행×8열입니다.
 - 내부 가로 테두리 `TypeHorz`는 한글 2022에서 지원되지 않아 명시적으로 거부합니다.
-- `insert_chart`의 `line` 차트 인덱스는 추론값이며 `ChartDataDialogDisable` 동작도 실기
-  확인 대상입니다. 데이터 편집 대화상자가 뜨면 자동으로 누르지 말고 중단하세요.
+- `insert_chart`는 검증 빌드에서 사용을 권장하지 않습니다([#33](https://github.com/Jasujung99/hwpctl/issues/33)). 2026-10-15 실기에서
+  `ChartDataDialogDisable=1`이 무시되어 데이터 편집 대화상자가 떴고, `InsertChart` 호출이 대화상자가
+  닫힐 때까지 반환되지 않아 hwpctl이 오류로 중단할 기회가 없었습니다. 차트에는 표 값 대신 기본
+  데이터가 들어갔고, 범위 없이 표 전체를 고르는 경로는 셀 선택에 실패했습니다. `line` 차트 인덱스도
+  추론값입니다. 대화상자가 뜨면 직접 닫고 Undo로 차트를 되돌리세요.
 - 현재 `set_format`은 글꼴·문자권별 HFT 글꼴·크기·굵게·기울임·글자색·정렬·셀 채우기·글자 그림자를 지원합니다.
   줄 간격·문단 여백은 `set_format`이 아니라 문단 사양(`paragraph.line_spacing_percent` 등)으로
   지정합니다. 새 문단은 `insert_paragraph`·`write_cell`, 기존 문단은 `format_paragraph_by_text`를
