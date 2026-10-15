@@ -14,8 +14,28 @@ hwpctl mcp --list-tools
 hwpctl hwpx_status
 ```
 
+한/글이 없거나 Windows가 아니면 `hwpctl status`는 스택 없이 한국어 오류와 종료 코드 3으로
+끝나야 합니다. CI의 `linux-contract` job이 이 계약을 고정합니다.
+
 `.hwpx` 준비 계층만 쓰려면 `pip install -e ".[hwpx]"` 로도 충분합니다. 한/글은
 필요 없습니다.
+
+개발용(editable) 가상환경을 MCP 클라이언트의 실행 환경으로 함께 쓰지 마세요. 서버가 떠 있으면
+`hwpctl.exe`가 잠겨 `pip install -e` 재설치가 가상환경을 깨뜨릴 수 있습니다. 실행 환경은
+[설치 가이드](docs/guide/install.md)처럼 소스와 분리된 가상환경에 일반 설치합니다.
+
+저장소 구조:
+
+```text
+hwpctl/           엔진·CLI·MCP 서버
+hwpctl/hwpx/      한글 없는 .hwpx 읽기·작성 (python-hwpx)
+hwpctl/authoring/ 실험적 작성 명세·변환 (reference_to_spec, build_document)
+examples/         MCP 클라이언트 설정과 Engine 직접 호출 예제
+tests/            파서·잠금·COM 스텁·HWPX XML·공개 문서 검사 (실기 테스트는 opt-in)
+docs/guide/       사용자 가이드
+docs/dev/         통합 대장·검증 기록·릴리스 체크리스트 등 개발 문서
+docs/research/    조사 문서
+```
 
 Windows와 한글 2022에서 실기 확인하려면 별도 가상환경에 다음을 설치하세요.
 
@@ -42,6 +62,16 @@ pytest tests/test_hangul_live_integration.py
   요구해야 합니다.
 - MCP 도구 설명에는 대상, 부작용, 거부 조건을 AI가 이해할 수 있게 적습니다.
 - 새 네트워크 연결이나 외부 서비스는 신뢰 경계와 안전한 기본값을 함께 문서화합니다.
+
+## 문서
+
+- 사용자에게 보이는 동작이 바뀌면 [사용 가이드](docs/guide/)와 [CHANGELOG](CHANGELOG.md)를
+  같은 PR에서 고칩니다.
+- MCP 도구를 추가·변경·삭제하면 [도구 레퍼런스](docs/guide/tools.md) 표를 `hwpctl.tools`
+  순서대로 갱신합니다. README의 대표 도구 표는 실제 도구 이름만 쓸 수 있고 한국어·영어 표가
+  같아야 합니다. 모두 `scripts/validate_public_files.py`와 테스트가 검사합니다.
+- README는 한국어 절 아래에 영어 절을 둡니다. 두 절의 내용을 함께 고칩니다.
+- 통합 기록·실측 노트는 [docs/dev](docs/dev/)에 둡니다.
 
 ## 개인정보와 테스트 자료
 
