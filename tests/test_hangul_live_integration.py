@@ -121,6 +121,41 @@ def test_layout_review_shrinks_rows_written_by_table_grid() -> None:
         _close_without_saving(app)
 
 
+def test_insert_shape_ellipse_creates_sized_native_shapes() -> None:
+    """DrawObjCreatorEllipse는 CreatePt 배열을 주면 RPC_E_SERVERFAULT로 실패했다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, records = _isolated_engine(canvas)
+        canvas.insert_text("타원 회귀")
+        engine.insert_shape(shape_kind="ellipse", width_mm=40, height_mm=20)
+        engine.insert_shape(shape_kind="rectangle", width_mm=30, height_mm=15, fill="#3366CC")
+        engine.insert_shape(
+            shape_kind="ellipse",
+            width_mm=25,
+            height_mm=25,
+            fill={"type": "linear_gradient", "stops": ["#FFFFFF", "#CC3333"]},
+            line={"color": "#FF0000", "width_mm": 0.5},
+            shadow={"type": "offset"},
+            position={"mode": "floating", "x_mm": -5, "y_mm": -3, "wrap": "in_front_of_text"},
+        )
+        sizes = []
+        ctrl = app.HeadCtrl
+        while ctrl is not None:
+            if str(ctrl.CtrlID) == "gso":
+                props = ctrl.Properties
+                sizes.append(
+                    (
+                        round(int(props.Item("Width")) * 25.4 / 7200, 1),
+                        round(int(props.Item("Height")) * 25.4 / 7200, 1),
+                    )
+                )
+            ctrl = ctrl.Next
+        assert sizes == [(40.0, 20.0), (30.0, 15.0), (25.0, 25.0)]
+        assert records == [("insert_shape", 1)] * 3
+    finally:
+        _close_without_saving(app)
+
+
 def test_parent_exit_stops_in_the_immediate_parent_cell() -> None:
     app, canvas = _new_blank_canvas()
     try:

@@ -26,10 +26,17 @@ def apply_position(canvas, pset, position):
         put("AllowOverlap", int(position.get("allow_overlap", False)))
 
 
-def apply_creation_geometry(pset, width, height, *, line=False):
-    """Absolute size references and creation points (HwpUnit) for DrawObjCreator* actions."""
+def apply_creation_geometry(pset, width, height, *, line=False, create_points=True):
+    """Absolute size references and creation points (HwpUnit) for DrawObjCreator* actions.
+
+    ``create_points=False`` keeps only the size references. Hancom 2022's
+    DrawObjCreatorEllipse raises RPC_E_SERVERFAULT for any CreatePt array (the
+    rectangle outline or two corners) but sizes the ellipse from Width/Height.
+    """
     pset.SetItem("WidthRelTo", 4)
     pset.SetItem("HeightRelTo", 2)
+    if not create_points:
+        return
     layout = pset.CreateItemSet("ShapeDrawLayOut", "DrawLayOut")
     points = (0, 0, width, height) if line else (0, 0, width, 0, width, height, 0, height)
     array = layout.CreateItemArray("CreatePt", len(points))
@@ -224,7 +231,8 @@ def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow,
     action.GetDefault(pset)
     canvas._set_pset_item(pset, "Width", mm_to_hwpunit(width_mm))
     canvas._set_pset_item(pset, "Height", mm_to_hwpunit(height_mm))
-    apply_creation_geometry(pset, mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm), line=shape_kind == "line")
+    apply_creation_geometry(pset, mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm),
+                            line=shape_kind == "line", create_points=shape_kind != "ellipse")
     apply_position(canvas, pset, position)
     if fill is not None:
         child = pset.CreateItemSet("ShapeDrawFillAttr", "DrawFillAttr")
