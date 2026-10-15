@@ -260,6 +260,22 @@ def _kwargs_for_inner(args: Any) -> dict[str, Any]:
             "shadow": parse_json_or_raw(args.shadow),
             "position": parse_json_or_raw(args.position),
         }
+    if cmd == "insert_text_art":
+        return {
+            "text": args.text.replace("\\n", "\n"),
+            "width_mm": args.width_mm,
+            "height_mm": args.height_mm,
+            "shape": args.shape,
+            "font": args.font,
+            "font_style": args.font_style,
+            "fill": parse_json_or_raw(args.fill),
+            "line": parse_json_or_raw(args.line),
+            "shadow": parse_json_or_raw(args.shadow),
+            "align": args.align,
+            "line_spacing_percent": args.line_spacing_percent,
+            "char_spacing_percent": args.char_spacing_percent,
+            "position": parse_json_or_raw(args.position),
+        }
     if cmd == "insert_chart":
         return {
             "table": args.table,

@@ -340,7 +340,7 @@ def test_editable_rectangle_and_text_box_preserve_order(tmp_path: Path) -> None:
 def test_nonrepresentable_gradient_and_chart_fail_closed(tmp_path: Path) -> None:
     head = HEAD.replace('</MAPPINGTABLE>',
         '<BORDERFILLLIST><BORDERFILL Id="7"><FILLBRUSH>'
-        '<GRADATION Type="Linear" Angle="90" Step="50" ColorNum="2">'
+        '<GRADATION Type="Linear" Angle="90" CenterX="20" ColorNum="2">'
         '<COLOR Value="#000000"/><COLOR Value="#FFFFFF"/>'
         '</GRADATION></FILLBRUSH></BORDERFILL></BORDERFILLLIST></MAPPINGTABLE>')
     one = cell(0, 0, 600, 400, para("tone"), attrs=' BorderFill="7"')
@@ -353,7 +353,7 @@ def test_nonrepresentable_gradient_and_chart_fail_closed(tmp_path: Path) -> None
     assert not result["ok"] and result["spec"] is None
     assert not (tmp_path / "out").exists()
     details = [entry["detail"] for entry in result["report"]["losses"]]
-    assert any("linear gradient center/step differs" in item for item in details)
+    assert any("linear gradient center differs" in item for item in details)
     assert any("HWPML 3.0 has no CHART element" in item for item in details)
 
 

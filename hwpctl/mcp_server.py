@@ -53,6 +53,7 @@ INSTRUCTIONS = (
     "자동저장은 없다. save/close 는 각각 overwrite/force 가 필요하다. "
     "새 표에는 기본 칸 안여백(좌우 3.5mm, 상하 2.0mm)이 적용된다. "
     "create_table/fill_cells 등으로 표를 편집한 뒤에는 항상 별도 layout_review를 호출한다. "
+    "글자에 그러데이션을 넣으려면 insert_text_art(글맵시)를 쓴다. "
     "insert_chart 는 검증 빌드(한글 2022 12.0.0.850)에서 데이터 편집 대화상자가 떠 호출이 "
     "멈출 수 있으므로 사용자가 명시적으로 요청할 때만 쓴다. "
     "표 뒤에 일반 본문을 넣을 때는 move_to_cell 로 마지막 셀에 간 뒤 exit_table을 호출해 "
@@ -742,6 +743,36 @@ def build_mcp(lock_timeout: float = 8.0):
             engine, "insert_shape", shape_kind=shape_kind, width_mm=width_mm,
             height_mm=height_mm, fill=fill, line=line, shadow=shadow,
             position=position,
+        )
+
+    @mcp.tool()
+    async def insert_text_art(
+        text: str,
+        width_mm: float,
+        height_mm: float,
+        shape: str = "rectangle",
+        font: str = "",
+        font_style: Literal["regular", "bold", "italic", "bold_italic"] = "regular",
+        fill: Any = None,
+        line: Any = None,
+        shadow: Any = None,
+        align: Literal["left", "right", "center", "full"] = "left",
+        line_spacing_percent: int = 120,
+        char_spacing_percent: int = 100,
+        position: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """글맵시(TextArt)를 삽입한다. 글자 자체에 그러데이션을 넣는 한/글 기본 방법이다.
+        fill: 색 문자열(단색) 또는 {type: solid|linear_gradient|radial_gradient, stops: [색 2개], angle,
+        step(번짐 정도 0~255, 한/글 UI 기본 255), step_center}. 3색 이상은 거부한다.
+        shape: rectangle(직선, 기본)·wave2·arch_up·parallelogram 등 한/글 모양 55종의 이름.
+        font는 TTF 글꼴 이름(비우면 한/글 기본), text의 줄바꿈은 \\n. 크기 단위는 mm.
+        position은 생략 시 글자처럼 취급(inline), 또는 {mode:'floating', x_mm, y_mm, wrap, ...}.
+        line은 글맵시 윤곽선, shadow는 개체 그림자. Undo 한 단위(한/글 2단계)."""
+        return await _call(
+            engine, "insert_text_art", text=text, width_mm=width_mm, height_mm=height_mm,
+            shape=shape, font=font, font_style=font_style, fill=fill, line=line, shadow=shadow,
+            align=align, line_spacing_percent=line_spacing_percent,
+            char_spacing_percent=char_spacing_percent, position=position,
         )
 
     @mcp.tool()

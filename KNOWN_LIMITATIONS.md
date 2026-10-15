@@ -44,9 +44,9 @@
   줄 간격·문단 여백은 `set_format`이 아니라 문단 사양(`paragraph.line_spacing_percent` 등)으로
   지정합니다. 새 문단은 `insert_paragraph`·`write_cell`, 기존 문단은 `format_paragraph_by_text`를
   사용하세요.
-- 글자 자체에 그러데이션을 넣는 글맵시(TextArt)는 아직 도구로 제공하지 않습니다. 현재 그러데이션은
-  표 칸(`set_cell_fill`)과 글상자·도형 채우기(`insert_text_box`·`insert_shape`의 `fill`)에만
-  적용됩니다. 진행 상황은 [#30](https://github.com/Jasujung99/hwpctl/issues/30)을 참고하세요.
+- 글자 자체의 그러데이션은 글맵시(`insert_text_art`)로 넣습니다. 글꼴은 TTF만 다루고(HFT는 한/글이 TTF로
+  저장), 글맵시 자체 그림자·회전·뒤집기는 아직 재현하지 않습니다. 그러데이션은 2색만 받습니다.
+  자세한 내용은 [글맵시](docs/guide/text-art.md)를 보세요.
 - `set_table_position`의 floating 좌표는 표가 놓인 문단/쪽/용지를 기준으로 계산됩니다.
   앞 문단의 길이나 쪽 나눔이 바뀌면 절대 화면 좌표처럼 고정되지 않을 수 있으므로,
   문서 조립이 끝난 뒤 PDF로 위치와 본문 흐름을 확인하세요.

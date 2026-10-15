@@ -11,6 +11,7 @@
 | [도구 레퍼런스](guide/tools.md) | MCP 도구·CLI 명령 전체 목록과 사용 예 |
 | [표와 서식](guide/tables-and-formatting.md) | 표 격자·병합·여백, 문단·글자 서식 시그니처 |
 | [한/글 네이티브 차트](guide/charts.md) | `insert_chart` 종류와 제약 |
+| [글맵시 (글자 그러데이션)](guide/text-art.md) | `insert_text_art`, 모양 55종, 채우기, 작성 명세 `text_art` |
 | [HWPX 작성 (실험)](guide/hwpx-authoring.md) | `.hwpx` 읽기·작성, `reference_to_spec`·`build_document` |
 | [안전 장치](guide/safety.md) | 파괴적 작업 플래그, 잠금, Undo |
 

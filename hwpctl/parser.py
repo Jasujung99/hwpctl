@@ -419,6 +419,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_shape.add_argument("--shadow", default="", help="그림자 JSON")
     p_shape.add_argument("--position", default="", help="inline 또는 floating 위치 JSON")
 
+    p_text_art = add_common(sub.add_parser(
+        "insert_text_art", help="글맵시 삽입 (글자에 그러데이션 채우기)"))
+    p_text_art.add_argument("text", help="글맵시 내용. 줄바꿈은 \\n")
+    p_text_art.add_argument("--width", dest="width_mm", type=float, required=True, help="너비(mm)")
+    p_text_art.add_argument("--height", dest="height_mm", type=float, required=True, help="높이(mm)")
+    p_text_art.add_argument("--shape", default="rectangle", help="글맵시 모양 이름. 예: rectangle, wave2, arch_up")
+    p_text_art.add_argument("--font", default="", help="TTF 글꼴 이름 (비우면 한/글 기본)")
+    p_text_art.add_argument("--font-style", default="regular",
+                            choices=["regular", "bold", "italic", "bold_italic"])
+    p_text_art.add_argument("--fill", default="", help="색 또는 채우기 JSON (2색 그러데이션)")
+    p_text_art.add_argument("--line", default="", help="윤곽선 JSON")
+    p_text_art.add_argument("--shadow", default="", help="그림자 JSON")
+    p_text_art.add_argument("--align", default="left", choices=["left", "right", "center", "full"])
+    p_text_art.add_argument("--line-spacing", dest="line_spacing_percent", type=int, default=120,
+                            help="줄 간격(%%, 50~500)")
+    p_text_art.add_argument("--char-spacing", dest="char_spacing_percent", type=int, default=100,
+                            help="글자 간격(%%, 50~500)")
+    p_text_art.add_argument("--position", default="", help="inline 또는 floating 위치 JSON")
+
     p_chart = add_common(
         sub.add_parser("insert_chart", help="표 데이터로 한/글 네이티브 차트 삽입 (그림 아님)")
     )

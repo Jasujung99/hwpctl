@@ -78,19 +78,145 @@ def position_control(canvas, ctrl, position):
     after_control(canvas, ctrl)
 
 
-def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow, position):
-    actions = {"rectangle": "DrawObjCreatorRectangle", "ellipse": "DrawObjCreatorEllipse", "line": "DrawObjCreatorLine"}
-    canvas.assert_no_dialog()
-    # Hancom 2022 can raise RPC_E_SERVERFAULT if a drawing creator is invoked
-    # directly after InsertText/BreakPara. A reversible cursor movement flushes
-    # that edit state without changing the insertion point or object order.
+def settle_insertion_point(canvas, label="shape"):
+    """Flush pending text-edit state before a drawing creator action.
+
+    Hancom 2022 can raise RPC_E_SERVERFAULT if a drawing creator is invoked
+    directly after InsertText/BreakPara. A reversible cursor movement flushes
+    that edit state without changing the insertion point or object order.
+    """
     origin = canvas.get_pos()
     if origin is None:
-        raise HangulCommandError("Cannot verify shape insertion point")
+        raise HangulCommandError(f"Cannot verify {label} insertion point")
     if canvas.run("MoveLeft"):
         if not canvas.run("MoveRight") or canvas.get_pos() != origin:
             canvas.set_pos(origin)
-            raise HangulCommandError("Cannot restore shape insertion point")
+            raise HangulCommandError(f"Cannot restore {label} insertion point")
+
+
+class ChildSets:
+    """Owner proxy for ShapeObjDialog child item sets.
+
+    Automation returns a COPY of an existing child set (unlike OCX), so edits
+    must be written back with ``SetItem``. Shared helpers such as
+    ``_apply_shape_line`` call ``CreateItemSet`` on their owner; through this
+    proxy they edit the existing copy instead of replacing it with an empty set.
+    """
+
+    def __init__(self, pset):
+        self.pset = pset
+        self.children = {}
+
+    def CreateItemSet(self, name, set_id):
+        if name not in self.children:
+            exists = self.pset.ItemExist(name)
+            self.children[name] = self.pset.Item(name) if exists else self.pset.CreateItemSet(name, set_id)
+        return self.children[name]
+
+    def write_back(self):
+        for name, child in self.children.items():
+            self.pset.SetItem(name, child)
+
+
+def insert_text_art(canvas, *, text, width_mm, height_mm, shape, font, font_style, fill, line, shadow,
+                    align, line_spacing_percent, char_spacing_percent, position):
+    """Insert an editable 글맵시 (TextArt) and return the measured Undo steps (2).
+
+    ``TextArtCreate`` ignores its parameter set and always creates Hangul's
+    default object (measured on 12.0.0.850). Content, font, shape, size, fill
+    and position are therefore applied by ONE ``ShapeObjDialog`` on the new
+    object, so the whole command is two Undo steps.
+    """
+    canvas.assert_no_dialog()
+    settle_insertion_point(canvas, "text art")
+    create = canvas.com.CreateAction("TextArtCreate")
+    if create is None:
+        raise HangulCommandError("Text art creation action unavailable")
+    seed = create.CreateSet()
+    create.GetDefault(seed)  # Execute without GetDefault raises RPC_E_SERVERFAULT
+    if not create.Execute(seed):
+        raise HangulCommandError("Text art creation failed")
+    ctrl = canvas.com.LastCtrl
+    if ctrl is None or str(ctrl.CtrlID) != "gso" or str(getattr(ctrl, "UserDesc", "")) != "글맵시":
+        raise HangulCommandError(f"New text art was not found (LastCtrl={getattr(ctrl, 'CtrlID', None)!r})")
+    try:
+        _apply_text_art_properties(
+            canvas, ctrl, text=text, width_mm=width_mm, height_mm=height_mm, shape=shape, font=font,
+            font_style=font_style, fill=fill, line=line, shadow=shadow, align=align,
+            line_spacing_percent=line_spacing_percent, char_spacing_percent=char_spacing_percent,
+            position=position)
+    except Exception as exc:
+        # The default object already exists as one Hangul Undo step. Report it
+        # so the engine can keep `undo` aligned with the document.
+        try:
+            exc.partial_undo_steps = 1
+        except Exception:
+            raise HangulCommandError(f"Text art properties could not be applied: {exc}") from exc
+        raise
+    after_control(canvas, ctrl)
+    canvas.assert_no_dialog()
+    return 2
+
+
+def _apply_text_art_properties(canvas, ctrl, *, text, width_mm, height_mm, shape, font, font_style, fill,
+                               line, shadow, align, line_spacing_percent, char_spacing_percent, position):
+    from hwpctl.textart import ALIGNS, FONT_STYLES, shape_index, text_to_com
+
+    canvas.com.SetPosBySet(ctrl.GetAnchorPos(0))
+    canvas.com.FindCtrl()
+    action = canvas.com.CreateAction("ShapeObjDialog")
+    pset = action.CreateSet()
+    action.GetDefault(pset)
+    put = canvas._set_pset_item
+    children = ChildSets(pset)
+    art = children.CreateItemSet("ShapeDrawTextart", "DrawTextart")
+    put(art, "String", text_to_com(text))
+    put(art, "NumberOfLines", text.count("\n") + 1)
+    if font:
+        put(art, "FontName", font)
+        put(art, "FontType", 1)  # TTF; FontType=2 (HFT) is saved as TTF anyway
+    put(art, "FontStyle", FONT_STYLES[font_style])
+    put(art, "Shape", shape_index(shape))
+    put(art, "AlignType", ALIGNS.index(align))
+    put(art, "LineSpacing", line_spacing_percent)
+    put(art, "CharSpacing", char_spacing_percent)
+    apply_position(canvas, pset, position)
+    if fill is not None:
+        canvas._apply_fill(children.CreateItemSet("ShapeDrawFillAttr", "DrawFillAttr"), fill)
+    if line is not None:
+        canvas._apply_shape_line(children, line)
+    if shadow is not None:
+        canvas._apply_shape_shadow(children, shadow)
+    children.write_back()
+    succeeded = bool(action.Execute(pset))
+    canvas.run("Cancel")
+    if not succeeded:
+        raise HangulCommandError("Text art property action failed")
+    resize_control(ctrl, mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm))
+
+
+def resize_control(ctrl, width, height):
+    """Resize a drawing control in HwpUnit through its ``Properties`` set.
+
+    ``ShapeObjDialog`` reports success but ignores Width/Height for text art
+    (measured on 12.0.0.850, with every RelTo/ShapeType variant). Assigning the
+    control's ShapeObject properties applies the size and adds no Undo step.
+    """
+    props = ctrl.Properties
+    props.SetItem("Width", width)
+    props.SetItem("Height", height)
+    ctrl.Properties = props
+    check = ctrl.Properties
+    if (int(check.Item("Width")), int(check.Item("Height"))) != (width, height):
+        raise HangulCommandError(
+            f"Object size was not applied: requested {width}x{height} HU, "
+            f"got {check.Item('Width')}x{check.Item('Height')}")
+
+
+def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow, position):
+    actions = {"rectangle": "DrawObjCreatorRectangle", "ellipse": "DrawObjCreatorEllipse", "line": "DrawObjCreatorLine"}
+    canvas.assert_no_dialog()
+    settle_insertion_point(canvas)
     action = canvas.com.CreateAction(actions[shape_kind])
     if action is None:
         raise HangulCommandError("Shape creation action unavailable")
