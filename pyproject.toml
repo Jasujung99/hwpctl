@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hwpctl"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local MCP/CLI bridge that lets AI coding agents edit an open Hancom Office Hangul 2022 document (한/글 2022 라이브 편집 브리지)"
 readme = "README.md"
 requires-python = ">=3.10"

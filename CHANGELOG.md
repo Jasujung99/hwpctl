@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-15
+
+글자 자체에 그러데이션을 넣는 글맵시(`insert_text_art`)를 추가한 릴리스입니다. 도구는 55개입니다.
+
+검증 환경: Windows 11, 한글 2022 `12.0.0.850`, Python 3.13, pywin32 312(`win32com` 백엔드),
+MCP Python SDK 1.29. 한/글 실기 회귀 20개(기존 18개 + 글맵시 2개)를 통과했습니다.
+
 ### Added
 
 - `hwpctl.textart`: 한글 2022 `12.0.0.850`에서 실측한 글맵시 사실(모양 55종의 COM 번호↔HWPX 이름,
@@ -23,6 +30,14 @@
 ### Changed
 
 - 방사형 그러데이션 `step` 상한을 100에서 255로 넓혔다(한/글 UI 범위)
+
+### 알려진 한계
+
+- 글맵시는 TTF 글꼴만 다루고, 글맵시 자체 그림자·회전·뒤집기는 아직 재현하지 않습니다.
+  자세한 내용은 [글맵시](docs/guide/text-art.md)를 보세요.
+- `insert_chart`는 여전히 사용을 권장하지 않습니다 ([#33](https://github.com/Jasujung99/hwpctl/issues/33), v0.3.0).
+- 실제 한/글 문서 전체를 `reference_to_spec`하면 탭 정의·구역 속성 손실이 남아 있습니다
+  ([#25](https://github.com/Jasujung99/hwpctl/issues/25)).
 
 ## [0.1.0] - 2026-10-15
 
@@ -115,5 +130,6 @@ MCP Python SDK 1.29. CI는 Windows·Linux에서 Python 3.10·3.12로 실행합�
 읽기 전용 참조 HWPML 캡처·구조 비교 라이브러리(`hwpctl.reference`), 범용 HWPX 런·문단·표 작성
 라이브러리, 미사용 서식 정의 정리 함수 등은 [개발 문서](docs/dev/INTEGRATION_STATUS.md)를 보세요.
 
-[Unreleased]: https://github.com/Jasujung99/hwpctl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Jasujung99/hwpctl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.1.0

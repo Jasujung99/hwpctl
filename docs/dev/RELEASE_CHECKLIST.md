@@ -42,6 +42,14 @@
 ## 릴리스
 
 - [ ] 실패·미검증 기능을 `KNOWN_LIMITATIONS.md`에 반영했다.
-- [ ] 버전과 `CHANGELOG.md`를 확정했다.
-- [ ] 모든 게이트 통과 후에만 `v0.1.0` 태그와 GitHub Release를 만든다.
+- [ ] `pyproject.toml`의 `version`, `hwpctl/__init__.py`의 `__version__`, `CHANGELOG.md`의
+      `## [X.Y.Z] - 날짜` 절을 확정했다. 앞의 둘은 테스트가 대조하고,
+      `python scripts/release_notes.py X.Y.Z`로 릴리스 노트가 추출되는지 확인한다.
+- [ ] README(한국어·영어)와 [설치 가이드](../guide/install.md)의 wheel 주소를 새 버전으로 바꿨다.
+- [ ] 위 변경을 PR로 머지한 뒤, 모든 게이트 통과 후에만 `main`에 `vX.Y.Z` 태그를 푸시한다.
+      `.github/workflows/release.yml`이 태그·패키지 버전·`__version__` 일치를 확인하고, 테스트·빌드 후
+      GitHub Release에 wheel·sdist와 CHANGELOG 절을 올린다. `-rc` 같은 태그는 pre-release로 만든다.
+- [ ] 게시 뒤 깨끗한 가상환경에서 README의 wheel 주소로 설치해 `hwpctl --version`과
+      `hwpctl mcp --list-tools`를 확인한다.
+- [ ] 로컬 MCP 실행 환경을 새 wheel로 올렸다면, 모든 hwpctl 서버를 멈춘 뒤 설치하고 설치 기록을 남긴다.
 - [ ] 이번 단계에서는 PyPI에 배포하지 않는다.
