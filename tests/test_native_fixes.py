@@ -79,6 +79,74 @@ def test_creation_geometry_sets_absolute_size_and_points(line: bool) -> None:
     assert layout.items["CreateNumPt"] == len(expected) // 2
 
 
+def test_creation_geometry_without_points_keeps_only_size_references() -> None:
+    pset = _PSet()
+    native_objects.apply_creation_geometry(pset, 1000, 400, create_points=False)
+    assert pset.items == {"WidthRelTo": 4, "HeightRelTo": 2}
+    assert pset.children == {} and pset.arrays == {}
+
+
+class _ShapeAction:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.pset = _PSet()
+
+    def CreateSet(self) -> _PSet:
+        return self.pset
+
+    def GetDefault(self, _pset) -> None:
+        pass
+
+    def Execute(self, _pset) -> bool:
+        return True
+
+
+class _ShapeCanvas:
+    def __init__(self) -> None:
+        self.actions: list[_ShapeAction] = []
+        self.com = SimpleNamespace(CreateAction=self._create, LastCtrl=SimpleNamespace(CtrlID="gso"))
+
+    def _create(self, name: str) -> _ShapeAction:
+        self.actions.append(_ShapeAction(name))
+        return self.actions[-1]
+
+    def assert_no_dialog(self) -> None:
+        pass
+
+    def get_pos(self):
+        return (0, 0, 0)
+
+    def set_pos(self, _pos) -> bool:
+        return True
+
+    def run(self, _name: str) -> bool:
+        return False
+
+    def _set_pset_item(self, pset, name, value) -> None:
+        pset.SetItem(name, value)
+
+
+@pytest.mark.parametrize(("shape_kind", "action", "has_points"), [
+    ("rectangle", "DrawObjCreatorRectangle", True),
+    ("line", "DrawObjCreatorLine", True),
+    # Hancom 2022 raises RPC_E_SERVERFAULT for an ellipse with any CreatePt array.
+    ("ellipse", "DrawObjCreatorEllipse", False),
+])
+def test_insert_shape_sends_creation_points_except_for_ellipse(monkeypatch, shape_kind, action, has_points) -> None:
+    monkeypatch.setattr(native_objects, "after_control", lambda *_args: None)
+    canvas = _ShapeCanvas()
+
+    native_objects.insert_shape(
+        canvas, shape_kind=shape_kind, width_mm=40, height_mm=20,
+        fill=None, line=None, shadow=None, position={"mode": "inline"},
+    )
+
+    created = canvas.actions[-1]
+    assert created.name == action
+    assert created.pset.items["WidthRelTo"] == 4 and created.pset.items["HeightRelTo"] == 2
+    assert ("ShapeDrawLayOut" in created.pset.children) is has_points
+
+
 def test_insert_picture_passes_millimetres_not_hwpunits() -> None:
     calls = []
 

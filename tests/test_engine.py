@@ -888,6 +888,96 @@ def test_layout_review_records_successful_actions_before_later_failure(engine) -
     assert load_state().undo_stack == [1]
 
 
+def _oversized_one_line_rows(fake: FakeCanvas) -> None:
+    # set_table_grid 로 14mm를 지정한 한 줄짜리 행: 계획은 행 높이를 줄이려 한다.
+    fake.layout["row_heights_mm"] = [14.0]
+    for cell in fake.layout["cells"]:
+        cell.update({"line_count": 1, "soft_wrapped": False})
+
+
+def test_layout_review_confirms_row_changes_by_measuring_again(engine) -> None:
+    eng, fake = engine
+    _oversized_one_line_rows(fake)
+
+    out = eng.layout_review(table=0)
+
+    table = out["tables"][0]
+    change = table["row_changes"][0]
+    assert change["from_mm"] == 14.0 and change["to_mm"] < 14.0
+    assert change["actual_to_mm"] == change["to_mm"]
+    assert change["applied"] is True
+    assert table["applied"] is True
+    assert not any("실제 값" in warning for warning in out["warnings"])
+
+
+def test_layout_review_reports_row_change_that_hangul_did_not_keep(engine) -> None:
+    # 실기 한/글: 대표 셀 하나만 줄이면 나머지 셀이 행을 14mm에 붙잡는다.
+    eng, fake = engine
+    _oversized_one_line_rows(fake)
+
+    def accepted_but_unchanged(n: int, row: int, height_mm: float) -> int:
+        fake.calls.append(("set_table_row_height", (n, row, height_mm)))
+        return 1
+
+    fake.set_table_row_height = accepted_but_unchanged  # type: ignore[method-assign]
+
+    out = eng.layout_review(table=0)
+
+    table = out["tables"][0]
+    change = table["row_changes"][0]
+    assert change["actual_to_mm"] == 14.0
+    assert change["applied"] is False
+    assert table["applied"] is False
+    assert any("1행 높이" in warning and "14.00mm" in warning for warning in out["warnings"])
+    # 액션 자체는 한/글에서 실행됐으므로 Undo 기록은 그대로 남긴다.
+    assert out["hangul_actions"] == 1
+    assert load_state().undo_stack[-1] == 1
+
+
+def test_layout_review_records_cells_written_before_row_failure(engine) -> None:
+    eng, fake = engine
+    _oversized_one_line_rows(fake)
+
+    def fail_after_first_cell(n: int, row: int, height_mm: float) -> int:
+        error = HangulCommandError("두 번째 셀 높이 실패")
+        setattr(error, "_hwpctl_partial_actions", 1)
+        raise error
+
+    fake.set_table_row_height = fail_after_first_cell  # type: ignore[method-assign]
+
+    with pytest.raises(HangulCommandError, match="두 번째 셀"):
+        eng.layout_review(table=0)
+    assert load_state().undo_stack == [1]
+
+
+def test_layout_review_prefers_lightweight_row_height_reader(engine) -> None:
+    eng, fake = engine
+    _oversized_one_line_rows(fake)
+    reads: list[int] = []
+
+    def table_row_heights(n: int) -> list[float]:
+        reads.append(n)
+        return [12.0]
+
+    fake.table_row_heights = table_row_heights  # type: ignore[attr-defined]
+
+    out = eng.layout_review(table=0)
+
+    assert reads == [0]
+    assert out["tables"][0]["row_changes"][0]["actual_to_mm"] == 12.0
+    assert out["tables"][0]["applied"] is False
+
+
+def test_layout_review_dry_run_is_never_applied(engine) -> None:
+    eng, fake = engine
+    _oversized_one_line_rows(fake)
+    out = eng.layout_review(table=0, dry_run=True)
+    assert out["tables"][0]["row_changes"]
+    assert out["tables"][0]["applied"] is False
+    assert "applied" not in out["tables"][0]["row_changes"][0]
+    assert fake.layout["row_heights_mm"] == [14.0]
+
+
 def test_layout_plan_never_uses_negative_growth_for_already_wide_column(engine) -> None:
     _, fake = engine
     fake.layout["table_width_mm"] = 60.0

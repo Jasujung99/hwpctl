@@ -86,6 +86,76 @@ def test_table_grid_geometry_survives_a_page_boundary() -> None:
         _close_without_saving(app)
 
 
+def test_layout_review_shrinks_rows_written_by_table_grid() -> None:
+    """set_table_grid가 셀마다 쓴 행 높이를 layout_review 적용이 실제로 줄이는지 확인한다.
+
+    대표 셀 하나에만 높이를 쓰면 한/글은 같은 행의 다른 셀 높이로 행을 유지한다.
+    이때 layout_review가 applied:true를 보고하던 회귀를 막는다.
+    """
+    app, canvas = _new_blank_canvas()
+    try:
+        canvas.create_table(rows=4, cols=2, header=False)
+        canvas.get_into_nth_table(0)
+        engine, records = _isolated_engine(canvas)
+        engine.set_table_grid(table=0, column_widths_mm=[40.0, 130.0], row_heights_mm=[10.0, 14.0, 14.0, 14.0])
+        for row in range(4):
+            for col in range(2):
+                canvas.get_into_nth_table(0)
+                canvas.goto_addr(a1(row, col))
+                canvas.insert_text(f"셀 {a1(row, col)}")
+
+        result = engine.layout_review(table=0, dry_run=False)
+
+        table = result["tables"][0]
+        shrunk = [change for change in table["row_changes"] if change["from_mm"] == pytest.approx(14.0, abs=0.05)]
+        assert shrunk, table["row_changes"]
+        assert table["applied"] is True
+        canvas.get_into_nth_table(0)
+        for change in table["row_changes"]:
+            assert change["applied"] is True
+            for col in range(2):
+                canvas.goto_addr(a1(change["row_index"], col))
+                assert canvas.get_row_height() == pytest.approx(change["to_mm"], abs=0.5)
+        assert records[-1] == ("layout_review", result["hangul_actions"])
+    finally:
+        _close_without_saving(app)
+
+
+def test_insert_shape_ellipse_creates_sized_native_shapes() -> None:
+    """DrawObjCreatorEllipse는 CreatePt 배열을 주면 RPC_E_SERVERFAULT로 실패했다."""
+    app, canvas = _new_blank_canvas()
+    try:
+        engine, records = _isolated_engine(canvas)
+        canvas.insert_text("타원 회귀")
+        engine.insert_shape(shape_kind="ellipse", width_mm=40, height_mm=20)
+        engine.insert_shape(shape_kind="rectangle", width_mm=30, height_mm=15, fill="#3366CC")
+        engine.insert_shape(
+            shape_kind="ellipse",
+            width_mm=25,
+            height_mm=25,
+            fill={"type": "linear_gradient", "stops": ["#FFFFFF", "#CC3333"]},
+            line={"color": "#FF0000", "width_mm": 0.5},
+            shadow={"type": "offset"},
+            position={"mode": "floating", "x_mm": -5, "y_mm": -3, "wrap": "in_front_of_text"},
+        )
+        sizes = []
+        ctrl = app.HeadCtrl
+        while ctrl is not None:
+            if str(ctrl.CtrlID) == "gso":
+                props = ctrl.Properties
+                sizes.append(
+                    (
+                        round(int(props.Item("Width")) * 25.4 / 7200, 1),
+                        round(int(props.Item("Height")) * 25.4 / 7200, 1),
+                    )
+                )
+            ctrl = ctrl.Next
+        assert sizes == [(40.0, 20.0), (30.0, 15.0), (25.0, 25.0)]
+        assert records == [("insert_shape", 1)] * 3
+    finally:
+        _close_without_saving(app)
+
+
 def test_parent_exit_stops_in_the_immediate_parent_cell() -> None:
     app, canvas = _new_blank_canvas()
     try:

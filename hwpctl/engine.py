@@ -1998,11 +1998,23 @@ class Engine:
                                 float(change["to_mm"]),
                             )
                             actions += int(result if result is not None else 1)
-                    plan["applied"] = not dry_run
+                        if plan["row_changes"]:
+                            # 액션 성공만으로는 행이 실제로 바뀌었다고 볼 수 없다.
+                            actual_heights = _measured_row_heights(canvas, index)
+                            for change in plan["row_changes"]:
+                                row = int(change["row_index"])
+                                if row < len(actual_heights):
+                                    change["actual_to_mm"] = round(
+                                        float(actual_heights[row]), 2
+                                    )
+                        plan["applied"] = _confirm_layout_changes(plan)
+                    else:
+                        plan["applied"] = False
                     table_results.append(plan)
-            except Exception:
+            except Exception as exc:
                 # 앞선 열/행 액션이 성공한 뒤 다음 액션이 실패해도 실제 편집분은
                 # hwpctl undo 스택에서 잃지 않는다.
+                actions += int(getattr(exc, "_hwpctl_partial_actions", 0))
                 if actions:
                     self._record_undo("layout_review", actions)
                 raise
@@ -2519,6 +2531,43 @@ def suggested_save_as_path(original: str) -> str:
     src = Path(original)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return str(src.with_name(f"{src.stem}-edited-{stamp}{src.suffix or '.hwpx'}"))
+
+
+# layout_review 계획값과 다시 잰 값의 허용 오차. 계획도 0.5mm 미만 변화는 만들지 않는다.
+_LAYOUT_TOLERANCE_MM = 0.5
+
+
+def _measured_row_heights(canvas: Any, table: int) -> list[float]:
+    read_rows = getattr(canvas, "table_row_heights", None)
+    if read_rows:
+        return [float(value) for value in read_rows(table)]
+    return [float(value) for value in canvas.inspect_table_layout(table).get("row_heights_mm", [])]
+
+
+def _confirm_layout_changes(plan: dict[str, Any]) -> bool:
+    """적용 뒤 다시 잰 값(``actual_to_mm``)이 목표와 맞는 변경만 적용됨으로 표시한다."""
+    table = plan["table"]
+    confirmed = True
+    for kind, changes in (("column", plan["column_changes"]), ("row", plan["row_changes"])):
+        for change in changes:
+            actual = change.get("actual_to_mm")
+            target = float(change["to_mm"])
+            change["applied"] = actual is not None and abs(float(actual) - target) <= _LAYOUT_TOLERANCE_MM
+            if change["applied"]:
+                continue
+            confirmed = False
+            label = f"{change['column']}열 너비" if kind == "column" else f"{change['row']}행 높이"
+            if actual is None:
+                plan["warnings"].append(
+                    f"{table}번 표 {label}를 {target:.2f}mm로 바꾸는 액션은 성공했지만 "
+                    "적용 뒤 값을 다시 읽지 못했습니다."
+                )
+            else:
+                plan["warnings"].append(
+                    f"{table}번 표 {label}를 {target:.2f}mm로 바꾸는 액션은 성공했지만 "
+                    f"실제 값은 {float(actual):.2f}mm입니다."
+                )
+    return confirmed
 
 
 def _normalize_cell_address(value: Any) -> str:

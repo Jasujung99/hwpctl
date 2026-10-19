@@ -382,22 +382,46 @@ def _gdi_font_families() -> Iterable[str]:
     return sorted(families)
 
 
+def _run_quiet(args: list[str], *, timeout: float) -> str | None:
+    """자식 프로세스를 표준 입출력과 분리해 실행하고 성공 시 stdout 을 돌려준다.
+
+    MCP stdio 서버에서 stdin 을 물려주면 Git for Windows 가 서버의 요청 파이프를
+    붙잡고 멈춘다. 그래서 stdin·stderr 를 DEVNULL 로 막고 콘솔 창도 만들지 않는다.
+    ``subprocess.run`` 은 Windows 에서 시간 초과로 kill 한 뒤 손자 프로세스가
+    파이프를 놓을 때까지 다시 기다리므로, 시간 초과 뒤에는 잠깐만 기다리고 포기한다.
+    """
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        process = subprocess.Popen(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            creationflags=creationflags,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        stdout, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return stdout.strip() if process.returncode == 0 else None
+
+
 def _repository_state(root: Path) -> dict[str, Any] | None:
     if not (root / ".git").exists():
         return None
 
     def git(*args: str) -> str | None:
-        try:
-            done = subprocess.run(
-                ["git", "-C", str(root), *args],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return done.stdout.strip() if done.returncode == 0 else None
+        return _run_quiet(["git", "-C", str(root), *args], timeout=5)
 
     head = git("rev-parse", "--short", "HEAD")
     if head is None:

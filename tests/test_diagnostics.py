@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import time
+
+from hwpctl import diagnostics
 from hwpctl.diagnostics import FontFace, ProcessInfo, SystemProbe, WindowInfo, run_doctor
 
 
@@ -125,3 +131,72 @@ def test_doctor_non_windows_is_an_error() -> None:
     result = run_doctor(probe=FakeProbe(windows_os=False))
     assert result["ok"] is False
     assert result["checks"][0]["name"] == "platform"
+
+
+class _RecordingPopen:
+    calls: list[tuple[list[str], dict]] = []
+
+    def __init__(self, args, **kwargs) -> None:
+        type(self).calls.append((list(args), kwargs))
+        self.args = list(args)
+        self.returncode = 0
+
+    def communicate(self, timeout=None):
+        command = self.args[3]
+        if command == "rev-list":
+            return "0\t0\n", None
+        if command == "status":
+            return "", None
+        return "main\n", None
+
+
+def test_repository_probe_detaches_git_from_server_stdio(tmp_path, monkeypatch) -> None:
+    # MCP stdio 서버의 stdin 을 물려받은 Git for Windows 는 요청 파이프를 붙잡고 멈춘다.
+    (tmp_path / ".git").mkdir()
+    _RecordingPopen.calls = []
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", _RecordingPopen)
+
+    repo = diagnostics._repository_state(tmp_path)
+
+    assert repo is not None and repo["head"] == "main"
+    assert _RecordingPopen.calls
+    for args, kwargs in _RecordingPopen.calls:
+        assert args[:3] == ["git", "-C", str(tmp_path)]
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.DEVNULL
+        if os.name == "nt":
+            assert kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW
+
+
+def test_quiet_child_reads_eof_instead_of_parent_stdin() -> None:
+    script = "import sys; sys.stdout.write(repr(sys.stdin.read()))"
+    assert diagnostics._run_quiet([sys.executable, "-c", script], timeout=30) == "''"
+
+
+def test_quiet_child_timeout_returns_even_if_pipe_stays_open(monkeypatch) -> None:
+    # Windows 에서는 kill 뒤에도 손자 프로세스가 stdout 파이프를 잡고 있으면
+    # subprocess.run 이 끝없이 기다린다. 두 번째 대기도 짧게 끊어야 한다.
+    events: list[tuple[str, object]] = []
+
+    class StuckPopen:
+        def __init__(self, args, **kwargs) -> None:
+            self.returncode = None
+
+        def communicate(self, timeout=None):
+            events.append(("communicate", timeout))
+            raise subprocess.TimeoutExpired("git", timeout)
+
+        def kill(self) -> None:
+            events.append(("kill", None))
+
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", StuckPopen)
+
+    assert diagnostics._run_quiet(["git", "status"], timeout=5) is None
+    assert events == [("communicate", 5), ("kill", None), ("communicate", 1)]
+
+
+def test_quiet_child_timeout_is_bounded_for_a_real_process() -> None:
+    started = time.monotonic()
+    result = diagnostics._run_quiet([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
+    assert result is None
+    assert time.monotonic() - started < 10

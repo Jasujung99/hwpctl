@@ -1443,6 +1443,84 @@ def test_current_table_grid_restores_cursor_and_reports_partial_actions_on_failu
     assert com.GetPos() == (1, 0, 0)
 
 
+def _row_height_canvas(addresses: list[str], heights: dict[str, float] | None = None):
+    canvas = make_canvas(StubCom())
+    events: list[tuple[str, object]] = []
+    current = {"addr": ""}
+    canvas.get_into_nth_table = lambda n: events.append(("table", n))  # type: ignore[method-assign]
+    canvas._table_addresses = lambda: list(addresses)  # type: ignore[method-assign]
+
+    def visit(address: str) -> None:
+        current["addr"] = address
+        events.append(("goto", address))
+
+    canvas.goto_addr = visit  # type: ignore[method-assign]
+    canvas.set_row_height_current = (  # type: ignore[method-assign]
+        lambda height: events.append(("height", (current["addr"], height)))
+    )
+    canvas._get_row_height_mm = lambda: (heights or {})[current["addr"]]  # type: ignore[method-assign]
+    return canvas, events
+
+
+def test_table_row_height_writes_every_cell_of_the_row() -> None:
+    # set_table_grid 가 셀마다 높이를 써 둔 표는 대표 셀 하나만 줄여서는 행이 줄지 않는다.
+    canvas, events = _row_height_canvas(["A1", "B1", "A2", "B2"])
+
+    assert canvas.set_table_row_height(0, 1, 10.2) == 2
+
+    assert [event for event in events if event[0] == "height"] == [
+        ("height", ("A2", 10.2)),
+        ("height", ("B2", 10.2)),
+    ]
+
+
+def test_table_row_height_skips_cells_merged_into_the_next_row() -> None:
+    # A1은 A2까지 병합된 셀이라 1행 높이를 쓰면 두 행이 함께 줄어든다.
+    canvas, events = _row_height_canvas(["A1", "B1", "C1", "B2", "C2", "A3", "B3", "C3"])
+
+    assert canvas.set_table_row_height(0, 0, 9.5) == 2
+    assert canvas.set_table_row_height(0, 2, 9.5) == 3
+
+    written = [event[1][0] for event in events if event[0] == "height"]
+    assert written == ["B1", "C1", "A3", "B3", "C3"]
+
+
+def test_table_row_height_falls_back_to_first_cell_when_every_cell_spans_rows() -> None:
+    canvas, events = _row_height_canvas(["A1", "A3"])
+
+    assert canvas.set_table_row_height(0, 0, 9.5) == 1
+    assert [event for event in events if event[0] == "height"] == [("height", ("A1", 9.5))]
+
+    with pytest.raises(HangulCommandError, match="2행"):
+        canvas.set_table_row_height(0, 1, 9.5)
+
+
+def test_table_row_height_reports_cells_written_before_a_failure() -> None:
+    canvas, events = _row_height_canvas(["A1", "B1", "C1"])
+
+    def fail_on_c1(height: float) -> None:
+        if events[-1] == ("goto", "C1"):
+            raise HangulCommandError("C1 실패")
+        events.append(("height", height))
+
+    canvas.set_row_height_current = fail_on_c1  # type: ignore[method-assign]
+
+    with pytest.raises(HangulCommandError, match="C1 실패") as caught:
+        canvas.set_table_row_height(0, 0, 9.5)
+
+    assert getattr(caught.value, "_hwpctl_partial_actions") == 2
+
+
+def test_table_row_heights_reports_tallest_single_row_cell() -> None:
+    canvas, _events = _row_height_canvas(
+        ["A1", "B1", "C1", "B2", "C2", "A3", "B3", "C3"],
+        {"A1": 30.0, "B1": 14.0, "C1": 10.2, "B2": 12.0, "C2": 12.0, "A3": 8.0, "B3": 9.0, "C3": 8.5},
+    )
+
+    # 병합된 A1(30mm)은 1행 높이를 부풀리지 않는다.
+    assert canvas.table_row_heights(0) == [14.0, 12.0, 9.0]
+
+
 def test_merge_cells_normalizes_block_state_before_and_after() -> None:
     com = StubCom(cell_addr="A1")
     make_canvas(com).merge_cells("A1", "B2")
