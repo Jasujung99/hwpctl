@@ -1,6 +1,8 @@
 """Hancom object actions shared by public authoring commands."""
 from __future__ import annotations
 
+import re
+
 from hwpctl.errors import HangulCommandError
 from hwpctl.units import mm_to_hwpunit
 
@@ -26,23 +28,59 @@ def apply_position(canvas, pset, position):
         put("AllowOverlap", int(position.get("allow_overlap", False)))
 
 
-def apply_creation_geometry(pset, width, height, *, line=False, create_points=True):
+def apply_creation_geometry(pset, width, height, *, line=False, ellipse=False):
     """Absolute size references and creation points (HwpUnit) for DrawObjCreator* actions.
 
-    ``create_points=False`` keeps only the size references. Hancom 2022's
-    DrawObjCreatorEllipse raises RPC_E_SERVERFAULT for any CreatePt array (the
-    rectangle outline or two corners) but sizes the ellipse from Width/Height.
+    An ellipse takes three points: centre, end of the horizontal axis, end of the
+    vertical axis (measured on 12.0.0.4605). Rectangle-style 4 or 2 points, or 1,
+    5 or 7 points, raise RPC_E_SERVERFAULT; no points at all creates a gso whose
+    current/original size and axes are zero, so nothing renders.
     """
     pset.SetItem("WidthRelTo", 4)
     pset.SetItem("HeightRelTo", 2)
-    if not create_points:
-        return
     layout = pset.CreateItemSet("ShapeDrawLayOut", "DrawLayOut")
-    points = (0, 0, width, height) if line else (0, 0, width, 0, width, height, 0, height)
+    if ellipse:
+        cx, cy = width // 2, height // 2
+        points = (cx, cy, width, cy, cx, 0)
+    elif line:
+        points = (0, 0, width, height)
+    else:
+        points = (0, 0, width, 0, width, height, 0, height)
     array = layout.CreateItemArray("CreatePt", len(points))
     for index, value in enumerate(points):
         array.SetItem(index, value)
     layout.SetItem("CreateNumPt", len(points) // 2)
+
+
+_SHAPE_COMPONENT = re.compile(r"<SHAPECOMPONENT\b([^>]*)>")
+
+
+def current_size(canvas, ctrl):
+    """Current (width, height) in HwpUnit of a drawing control, or ``None`` if unreadable.
+
+    ``Properties`` Width/Height only echo the requested size; a degenerate shape
+    reports them while its SHAPECOMPONENT current/original size is zero. Selecting
+    the control and reading it with ``GetTextFile(..., "saveblock:true")`` writes
+    nothing. HWPML omits CurWidth/CurHeight when they equal OriWidth/OriHeight.
+    """
+    try:
+        canvas.com.SetPosBySet(ctrl.GetAnchorPos(0))
+        if not canvas.com.FindCtrl():
+            return None
+        block = str(canvas.com.GetTextFile("HWPML2X", "saveblock:true") or "")
+    except Exception:
+        return None
+    finally:
+        canvas.run("Cancel")
+    match = _SHAPE_COMPONENT.search(block)
+    if match is None:
+        return None
+    attrs = dict(re.findall(r'(\w+)="([^"]*)"', match.group(1)))
+    try:
+        return (int(attrs.get("CurWidth", attrs.get("OriWidth", 0))),
+                int(attrs.get("CurHeight", attrs.get("OriHeight", 0))))
+    except ValueError:
+        return None
 
 
 def after_control(canvas, ctrl):
@@ -232,7 +270,7 @@ def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow,
     canvas._set_pset_item(pset, "Width", mm_to_hwpunit(width_mm))
     canvas._set_pset_item(pset, "Height", mm_to_hwpunit(height_mm))
     apply_creation_geometry(pset, mm_to_hwpunit(width_mm), mm_to_hwpunit(height_mm),
-                            line=shape_kind == "line", create_points=shape_kind != "ellipse")
+                            line=shape_kind == "line", ellipse=shape_kind == "ellipse")
     apply_position(canvas, pset, position)
     if fill is not None:
         child = pset.CreateItemSet("ShapeDrawFillAttr", "DrawFillAttr")
@@ -246,6 +284,13 @@ def insert_shape(canvas, *, shape_kind, width_mm, height_mm, fill, line, shadow,
     ctrl = canvas.com.LastCtrl
     if ctrl is None or str(ctrl.CtrlID) != "gso":
         raise HangulCommandError(f"New native shape was not found (LastCtrl={getattr(ctrl, 'CtrlID', None)!r})")
+    size = current_size(canvas, ctrl)
+    if size is not None and (max(size) == 0 if shape_kind == "line" else min(size) == 0):
+        # Width/Height in Properties still echo the request, but Hangul renders
+        # nothing. Undo the creation so no invisible object is left behind.
+        canvas.undo_once()
+        raise HangulCommandError(
+            f"New {shape_kind} has zero current size ({size[0]}x{size[1]} HU); the creation was undone")
     after_control(canvas, ctrl)
     canvas.assert_no_dialog()
     return 1

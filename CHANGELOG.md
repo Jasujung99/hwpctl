@@ -19,8 +19,11 @@
   (아래 행까지 병합된 셀 제외)에 쓰고, 적용 뒤 다시 잰 `actual_to_mm`가 목표와 맞을
   때만 변경별·표별 `applied`를 `true`로 보고한다. 맞지 않으면 실제 값을 경고로 남긴다.
 - `insert_shape(shape_kind="ellipse")`가 한/글 2022에서 항상 `RPC_E_SERVERFAULT`로 실패하던
-  문제: `DrawObjCreatorEllipse`는 `CreatePt` 배열(사각형 외곽 4점이든 두 모서리든)을 주면
-  예외를 내므로, 타원에는 절대 크기 기준과 Width/Height만 넘긴다. 사각형·선·글상자는 그대로.
+  문제: `DrawObjCreatorEllipse`는 사각형용 4점·2점 `CreatePt`에서 예외를 내고, 점을 빼면
+  성공은 하지만 현재·원래 크기(`curSz`/`orgSz`)와 축이 0이라 아무것도 그려지지 않았다.
+  타원에는 중심·가로축 끝·세로축 끝 3점을 넘긴다. 사각형·선·글상자는 그대로.
+- `insert_shape`가 만든 도형의 현재 크기를 메모리 HWPML(`saveblock`, 파일 저장 없음)로 다시
+  읽어, 0이면 생성을 Undo하고 실패로 보고한다. 크기를 읽을 수 없으면 막지 않는다.
 
 ## [0.2.0] - 2026-10-15
 

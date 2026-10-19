@@ -122,7 +122,13 @@ def test_layout_review_shrinks_rows_written_by_table_grid() -> None:
 
 
 def test_insert_shape_ellipse_creates_sized_native_shapes() -> None:
-    """DrawObjCreatorEllipse는 CreatePt 배열을 주면 RPC_E_SERVERFAULT로 실패했다."""
+    """타원은 CreatePt를 주면 RPC_E_SERVERFAULT, 안 주면 현재 크기 0x0으로 보이지 않았다.
+
+    Properties의 Width/Height는 요청값만 되돌려 주므로, 메모리 HWPML의
+    SHAPECOMPONENT 현재 크기와 타원 축을 직접 확인한다(파일 저장 없음).
+    """
+    import re
+
     app, canvas = _new_blank_canvas()
     try:
         engine, records = _isolated_engine(canvas)
@@ -138,19 +144,18 @@ def test_insert_shape_ellipse_creates_sized_native_shapes() -> None:
             shadow={"type": "offset"},
             position={"mode": "floating", "x_mm": -5, "y_mm": -3, "wrap": "in_front_of_text"},
         )
+        hwpml = str(app.GetTextFile("HWPML2X", "") or "")
         sizes = []
-        ctrl = app.HeadCtrl
-        while ctrl is not None:
-            if str(ctrl.CtrlID) == "gso":
-                props = ctrl.Properties
-                sizes.append(
-                    (
-                        round(int(props.Item("Width")) * 25.4 / 7200, 1),
-                        round(int(props.Item("Height")) * 25.4 / 7200, 1),
-                    )
-                )
-            ctrl = ctrl.Next
-        assert sizes == [(40.0, 20.0), (30.0, 15.0), (25.0, 25.0)]
+        for match in re.finditer(r"<(RECTANGLE|ELLIPSE)\b([^>]*)>.*?<SHAPECOMPONENT\b([^>]*)>", hwpml, re.S):
+            shape = dict(re.findall(r'(\w+)="([^"]*)"', match.group(2)))
+            component = dict(re.findall(r'(\w+)="([^"]*)"', match.group(3)))
+            width = int(component.get("CurWidth", component.get("OriWidth", 0)))
+            height = int(component.get("CurHeight", component.get("OriHeight", 0)))
+            sizes.append((match.group(1), round(width * 25.4 / 7200, 1), round(height * 25.4 / 7200, 1)))
+            if match.group(1) == "ELLIPSE":
+                assert int(shape["Axis1X"]) > int(shape["CenterX"]) > 0
+                assert int(shape["CenterY"]) > int(shape["Axis2Y"]) >= 0
+        assert sizes == [("ELLIPSE", 40.0, 20.0), ("RECTANGLE", 30.0, 15.0), ("ELLIPSE", 25.0, 25.0)]
         assert records == [("insert_shape", 1)] * 3
     finally:
         _close_without_saving(app)
