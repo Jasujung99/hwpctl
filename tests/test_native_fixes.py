@@ -8,6 +8,7 @@ import pytest
 
 from hwpctl import native_objects
 from hwpctl.engine import Engine
+from hwpctl.errors import HangulCommandError
 from hwpctl.hangul import HangulCanvas
 from hwpctl.lock import load_state
 
@@ -79,11 +80,18 @@ def test_creation_geometry_sets_absolute_size_and_points(line: bool) -> None:
     assert layout.items["CreateNumPt"] == len(expected) // 2
 
 
-def test_creation_geometry_without_points_keeps_only_size_references() -> None:
+def test_ellipse_creation_geometry_uses_centre_and_axis_points() -> None:
+    """No points leaves a zero-size ellipse; 4/2/1/5/7 points raise RPC_E_SERVERFAULT."""
     pset = _PSet()
-    native_objects.apply_creation_geometry(pset, 1000, 400, create_points=False)
-    assert pset.items == {"WidthRelTo": 4, "HeightRelTo": 2}
-    assert pset.children == {} and pset.arrays == {}
+    native_objects.apply_creation_geometry(pset, 1001, 401, ellipse=True)
+    assert pset.items["WidthRelTo"] == 4 and pset.items["HeightRelTo"] == 2
+    layout = pset.children["ShapeDrawLayOut"]
+    assert layout.arrays["CreatePt"] == [500, 200, 1001, 200, 500, 0]
+    assert layout.items["CreateNumPt"] == 3
+
+
+def _block(component: str) -> str:
+    return f'<HWPML><BODY><ELLIPSE><SHAPEOBJECT/><SHAPECOMPONENT {component}></SHAPECOMPONENT></ELLIPSE></BODY></HWPML>'
 
 
 class _ShapeAction:
@@ -102,13 +110,26 @@ class _ShapeAction:
 
 
 class _ShapeCanvas:
-    def __init__(self) -> None:
+    def __init__(self, block: str = _block('OriHeight="5669" OriWidth="11339"'), find: bool = True) -> None:
         self.actions: list[_ShapeAction] = []
-        self.com = SimpleNamespace(CreateAction=self._create, LastCtrl=SimpleNamespace(CtrlID="gso"))
+        self.calls: list[str] = []
+        self.block = block
+        ctrl = SimpleNamespace(CtrlID="gso", GetAnchorPos=lambda _index: "anchor")
+        self.com = SimpleNamespace(
+            CreateAction=self._create,
+            LastCtrl=ctrl,
+            SetPosBySet=lambda _anchor: self.calls.append("SetPosBySet"),
+            FindCtrl=lambda: find,
+            GetTextFile=self._text,
+        )
 
     def _create(self, name: str) -> _ShapeAction:
         self.actions.append(_ShapeAction(name))
         return self.actions[-1]
+
+    def _text(self, fmt: str, option: str) -> str:
+        self.calls.append(f"GetTextFile:{fmt}:{option}")
+        return self.block
 
     def assert_no_dialog(self) -> None:
         pass
@@ -119,32 +140,83 @@ class _ShapeCanvas:
     def set_pos(self, _pos) -> bool:
         return True
 
-    def run(self, _name: str) -> bool:
+    def run(self, name: str) -> bool:
+        self.calls.append(name)
         return False
+
+    def undo_once(self) -> None:
+        self.calls.append("undo_once")
 
     def _set_pset_item(self, pset, name, value) -> None:
         pset.SetItem(name, value)
 
 
-@pytest.mark.parametrize(("shape_kind", "action", "has_points"), [
-    ("rectangle", "DrawObjCreatorRectangle", True),
-    ("line", "DrawObjCreatorLine", True),
-    # Hancom 2022 raises RPC_E_SERVERFAULT for an ellipse with any CreatePt array.
-    ("ellipse", "DrawObjCreatorEllipse", False),
+@pytest.mark.parametrize(("component", "expected"), [
+    ('CurHeight="5669" CurWidth="11339" OriHeight="5668" OriWidth="11340"', (11339, 5669)),
+    # HWPML omits CurWidth/CurHeight when they equal the original size.
+    ('OriHeight="4252" OriWidth="8504"', (8504, 4252)),
+    ('OriHeight="0" OriWidth="0"', (0, 0)),
 ])
-def test_insert_shape_sends_creation_points_except_for_ellipse(monkeypatch, shape_kind, action, has_points) -> None:
-    monkeypatch.setattr(native_objects, "after_control", lambda *_args: None)
+def test_current_size_reads_the_selected_shape_block(component, expected) -> None:
+    canvas = _ShapeCanvas(_block(component))
+    assert native_objects.current_size(canvas, canvas.com.LastCtrl) == expected
+    assert canvas.calls == ["SetPosBySet", "GetTextFile:HWPML2X:saveblock:true", "Cancel"]
+
+
+@pytest.mark.parametrize(("block", "find"), [("<HWPML/>", True), (_block('OriWidth="1" OriHeight="1"'), False)])
+def test_current_size_is_unknown_when_the_shape_cannot_be_read(block, find) -> None:
+    canvas = _ShapeCanvas(block, find=find)
+    assert native_objects.current_size(canvas, canvas.com.LastCtrl) is None
+    assert canvas.calls[-1] == "Cancel"
+
+
+@pytest.mark.parametrize(("shape_kind", "action", "points"), [
+    ("rectangle", "DrawObjCreatorRectangle", 4),
+    ("line", "DrawObjCreatorLine", 2),
+    ("ellipse", "DrawObjCreatorEllipse", 3),
+])
+def test_insert_shape_sends_creation_points_and_keeps_sized_shape(monkeypatch, shape_kind, action, points) -> None:
+    placed = []
+    monkeypatch.setattr(native_objects, "after_control", lambda _canvas, ctrl: placed.append(ctrl))
     canvas = _ShapeCanvas()
 
-    native_objects.insert_shape(
+    assert native_objects.insert_shape(
         canvas, shape_kind=shape_kind, width_mm=40, height_mm=20,
         fill=None, line=None, shadow=None, position={"mode": "inline"},
-    )
+    ) == 1
 
     created = canvas.actions[-1]
     assert created.name == action
     assert created.pset.items["WidthRelTo"] == 4 and created.pset.items["HeightRelTo"] == 2
-    assert ("ShapeDrawLayOut" in created.pset.children) is has_points
+    assert created.pset.children["ShapeDrawLayOut"].items["CreateNumPt"] == points
+    assert placed == [canvas.com.LastCtrl]
+    assert "undo_once" not in canvas.calls
+
+
+def test_insert_shape_undoes_a_zero_size_shape(monkeypatch) -> None:
+    """Hancom reports success but the gso's current size is 0x0 and nothing renders."""
+    placed = []
+    monkeypatch.setattr(native_objects, "after_control", lambda _canvas, ctrl: placed.append(ctrl))
+    canvas = _ShapeCanvas(_block('OriHeight="0" OriWidth="0"'))
+
+    with pytest.raises(HangulCommandError, match="zero current size"):
+        native_objects.insert_shape(
+            canvas, shape_kind="ellipse", width_mm=40, height_mm=20,
+            fill=None, line=None, shadow=None, position={"mode": "inline"},
+        )
+
+    assert canvas.calls.count("undo_once") == 1
+    assert placed == []
+
+
+def test_insert_shape_does_not_block_when_size_is_unreadable(monkeypatch) -> None:
+    monkeypatch.setattr(native_objects, "after_control", lambda *_args: None)
+    canvas = _ShapeCanvas("<HWPML/>")
+    assert native_objects.insert_shape(
+        canvas, shape_kind="rectangle", width_mm=40, height_mm=20,
+        fill=None, line=None, shadow=None, position={"mode": "inline"},
+    ) == 1
+    assert "undo_once" not in canvas.calls
 
 
 def test_insert_picture_passes_millimetres_not_hwpunits() -> None:
