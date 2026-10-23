@@ -77,11 +77,12 @@ hwpctl mcp --list-tools
 한/글 창을 만들지 않습니다. 실제 변환의 출력 디렉터리와 작성 결과 경로는 새
 경로여야 합니다.
 
-> 두 명령은 **실험 기능**입니다. 명세 검사·dry-run·손실 보고는 자동 회귀로
-> 검증됐으며, 새 작성기의 한/글 저장·재열기와 ChartML 보존은 미완료입니다.
+> 두 명령은 **실험 기능**입니다. 명세 검사·dry-run·손실 보고는 자동 회귀로, 합성 문서의
+> 작성·저장·재열기는 한/글 실기 회귀로 검증했습니다. 한/글이 저장한 실제 문서의 변환
+> ([#40](https://github.com/Jasujung99/hwpctl/issues/40))과 ChartML 보존은 미완료입니다.
 > 변환 손실이 있으면 실행 명세를 내보내지 않습니다. 현재 제공 범위는
 > [작성 상태](../dev/AUTHORING_COMPLETION.md), 남은 구현·실기는
-> [후속 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)에 기록합니다.
+> [묶음 이슈 #25](https://github.com/Jasujung99/hwpctl/issues/25)에 기록합니다.
 
 ```powershell
 hwpctl reference_to_spec C:\source\sample.hwpx C:\output\converted --dry-run

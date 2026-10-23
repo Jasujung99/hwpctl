@@ -2,7 +2,9 @@
 
 기준일: 2026-09-08. 이 문서가 코드·예제·실험의 단일 진입점이다.
 범위 보완: 이후 폴더 조사로 누락된 `fixtures/gongo-doc1`의 범용 HWPX 구현을
-발견했다. [1차 추가 통합](../guide/hwpx-authoring.md)과 [남은 후보](INTEGRATION_CANDIDATES.md)를
+발견했다. `dfa1011` → `e8eaf9c` → `bdf7497`에서 범용 변경만 선별해 1차로 통합했고, 공고 전용
+`gongo.py`, 원본 HWP/PNG, 생성 바이너리는 포함하지 않았다. 사용법은
+[HWPX 작성](../guide/hwpx-authoring.md), 남은 후보는 [남은 후보](INTEGRATION_CANDIDATES.md)에서
 함께 확인한다. 이 대장은 확인한 코드의 기준이며 모든 작업창 개발을 포괄하지 않는다.
 파일 존재, 자동 테스트 통과, 한/글 실기 통과, 시각적 동일성은 서로 다른 증거다.
 새 범용 작성 CLI/MCP나 자동 조판 엔진을 제공한다는 뜻이 아니다.
