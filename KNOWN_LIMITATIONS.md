@@ -69,9 +69,11 @@
 - `hwpx_status` / `hwpx_inspect` 는 한글 없이 `.hwpx` 서식 그룹만 읽습니다.
 - `render_page`는 열린 문서의 쪽을 한/글로 렌더하고, `compare_render`는 원본·결과 쪽 이미지의
   글자 줄 위치를 mm로 비교합니다. 한/글 없이 HWPX/PDF를 렌더하는 파이프라인은 없습니다.
-- `reference_to_spec`·`build_document`는 실험 기능입니다. ChartML·일부 서식 변환과 새 작성기의
-  네이티브 저장·재열기 실기는 미완료이며 [#25](https://github.com/Jasujung99/hwpctl/issues/25)에서
-  추적합니다. 단계는 [HWPX 업그레이드 계획](docs/dev/hwpx-upgrade-plan.md)을 따릅니다.
+- `reference_to_spec`·`build_document`는 실험 기능입니다. 합성 문서의 작성·저장·재열기·편집·Undo는
+  한/글 실기 회귀로 확인했지만, 한/글이 저장한 실제 문서는 대부분 기본값 서식 정의까지 손실로
+  보고되어 아직 명세로 변환되지 않습니다([#40](https://github.com/Jasujung99/hwpctl/issues/40)). 탭·쪽 번호·글자 테두리 변환([#41](https://github.com/Jasujung99/hwpctl/issues/41)),
+  차트(ChartML) 보존([#42](https://github.com/Jasujung99/hwpctl/issues/42)), 왕복 검증 확대([#43](https://github.com/Jasujung99/hwpctl/issues/43))는 묶음 이슈
+  [#25](https://github.com/Jasujung99/hwpctl/issues/25)에서 추적합니다. 단계는 [HWPX 업그레이드 계획](docs/dev/hwpx-upgrade-plan.md)을 따릅니다.
 
 ## 저장과 데이터 보호
 
@@ -93,7 +95,7 @@
 - 목표 환경은 Windows와 한글 오피스 2022이며, 현재 문서화된 실측 기준은 한글
   `12.0.0.850`, `win32com`(pywin32 312), Python 3.13입니다. 다른 빌드와 한글 버전은
   보장하지 않습니다.
-- MCP Python SDK는 1.x만 지원합니다(`mcp>=1.9,<2`). 2.x 마이그레이션은
+- MCP Python SDK는 1.x만 지원합니다(`mcp>=1.9,<2`). 1.x·2.x 동시 지원은 v0.3.0 목표로
   [#29](https://github.com/Jasujung99/hwpctl/issues/29)에서 진행합니다.
 - `hwpctl`은 한글과컴퓨터가 제공·보증·후원하는 공식 제품이 아닙니다. 사용자는 유효한
   제품 라이선스와 자동화 사용 조건을 직접 확인해야 합니다.

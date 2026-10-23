@@ -6,6 +6,28 @@ current changes after automated regression and PR review. Complete native and
 reference fidelity is not claimed. Unfinished requirements remain open in
 [authoring follow-up #25](https://github.com/Jasujung99/hwpctl/issues/25).
 
+## Status update — 2026-10-23
+
+Work after this increment is tracked as sub-issues of #25.
+
+- Resolved: COM activation and the synthetic save/reopen/edit/Undo flow.
+  Activation did not stall on the verification host (Windows 11, Hangul 2022
+  `12.0.0.850`, pywin32 312); the original development host was not
+  rechecked. The opt-in native suite runs in separate `DispatchEx` owned
+  sessions and passed the v0.1.0 and v0.2.0 release gates, including
+  `test_owned_build_nested_order_sections_and_shapes[hwp|hwpx]` for
+  `build_document`. The owned-session cleanup defect was fixed in #34.
+- Added: text art conversion and rebuild (#30, v0.2.0).
+- Open: [#40](https://github.com/Jasujung99/hwpctl/issues/40) Hangul default
+  formatting reported as loss, which blocks conversion of documents saved by
+  Hangul; [#41](https://github.com/Jasujung99/hwpctl/issues/41) tab stops,
+  page numbers, character border/fill and special spacing;
+  [#42](https://github.com/Jasujung99/hwpctl/issues/42) ChartML preservation
+  (after #33); [#43](https://github.com/Jasujung99/hwpctl/issues/43) wider
+  synthetic round trip.
+
+The sections below record the 2026-09-26 increment and are kept as history.
+
 The frozen source set for this increment remains: hwpctl #24
 `b1118bfa8527f93e1d0354fbc1d694911d17b45b`, hwpctl main
 `09fe92884ccf03bfdf3c9bbef18251382e861c99`, safe #17
@@ -56,7 +78,8 @@ identify local snapshots, not permission to publish those files.
 
 ## Known limitations and unfinished work
 
-1. On this host, independent Python `DispatchEx`, direct `CoCreateInstance`,
+1. (Resolved on the verification host; see the status update above.)
+   On this host, independent Python `DispatchEx`, direct `CoCreateInstance`,
    and 32-bit PowerShell COM activation all stalled before the first command.
    The user restarted Han/글, and a retry with separate execution permission
    still stalled; the closeout smoke also timed out after 25 seconds. An existing Hwp process recorded an `HwpAppModule.dll`
