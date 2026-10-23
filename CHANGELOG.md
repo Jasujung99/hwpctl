@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-23
+
+v0.2.0 이후의 결함 수정 릴리스입니다. 도구 이름·인자·결과 형식은 바뀌지 않았습니다.
+
+검증 환경: Windows 11, 한글 2022 `12.0.0.850`, Python 3.13, pywin32 312(`win32com` 백엔드),
+MCP Python SDK 1.29. 한/글 실기 회귀 22개를 통과했고, 타원 수정은 한글 2022 `12.0.0.4605`에서도 실측했습니다.
+
 ### Fixed
 
 - MCP stdio 서버를 git 체크아웃에서 실행하면 `doctor`의 저장소 점검이 멈추던 문제:
@@ -153,6 +160,7 @@ MCP Python SDK 1.29. CI는 Windows·Linux에서 Python 3.10·3.12로 실행합�
 읽기 전용 참조 HWPML 캡처·구조 비교 라이브러리(`hwpctl.reference`), 범용 HWPX 런·문단·표 작성
 라이브러리, 미사용 서식 정의 정리 함수 등은 [개발 문서](docs/dev/INTEGRATION_STATUS.md)를 보세요.
 
-[Unreleased]: https://github.com/Jasujung99/hwpctl/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Jasujung99/hwpctl/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Jasujung99/hwpctl/releases/tag/v0.1.0
